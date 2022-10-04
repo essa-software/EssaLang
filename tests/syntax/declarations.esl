@@ -1,0 +1,10 @@
+// output: 8
+
+func foo(): u32 {
+    let a : u32 = 8;
+    return a;
+}
+
+func main() {
+    print("{}", foo());
+}
