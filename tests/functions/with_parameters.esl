@@ -1,0 +1,10 @@
+// output: 10,6
+
+func foo(b: u32): u32 {
+    return b;
+}
+
+func main() {
+    print("{},", foo(10));
+    print("{}", foo(6));
+}

@@ -62,8 +62,20 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
     declaration.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
 
     TRY(expect(TokenType::ParenOpen));
-    // TODO: Parameters
-    TRY(expect(TokenType::ParenClose));
+    if (next_token_is(TokenType::ParenClose)) {
+        get();
+    }
+    else {
+        while (true) {
+            auto name = TRY(expect(TokenType::Identifier));
+            TRY(expect(TokenType::Colon));
+            auto type = TRY(parse_type());
+            declaration.parameters.push_back(ParsedParameter { .type = std::move(type), .name = Util::UString { name.value() } });
+            if (!next_token_is(TokenType::Comma))
+                break;
+        }
+        TRY(expect(TokenType::ParenClose));
+    }
 
     // Return type
     if (next_token_is(TokenType::Colon)) {
