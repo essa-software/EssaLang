@@ -1,4 +1,5 @@
 #include "Lexer.hpp"
+#include <EssaUtil/Config.hpp>
 
 namespace ESL {
 
@@ -66,11 +67,17 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 auto string = TRY(consume_until('\n'));
                 tokens.push_back(create_token(TokenType::Comment, "/" + string, start));
             }
+            else {
+                tokens.push_back(create_token(TokenType::Slash, "/", start));
+            }
         }
         else {
             TokenType operator_type = TokenType::Garbage;
             TRY(consume());
             switch (*current) {
+            case '*':
+                operator_type = TokenType::Asterisk;
+                break;
             case ':':
                 operator_type = TokenType::Colon;
                 break;
@@ -102,6 +109,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             case ')':
                 operator_type = TokenType::ParenClose;
                 break;
+            case '%':
+                operator_type = TokenType::PercentSign;
+                break;
             case '+':
                 if (TRY(peek()) == '=') {
                     TRY(consume());
@@ -111,6 +121,10 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 break;
             case ';':
                 operator_type = TokenType::Semicolon;
+                break;
+            case '/':
+                // Handled in comments
+                ESSA_UNREACHABLE;
                 break;
             default:
                 break;

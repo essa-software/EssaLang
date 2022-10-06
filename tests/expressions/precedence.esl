@@ -1,0 +1,7 @@
+// output: 18
+
+func main() {
+    let a = 10;
+    let b = 5;
+    print("{}", a + a / b * a - 12);
+}

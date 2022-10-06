@@ -51,7 +51,26 @@ struct ParsedIdentifier {
 
     void print(size_t depth) const;
 };
-struct ParsedExpression;
+
+struct ParsedIntegerLiteral;
+struct ParsedStringLiteral;
+struct ParsedIdentifier;
+struct ParsedBinaryExpression;
+struct ParsedCall;
+
+struct ParsedExpression {
+    // Workaround for C++ needing class declarations before usage
+    std::variant<
+        std::unique_ptr<ParsedIntegerLiteral>,
+        std::unique_ptr<ParsedStringLiteral>,
+        std::unique_ptr<ParsedIdentifier>,
+        std::unique_ptr<ParsedBinaryExpression>,
+        std::unique_ptr<ParsedCall>>
+        expression;
+
+    void print(size_t depth) const;
+};
+
 struct ParsedCall {
     Util::UString name; // FIXME: This should be an expression
     std::vector<ParsedExpression> arguments;
@@ -59,14 +78,19 @@ struct ParsedCall {
     void print(size_t depth) const;
 };
 
-struct ParsedExpression {
-    // Workaround for C++ needing class declarations before usage
-    std::variant<
-        ParsedIntegerLiteral,
-        ParsedStringLiteral,
-        ParsedIdentifier,
-        ParsedCall>
-        expression;
+struct ParsedBinaryExpression {
+    enum class Operator {
+        Add,
+        Subtract,
+        Multiply,
+        Divide,
+        Modulo,
+        Invalid
+    };
+
+    ParsedExpression lhs;
+    Operator operator_;
+    ParsedExpression rhs;
 
     void print(size_t depth) const;
 };
@@ -117,8 +141,10 @@ private:
     Util::ParseErrorOr<ParsedFunctionDeclaration> parse_function_declaration();
     Util::ParseErrorOr<ParsedVariableDeclaration> parse_variable_declaration();
     Util::ParseErrorOr<ParsedReturnStatement> parse_return_statement();
-    Util::ParseErrorOr<ParsedExpression> parse_expression();
-    Util::ParseErrorOr<ParsedCall> parse_call_arguments(Util::UString id);
+    Util::ParseErrorOr<ParsedExpression> parse_expression(int min_precedence);
+    Util::ParseErrorOr<ParsedExpression> parse_primary_expression();
+    Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
+    Util::ParseErrorOr<std::unique_ptr<ParsedCall>> parse_call_arguments(Util::UString id);
 };
 
 template<typename... Deps>

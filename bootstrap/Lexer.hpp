@@ -22,19 +22,22 @@ enum class TokenType {
     KeywordU32,
 
     // Operators based on special characters
-    Colon,      // :
-    Comma,      // ,
-    CurlyOpen,  // {
-    CurlyClose, // }
-    Dot,        // .
-    DotDot,     // ..
-    EqualSign,  // =
-    Minus,      // -
-    ParenOpen,  // (
-    ParenClose, // )
-    Plus,       // +
-    PlusEqual,  // +=
-    Semicolon,  // ;
+    Asterisk,    // *
+    Colon,       // :
+    Comma,       // ,
+    CurlyOpen,   // {
+    CurlyClose,  // }
+    Dot,         // .
+    DotDot,      // ..
+    EqualSign,   // =
+    Minus,       // -
+    ParenOpen,   // (
+    ParenClose,  // )
+    PercentSign, // %
+    Plus,        // +
+    PlusEqual,   // +=
+    Semicolon,   // ;
+    Slash,       // /
 
     // Miscellaneous
     Comment,

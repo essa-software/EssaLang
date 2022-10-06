@@ -1,4 +1,5 @@
 #include "Parser.hpp"
+#include <EssaUtil/Config.hpp>
 #include <type_traits>
 
 namespace ESL::Parser {
@@ -86,6 +87,33 @@ void ParsedCall::print(size_t depth) const {
     fmt::print(")");
 }
 
+void ParsedBinaryExpression::print(size_t depth) const {
+    indent(depth);
+    fmt::print("(");
+    lhs.print(0);
+    switch (operator_) {
+    case Operator::Add:
+        fmt::print(" + ");
+        break;
+    case Operator::Subtract:
+        fmt::print(" - ");
+        break;
+    case Operator::Multiply:
+        fmt::print(" * ");
+        break;
+    case Operator::Divide:
+        fmt::print(" / ");
+        break;
+    case Operator::Modulo:
+        fmt::print(" % ");
+        break;
+    default:
+        ESSA_UNREACHABLE;
+    }
+    rhs.print(0);
+    fmt::print(")");
+}
+
 void ParsedReturnStatement::print(size_t depth) const {
     indent(depth);
     fmt::print("return ");
@@ -97,7 +125,7 @@ void ParsedReturnStatement::print(size_t depth) const {
 
 void ParsedExpression::print(size_t depth) const {
     std::visit([depth](auto const& v) -> void {
-        v.print(depth);
+        v->print(depth);
     },
         expression);
 }
@@ -158,7 +186,7 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     if (token->type() == TokenType::KeywordReturn) {
         return TRY(parse_return_statement());
     }
-    auto expr = TRY(parse_expression());
+    auto expr = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
     return expr;
 }
@@ -215,18 +243,16 @@ Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration
 
     decl.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
 
-    if (!next_token_is(TokenType::Colon)) {
-        return decl;
+    if (next_token_is(TokenType::Colon)) {
+        get(); // :
+        decl.type = TRY(parse_type());
     }
-    get(); // :
-
-    decl.type = TRY(parse_type());
 
     if (!next_token_is(TokenType::EqualSign)) {
         return decl;
     }
     get(); // =
-    decl.initializer = TRY(parse_expression());
+    decl.initializer = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
     return decl;
 }
@@ -237,49 +263,127 @@ Util::ParseErrorOr<ParsedReturnStatement> Parser::parse_return_statement() {
     if (next_token_is(TokenType::Semicolon)) {
         return ParsedReturnStatement {};
     }
-    auto value = TRY(parse_expression());
+    auto value = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
     return ParsedReturnStatement { .value = std::move(value) };
 }
 
-Util::ParseErrorOr<ParsedExpression> Parser::parse_expression() {
+static int precedence(ParsedBinaryExpression::Operator op) {
+    switch (op) {
+    case ParsedBinaryExpression::Operator::Multiply:
+    case ParsedBinaryExpression::Operator::Divide:
+    case ParsedBinaryExpression::Operator::Modulo:
+        return 15;
+    case ParsedBinaryExpression::Operator::Add:
+    case ParsedBinaryExpression::Operator::Subtract:
+        return 10;
+    default:
+        return 100000;
+    }
+}
+
+static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token) {
+    switch (token) {
+    case TokenType::Plus:
+        return ParsedBinaryExpression::Operator::Add;
+    case TokenType::Minus:
+        return ParsedBinaryExpression::Operator::Subtract;
+    case TokenType::Asterisk:
+        return ParsedBinaryExpression::Operator::Multiply;
+    case TokenType::Slash:
+        return ParsedBinaryExpression::Operator::Divide;
+    case TokenType::PercentSign:
+        return ParsedBinaryExpression::Operator::Modulo;
+    default:
+        return ParsedBinaryExpression::Operator::Invalid;
+    }
+}
+
+Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs, int min_precedence) {
+    auto current_operator = token_to_binary_operator(peek()->type());
+    if (current_operator == ParsedBinaryExpression::Operator::Invalid) {
+        return lhs;
+    }
+
+    while (true) {
+        current_operator = token_to_binary_operator(peek()->type());
+        if (current_operator == ParsedBinaryExpression::Operator::Invalid) {
+            return lhs;
+        }
+        auto current_precedence = precedence(current_operator);
+        if (current_precedence <= min_precedence) {
+            return lhs;
+        }
+        get();
+
+        auto rhs = TRY(parse_expression(current_precedence));
+
+        auto next_operator = token_to_binary_operator(peek()->type());
+        auto next_precedence = precedence(next_operator);
+        if (current_precedence >= next_precedence) {
+            lhs = ParsedExpression {
+                .expression = std::make_unique<ParsedBinaryExpression>(ParsedBinaryExpression {
+                    .lhs = std::move(lhs),
+                    .operator_ = current_operator,
+                    .rhs = std::move(rhs),
+                }),
+            };
+        }
+        else {
+            lhs = ParsedExpression {
+                .expression = std::make_unique<ParsedBinaryExpression>(ParsedBinaryExpression {
+                    .lhs = std::move(lhs),
+                    .operator_ = current_operator,
+                    .rhs = TRY(parse_operand(std::move(rhs), current_precedence)),
+                }),
+            };
+        }
+    }
+}
+
+Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     auto token = get();
     if (token->type() == TokenType::Number) {
         try {
-            return ParsedExpression { .expression = ParsedIntegerLiteral { .value = std::stoll(token->value()) } };
+            return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = std::stoll(token->value()) }) };
         } catch (...) {
             return error_in_already_read("Invalid integer literal");
         }
     }
     if (token->type() == TokenType::StringLiteral) {
-        return ParsedExpression { .expression = ParsedStringLiteral { .value = Util::UString { token->value() } } };
+        return ParsedExpression { .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }) };
     }
     if (token->type() == TokenType::Identifier) {
         Util::UString id { token->value() };
         if (next_token_is(TokenType::ParenOpen)) {
             return ParsedExpression { .expression = TRY(parse_call_arguments(std::move(id))) };
         }
-        return ParsedExpression { .expression = ParsedIdentifier { .id = std::move(id) } };
+        return ParsedExpression { .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier { .id = std::move(id) }) };
     }
     return expected("expression", *token);
 }
 
-Util::ParseErrorOr<ParsedCall> Parser::parse_call_arguments(Util::UString id) {
-    ParsedCall call { .name = std::move(id), .arguments = {} };
+Util::ParseErrorOr<ParsedExpression> Parser::parse_expression(int min_precedence) {
+    auto lhs = TRY(parse_primary_expression());
+    return TRY(parse_operand(std::move(lhs), min_precedence));
+}
+
+Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Util::UString id) {
     get(); // (
     if (next_token_is(TokenType::ParenClose)) {
         get(); // )
-        return call;
+        return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = {} });
     }
+    std::vector<ParsedExpression> arguments;
     while (true) {
-        call.arguments.push_back(TRY(parse_expression()));
+        arguments.push_back(TRY(parse_expression(0)));
         if (!next_token_is(TokenType::Comma)) {
             break;
         }
         get();
     }
     TRY(expect(TokenType::ParenClose));
-    return call;
+    return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments) });
 }
 
 }
