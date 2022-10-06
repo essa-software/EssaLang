@@ -1,6 +1,122 @@
 #include "Parser.hpp"
+#include <type_traits>
 
 namespace ESL::Parser {
+
+void ParsedFile::print() const {
+    for (auto const& decl : function_declarations) {
+        decl.print();
+    }
+}
+
+void ParsedParameter::print() const {
+    fmt::print("{}: ", name.encode());
+    type.print();
+}
+
+void ParsedFunctionDeclaration::print() const {
+    fmt::print("func {}(", name.encode());
+    for (size_t s = 0; s < parameters.size(); s++) {
+        parameters[s].print();
+        if (s != parameters.size() - 1) {
+            fmt::print(", ");
+        }
+    }
+    fmt::print(")");
+    if (return_type) {
+        fmt::print(": ");
+        return_type->print();
+    }
+    fmt::print(" ");
+    body->print(0);
+}
+
+void ParsedType::print() const {
+    switch (primitive) {
+    case Primitive::U32:
+        fmt::print("u32");
+        break;
+    default:
+        break;
+    }
+}
+
+void indent(size_t depth) {
+    for (size_t s = 0; s < depth; s++) {
+        fmt::print("    ");
+    }
+}
+
+void ParsedVariableDeclaration::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{} {}", is_mut ? "mut" : "let", name.encode());
+    if (type) {
+        fmt::print(": ");
+        type->print();
+    }
+    fmt::print(" = ");
+    initializer.print(0);
+    fmt::print(";");
+}
+
+void ParsedIntegerLiteral::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{}", value);
+}
+
+void ParsedStringLiteral::print(size_t depth) const {
+    indent(depth);
+    fmt::print("\"{}\"", value.encode());
+}
+
+void ParsedIdentifier::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{}", id.encode());
+}
+
+void ParsedCall::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{}(", name.encode());
+    for (size_t s = 0; s < arguments.size(); s++) {
+        arguments[s].print(0);
+        if (s != arguments.size() - 1) {
+            fmt::print(", ");
+        }
+    }
+    fmt::print(")");
+}
+
+void ParsedReturnStatement::print(size_t depth) const {
+    indent(depth);
+    fmt::print("return ");
+    if (value) {
+        value->print(0);
+    }
+    fmt::print(";");
+}
+
+void ParsedExpression::print(size_t depth) const {
+    std::visit([depth](auto const& v) -> void {
+        v.print(depth);
+    },
+        expression);
+}
+
+void ParsedBlock::print(size_t depth) const {
+    fmt::print("{{\n");
+    for (auto const& stmt : statements) {
+        std::visit([depth](auto const& v) {
+            v.print(depth + 1);
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, ParsedExpression>) {
+                fmt::print(";");
+            }
+        },
+            stmt);
+        fmt::print("\n");
+    }
+    indent(depth);
+    fmt::print("}}\n");
+}
 
 Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     ParsedFile file;

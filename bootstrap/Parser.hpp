@@ -14,6 +14,8 @@ struct ParsedType {
     };
 
     Primitive primitive;
+
+    void print() const;
 };
 
 struct ParsedBlock;
@@ -21,28 +23,40 @@ struct ParsedBlock;
 struct ParsedParameter {
     ParsedType type;
     Util::UString name;
+
+    void print() const;
 };
 
 struct ParsedFunctionDeclaration {
     Util::UString name;
-    ParsedType return_type;
+    std::optional<ParsedType> return_type;
     std::vector<ParsedParameter> parameters;
     std::unique_ptr<ParsedBlock> body;
+
+    void print() const;
 };
 
 struct ParsedIntegerLiteral {
     int64_t value;
+
+    void print(size_t depth) const;
 };
 struct ParsedStringLiteral {
     Util::UString value;
+
+    void print(size_t depth) const;
 };
 struct ParsedIdentifier {
     Util::UString id;
+
+    void print(size_t depth) const;
 };
 struct ParsedExpression;
 struct ParsedCall {
     Util::UString name; // FIXME: This should be an expression
     std::vector<ParsedExpression> arguments;
+
+    void print(size_t depth) const;
 };
 
 struct ParsedExpression {
@@ -53,6 +67,8 @@ struct ParsedExpression {
         ParsedIdentifier,
         ParsedCall>
         expression;
+
+    void print(size_t depth) const;
 };
 
 struct ParsedVariableDeclaration {
@@ -60,10 +76,14 @@ struct ParsedVariableDeclaration {
     Util::UString name;
     std::optional<ParsedType> type;
     ParsedExpression initializer;
+
+    void print(size_t depth) const;
 };
 
 struct ParsedReturnStatement {
     std::optional<ParsedExpression> value;
+
+    void print(size_t depth) const;
 };
 
 using ParsedStatement = std::variant<
@@ -73,10 +93,14 @@ using ParsedStatement = std::variant<
 
 struct ParsedBlock {
     std::vector<ParsedStatement> statements;
+
+    void print(size_t depth) const;
 };
 
 struct ParsedFile {
     std::vector<ParsedFunctionDeclaration> function_declarations;
+
+    void print() const;
 };
 
 class Parser : public Util::GenericParser<TokenType> {

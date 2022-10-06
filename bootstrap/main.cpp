@@ -20,6 +20,8 @@ Util::OsErrorOr<void> run_esl(std::string const& file_name) {
     if (parsed_file.is_error()) {
         auto error = parsed_file.release_error();
         fmt::print("Parse error: {} at {}:{}\n", error.message, error.location.start.line + 1, error.location.start.column + 1);
+    } else {
+        parsed_file.release_value().print();
     }
 
     return {};
