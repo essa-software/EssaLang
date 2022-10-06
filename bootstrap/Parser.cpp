@@ -33,13 +33,7 @@ void ParsedFunctionDeclaration::print() const {
 }
 
 void ParsedType::print() const {
-    switch (primitive) {
-    case Primitive::U32:
-        fmt::print("u32");
-        break;
-    default:
-        break;
-    }
+    fmt::print("{}", name.encode());
 }
 
 void indent(size_t depth) {
@@ -188,6 +182,9 @@ Util::ParseErrorOr<std::unique_ptr<ParsedBlock>> Parser::parse_block() {
     TRY(expect(TokenType::CurlyOpen));
     auto block = std::make_unique<ParsedBlock>();
     while (true) {
+        while (next_token_is(TokenType::Comment)) {
+            get();
+        }
         if (next_token_is(TokenType::CurlyClose))
             break;
         block->statements.push_back(TRY(parse_statement()));
@@ -212,7 +209,7 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
 Util::ParseErrorOr<ParsedType> Parser::parse_type() {
     auto token = get();
     if (token->type() == TokenType::KeywordU32) {
-        return ParsedType { .primitive = ParsedType::Primitive::U32 };
+        return ParsedType { .name = "u32" };
     }
     return error_in_already_read("Invalid type (TODO: Custom types)");
 }
@@ -222,6 +219,7 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
 
     ParsedFunctionDeclaration declaration;
     declaration.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
+    declaration.name_range = range(offset() - 1, 1);
 
     TRY(expect(TokenType::ParenOpen));
     if (next_token_is(TokenType::ParenClose)) {
@@ -257,7 +255,9 @@ Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration
         .name = "",
         .type = {},
         .initializer = {},
+        .range = {},
     };
+    decl.range.start = range(offset(), 1).start;
 
     decl.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
 
@@ -272,18 +272,25 @@ Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration
     get(); // =
     decl.initializer = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
+    decl.range.end = range(offset() - 1, 1).end;
     return decl;
 }
 
 Util::ParseErrorOr<ParsedReturnStatement> Parser::parse_return_statement() {
+    Util::SourceRange range;
+    range.start = this->range(offset(), 1).start;
+
     get(); // return
 
     if (next_token_is(TokenType::Semicolon)) {
-        return ParsedReturnStatement {};
+        range.end = this->range(offset() - 1, 1).end;
+        return ParsedReturnStatement { .value = {}, .range = range };
     }
+
     auto value = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
-    return ParsedReturnStatement { .value = std::move(value) };
+    range.end = this->range(offset() - 1, 1).end;
+    return ParsedReturnStatement { .value = std::move(value), .range = range };
 }
 
 static int precedence(ParsedBinaryExpression::Operator op) {
@@ -393,9 +400,17 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     if (token->type() == TokenType::Identifier) {
         Util::UString id { token->value() };
         if (next_token_is(TokenType::ParenOpen)) {
-            return ParsedExpression { .expression = TRY(parse_call_arguments(std::move(id))) };
+            auto name_range = range(offset() - 1, 1);
+            auto call = TRY(parse_call_arguments(std::move(id)));
+            call->name_range = name_range;
+            return ParsedExpression { .expression = std::move(call) };
         }
-        return ParsedExpression { .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier { .id = std::move(id) }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier {
+                .id = std::move(id),
+                .range = range(offset() - 1, 1),
+            })
+        };
     }
     return expected("expression", *token);
 }

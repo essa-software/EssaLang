@@ -9,11 +9,7 @@
 namespace ESL::Parser {
 
 struct ParsedType {
-    enum class Primitive {
-        U32
-    };
-
-    Primitive primitive;
+    Util::UString name;
 
     void print() const;
 };
@@ -33,6 +29,8 @@ struct ParsedFunctionDeclaration {
     std::vector<ParsedParameter> parameters;
     std::unique_ptr<ParsedBlock> body;
 
+    Util::SourceRange name_range;
+
     void print() const;
 };
 
@@ -48,6 +46,8 @@ struct ParsedStringLiteral {
 };
 struct ParsedIdentifier {
     Util::UString id;
+
+    Util::SourceRange range;
 
     void print(size_t depth) const;
 };
@@ -74,6 +74,8 @@ struct ParsedExpression {
 struct ParsedCall {
     Util::UString name; // FIXME: This should be an expression
     std::vector<ParsedExpression> arguments;
+
+    Util::SourceRange name_range;
 
     void print(size_t depth) const;
 };
@@ -107,11 +109,15 @@ struct ParsedVariableDeclaration {
     std::optional<ParsedType> type;
     ParsedExpression initializer;
 
+    Util::SourceRange range;
+
     void print(size_t depth) const;
 };
 
 struct ParsedReturnStatement {
     std::optional<ParsedExpression> value;
+
+    Util::SourceRange range;
 
     void print(size_t depth) const;
 };
@@ -152,8 +158,5 @@ private:
     Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
     Util::ParseErrorOr<std::unique_ptr<ParsedCall>> parse_call_arguments(Util::UString id);
 };
-
-template<typename... Deps>
-inline constexpr bool dependent_false = false;
 
 }

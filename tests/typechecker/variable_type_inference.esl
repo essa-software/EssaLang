@@ -1,0 +1,10 @@
+func foo(): u32 {
+    return "TEST";
+}
+
+func main() {
+    let a = 1; // u32
+    let b = a; // also u32
+    let c = "string"; // string
+    let d = foo(); // u32
+}

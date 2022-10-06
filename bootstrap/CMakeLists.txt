@@ -1,6 +1,7 @@
 add_executable(EssaLangBootstrap
     Lexer.cpp
     Parser.cpp
+    Typechecker.cpp
     main.cpp
 )
 target_link_libraries(EssaLangBootstrap essautil)

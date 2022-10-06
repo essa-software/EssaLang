@@ -1,5 +1,6 @@
 #include "Lexer.hpp"
 #include "Parser.hpp"
+#include "Typechecker.hpp"
 #include <EssaUtil/Stream.hpp>
 
 // TODO: TYPECHECKER
@@ -20,10 +21,16 @@ Util::OsErrorOr<void> run_esl(std::string const& file_name) {
     if (parsed_file.is_error()) {
         auto error = parsed_file.release_error();
         fmt::print("Parse error: {} at {}:{}\n", error.message, error.location.start.line + 1, error.location.start.column + 1);
-    } else {
-        parsed_file.release_value().print();
+        return {};
     }
+    parsed_file.value().print();
 
+    ESL::Typechecker::Typechecker typechecker { parsed_file.release_value() };
+    auto const& program = typechecker.typecheck();
+    for (auto const& error : typechecker.errors()) {
+        fmt::print("Typechecker error: {} at {}:{}\n", error.message, error.range.start.line + 1, error.range.start.column + 1);
+    }
+    program.print();
     return {};
 }
 
