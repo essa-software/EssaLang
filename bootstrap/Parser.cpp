@@ -107,7 +107,25 @@ void ParsedBinaryExpression::print(size_t depth) const {
     case Operator::Modulo:
         fmt::print(" % ");
         break;
-    default:
+    case Operator::Assign:
+        fmt::print(" = ");
+        break;
+    case Operator::AssignAdd:
+        fmt::print(" += ");
+        break;
+    case Operator::AssignSubtract:
+        fmt::print(" -= ");
+        break;
+    case Operator::AssignMultiply:
+        fmt::print(" *= ");
+        break;
+    case Operator::AssignDivide:
+        fmt::print(" /= ");
+        break;
+    case Operator::AssignModulo:
+        fmt::print(" %= ");
+        break;
+    case Operator::Invalid:
         ESSA_UNREACHABLE;
     }
     rhs.print(0);
@@ -277,6 +295,13 @@ static int precedence(ParsedBinaryExpression::Operator op) {
     case ParsedBinaryExpression::Operator::Add:
     case ParsedBinaryExpression::Operator::Subtract:
         return 10;
+    case ParsedBinaryExpression::Operator::Assign:
+    case ParsedBinaryExpression::Operator::AssignAdd:
+    case ParsedBinaryExpression::Operator::AssignSubtract:
+    case ParsedBinaryExpression::Operator::AssignMultiply:
+    case ParsedBinaryExpression::Operator::AssignDivide:
+    case ParsedBinaryExpression::Operator::AssignModulo:
+        return 5;
     default:
         return 100000;
     }
@@ -294,6 +319,18 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::Divide;
     case TokenType::PercentSign:
         return ParsedBinaryExpression::Operator::Modulo;
+    case TokenType::EqualSign:
+        return ParsedBinaryExpression::Operator::Assign;
+    case TokenType::PlusEqual:
+        return ParsedBinaryExpression::Operator::AssignAdd;
+    case TokenType::MinusEqual:
+        return ParsedBinaryExpression::Operator::AssignSubtract;
+    case TokenType::AsteriskEqual:
+        return ParsedBinaryExpression::Operator::AssignMultiply;
+    case TokenType::SlashEqual:
+        return ParsedBinaryExpression::Operator::AssignDivide;
+    case TokenType::PercentEqual:
+        return ParsedBinaryExpression::Operator::AssignModulo;
     default:
         return ParsedBinaryExpression::Operator::Invalid;
     }

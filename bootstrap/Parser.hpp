@@ -85,6 +85,12 @@ struct ParsedBinaryExpression {
         Multiply,
         Divide,
         Modulo,
+        Assign,
+        AssignAdd,
+        AssignSubtract,
+        AssignMultiply,
+        AssignDivide,
+        AssignModulo,
         Invalid
     };
 

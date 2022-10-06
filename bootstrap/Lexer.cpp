@@ -67,6 +67,10 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 auto string = TRY(consume_until('\n'));
                 tokens.push_back(create_token(TokenType::Comment, "/" + string, start));
             }
+            else if (TRY(peek()) == '=') {
+                TRY(consume());
+                tokens.push_back(create_token(TokenType::SlashEqual, "/=", start));
+            }
             else {
                 tokens.push_back(create_token(TokenType::Slash, "/", start));
             }
@@ -74,8 +78,15 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
         else {
             TokenType operator_type = TokenType::Garbage;
             TRY(consume());
+            std::string value { (char*)&*current, 1 };
             switch (*current) {
             case '*':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::AsteriskEqual;
+                    break;
+                }
                 operator_type = TokenType::Asterisk;
                 break;
             case ':':
@@ -93,7 +104,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             case '.':
                 if (TRY(peek()) == '.') {
                     TRY(consume());
+                    value += '.';
                     operator_type = TokenType::DotDot;
+                    break;
                 }
                 operator_type = TokenType::Dot;
                 break;
@@ -101,6 +114,12 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 operator_type = TokenType::EqualSign;
                 break;
             case '-':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::MinusEqual;
+                    break;
+                }
                 operator_type = TokenType::Minus;
                 break;
             case '(':
@@ -110,12 +129,20 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 operator_type = TokenType::ParenClose;
                 break;
             case '%':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::PercentEqual;
+                    break;
+                }
                 operator_type = TokenType::PercentSign;
                 break;
             case '+':
                 if (TRY(peek()) == '=') {
                     TRY(consume());
+                    value += '=';
                     operator_type = TokenType::PlusEqual;
+                    break;
                 }
                 operator_type = TokenType::Plus;
                 break;
@@ -129,7 +156,7 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             default:
                 break;
             }
-            tokens.push_back(create_token(operator_type, { (char*)&*current, 1 }, start));
+            tokens.push_back(create_token(operator_type, std::move(value), start));
         }
     }
     tokens.push_back(create_token(TokenType::Eof, "<EOF>", location()));
