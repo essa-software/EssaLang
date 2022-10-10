@@ -1,4 +1,5 @@
 add_executable(EssaLangBootstrap
+    Codegen.cpp
     Lexer.cpp
     Parser.cpp
     Typechecker.cpp
