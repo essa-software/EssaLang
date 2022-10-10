@@ -85,45 +85,39 @@ void ParsedBinaryExpression::print(size_t depth) const {
     indent(depth);
     fmt::print("(");
     lhs.print(0);
-    switch (operator_) {
+    fmt::print("{}", operator_to_string(operator_));
+    rhs.print(0);
+    fmt::print(")");
+}
+
+std::string ParsedBinaryExpression::operator_to_string(Operator op) {
+    switch (op) {
     case Operator::Add:
-        fmt::print(" + ");
-        break;
+        return "+";
     case Operator::Subtract:
-        fmt::print(" - ");
-        break;
+        return "-";
     case Operator::Multiply:
-        fmt::print(" * ");
-        break;
+        return "*";
     case Operator::Divide:
-        fmt::print(" / ");
-        break;
+        return "/";
     case Operator::Modulo:
-        fmt::print(" % ");
-        break;
+        return "%";
     case Operator::Assign:
-        fmt::print(" = ");
-        break;
+        return "=";
     case Operator::AssignAdd:
-        fmt::print(" += ");
-        break;
+        return "+=";
     case Operator::AssignSubtract:
-        fmt::print(" -= ");
-        break;
+        return "-=";
     case Operator::AssignMultiply:
-        fmt::print(" *= ");
-        break;
+        return "*=";
     case Operator::AssignDivide:
-        fmt::print(" /= ");
-        break;
+        return "/*=";
     case Operator::AssignModulo:
-        fmt::print(" %= ");
-        break;
+        return "%=";
     case Operator::Invalid:
         ESSA_UNREACHABLE;
     }
-    rhs.print(0);
-    fmt::print(")");
+    ESSA_UNREACHABLE;
 }
 
 void ParsedReturnStatement::print(size_t depth) const {
@@ -350,6 +344,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
     }
 
     while (true) {
+        auto operator_range = range(offset(), 1);
         current_operator = token_to_binary_operator(peek()->type());
         if (current_operator == ParsedBinaryExpression::Operator::Invalid) {
             return lhs;
@@ -370,6 +365,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
                     .lhs = std::move(lhs),
                     .operator_ = current_operator,
                     .rhs = std::move(rhs),
+                    .operator_range = operator_range,
                 }),
             };
         }
@@ -379,6 +375,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
                     .lhs = std::move(lhs),
                     .operator_ = current_operator,
                     .rhs = TRY(parse_operand(std::move(rhs), current_precedence)),
+                    .operator_range = operator_range,
                 }),
             };
         }

@@ -96,9 +96,22 @@ struct ParsedBinaryExpression {
         Invalid
     };
 
+    static std::string operator_to_string(Operator);
+
     ParsedExpression lhs;
     Operator operator_;
     ParsedExpression rhs;
+
+    Util::SourceRange operator_range;
+
+    bool is_assignment() const {
+        return operator_ == Operator::Assign
+            || operator_ == Operator::AssignAdd
+            || operator_ == Operator::AssignSubtract
+            || operator_ == Operator::AssignMultiply
+            || operator_ == Operator::AssignDivide
+            || operator_ == Operator::AssignModulo;
+    }
 
     void print(size_t depth) const;
 };
