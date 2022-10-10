@@ -1,5 +1,6 @@
 #include "Typechecker.hpp"
 #include "bootstrap/Parser.hpp"
+#include <EssaUtil/Config.hpp>
 #include <EssaUtil/ScopeGuard.hpp>
 
 namespace ESL::Typechecker {
@@ -114,7 +115,6 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
                 },
             },
             stmt);
-        // clang-format on
     }
     return checked_block;
 }
@@ -165,9 +165,8 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     .expression = std::move(resolved_id),
                 };
             },
-            [&](std::unique_ptr<Parser::ParsedBinaryExpression> const&) -> CheckedExpression {
-                // TODO
-                return CheckedExpression::invalid(m_program);
+            [&](std::unique_ptr<Parser::ParsedBinaryExpression> const& expr) -> CheckedExpression {
+                return typecheck_binary_expression(*expr);
             },
             [&](std::unique_ptr<Parser::ParsedCall> const& call) {
                 auto identifier = resolve_identifier(call->name, call->name_range);
@@ -194,7 +193,27 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
     return expr;
 }
 
-void Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range) {
+CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryExpression const& expression) {
+    CheckedExpression::BinaryExpression checked_expression;
+    checked_expression.operator_ = expression.operator_;
+    checked_expression.lhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.lhs));
+    checked_expression.rhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.rhs));
+    if (expression.is_assignment()) {
+        if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
+            return { .type_id = m_program.unknown_type_id, .expression = std::move(checked_expression) };
+    }
+    if (checked_expression.lhs->type_id != checked_expression.rhs->type_id) {
+        error(fmt::format("Could not find operator '{}' for '{}' and '{}'",
+                  Parser::ParsedBinaryExpression::operator_to_string(expression.operator_),
+                  m_program.type_name(checked_expression.rhs->type_id).encode(),
+                  m_program.type_name(checked_expression.lhs->type_id).encode()),
+            expression.operator_range);
+    }
+
+    return { .type_id = checked_expression.lhs->type_id, .expression = std::move(checked_expression) };
+}
+
+bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range) {
     switch (mode) {
     case TypeCompatibility::Assignment: {
         if (lhs != rhs) {
@@ -202,9 +221,11 @@ void Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, T
                       m_program.type_name(rhs).encode(),
                       m_program.type_name(lhs).encode()),
                 range);
+            return false;
         }
     }
     }
+    return true;
 }
 
 ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util::SourceRange range) {

@@ -162,6 +162,7 @@ struct CheckedProgram {
     std::unique_ptr<CheckedFunction>& get_function(FunctionId id) {
         return m_functions[id.id()];
     }
+    auto const& functions() const { return m_functions; }
 
     Type const& get_type(TypeId id) const {
         return m_types[id.id()];
@@ -252,11 +253,12 @@ private:
     CheckedBlock typecheck_block(Parser::ParsedBlock const&);
     CheckedParameter typecheck_parameter(Parser::ParsedParameter const&);
     CheckedExpression typecheck_expression(Parser::ParsedExpression const&);
+    CheckedExpression typecheck_binary_expression(Parser::ParsedBinaryExpression const&);
 
     enum class TypeCompatibility {
         Assignment
     };
-    void check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range);
+    bool check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range);
     ResolvedIdentifier resolve_identifier(Util::UString const& id, Util::SourceRange);
 
     CheckedFunction const& get_function(FunctionId id);
