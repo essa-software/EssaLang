@@ -1,5 +1,5 @@
 func foo(): u32 {
-    return "TEST";
+    return 5;
 }
 
 func main() {
