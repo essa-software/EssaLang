@@ -146,8 +146,14 @@ struct ParsedBlock {
     void print(size_t depth) const;
 };
 
-struct ParsedFile {
+struct ParsedModule {
     std::vector<ParsedFunctionDeclaration> function_declarations;
+
+    void print() const;
+};
+
+struct ParsedFile {
+    std::vector<ParsedModule> modules;
 
     void print() const;
 };

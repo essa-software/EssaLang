@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Parser.hpp"
+#include <EssaUtil/Config.hpp>
 #include <EssaUtil/GenericParser.hpp>
 #include <EssaUtil/UString.hpp>
 #include <compare>
@@ -35,15 +36,20 @@ struct Type {
 template<class TAG>
 struct Id {
 public:
-    explicit Id(size_t id)
-        : m_id(id) { }
+    explicit Id() = default;
 
+    explicit Id(size_t module, size_t id)
+        : m_module(module)
+        , m_id(id) { }
+
+    auto module() const { return m_module; }
     auto id() const { return m_id; }
 
     bool operator==(Id const& other) const = default;
     std::strong_ordering operator<=>(Id const& other) const = default;
 
 private:
+    size_t m_module = 0;
     size_t m_id = 0;
 };
 
@@ -59,6 +65,7 @@ struct ResolvedIdentifier {
         Invalid
     };
     Type type;
+    size_t module;
     size_t id;
 };
 
@@ -128,61 +135,148 @@ struct CheckedStatement {
 };
 
 struct CheckedBlock {
-    ScopeId scope_id { 0 };
+    ScopeId scope_id {};
     std::vector<CheckedStatement> statements {};
 };
 
 struct CheckedFunction {
     Util::UString name;
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
-    CheckedBlock body;
+    std::optional<CheckedBlock> body; // No body = extern function
     TypeId return_type;
 };
 
-struct CheckedProgram {
+struct Module {
     std::map<Util::UString, FunctionId> function_to_id;
 
-    TypeId unknown_type_id { 0 };
-    TypeId void_type_id { 0 };
-    TypeId u32_type_id { 0 };
-    TypeId string_type_id { 0 };
+    Module(size_t id)
+        : m_id(id)
+        , m_scopes {}
+        , m_global_scope((m_scopes.emplace_back(), m_scopes[0])) { }
+
+    auto const& functions() const { return m_functions; }
+
+    std::unique_ptr<CheckedFunction> const& get_function(size_t id) const {
+        return m_functions[id];
+    }
+    std::unique_ptr<CheckedFunction>& get_function(size_t id) {
+        return m_functions[id];
+    }
+
+    Type const& get_type(size_t id) const {
+        return m_types[id];
+    }
+    Type& get_type(size_t id) {
+        return m_types[id];
+    }
+
+    Scope const& get_scope(size_t id) const {
+        return m_scopes[id];
+    }
+    Scope& get_scope(size_t id) {
+        return m_scopes[id];
+    }
+
+    CheckedVariable const& get_variable(size_t id) const {
+        return m_variables[id];
+    }
+    CheckedVariable& get_variable(size_t id) {
+        return m_variables[id];
+    }
+
+    FunctionId add_function() {
+        m_functions.push_back({});
+        //fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
+        return FunctionId { m_id, m_functions.size() - 1 };
+    }
+
+    TypeId add_type(Type type) {
+        m_types.push_back(std::move(type));
+        return TypeId { m_id, m_types.size() - 1 };
+    }
+
+    ScopeId add_scope(ScopeId parent) {
+        m_scopes.emplace_back(Scope { .parent = parent });
+        return ScopeId { m_id, m_scopes.size() - 1 };
+    }
+
+    VarId add_variable(CheckedVariable var) {
+        m_variables.push_back(std::move(var));
+        return VarId { m_id, m_variables.size() - 1 };
+    }
+
+private:
+    size_t m_id {};
+
+    std::vector<std::unique_ptr<CheckedFunction>> m_functions;
+    std::vector<Type> m_types;
+    std::vector<Scope> m_scopes;
+    std::vector<CheckedVariable> m_variables;
+
+    Scope& m_global_scope;
+};
+
+struct CheckedProgram {
+    TypeId unknown_type_id {};
+    TypeId void_type_id {};
+    TypeId u32_type_id {};
+    TypeId string_type_id {};
 
     CheckedProgram()
-        : m_scopes {}
-        , m_global_scope((m_scopes.emplace_back(), m_scopes[0])) {
-        unknown_type_id = { add_type(Type { .type = Type::Primitive::Unknown }) };
-        void_type_id = { add_type(Type { .type = Type::Primitive::Void }) };
-        u32_type_id = { add_type(Type { .type = Type::Primitive::U32 }) };
-        string_type_id = { add_type(Type { .type = Type::Primitive::String }) };
+        : m_prelude_module(0)
+        , m_root_module(1) {
+        unknown_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Unknown }) };
+        void_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Void }) };
+        u32_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::U32 }) };
+        string_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::String }) };
+    }
+
+    Module const& module(size_t id) const {
+        if (id == 0) {
+            return m_prelude_module;
+        }
+        if (id == 1) {
+            return m_root_module;
+        }
+        ESSA_UNREACHABLE;
+    }
+
+    Module& module(size_t id) {
+        if (id == 0) {
+            return m_prelude_module;
+        }
+        if (id == 1) {
+            return m_root_module;
+        }
+        ESSA_UNREACHABLE;
     }
 
     std::unique_ptr<CheckedFunction> const& get_function(FunctionId id) const {
-        return m_functions[id.id()];
+        return module(id.module()).get_function(id.id());
     }
     std::unique_ptr<CheckedFunction>& get_function(FunctionId id) {
-        return m_functions[id.id()];
+        return module(id.module()).get_function(id.id());
     }
-    auto const& functions() const { return m_functions; }
 
     Type const& get_type(TypeId id) const {
-        return m_types[id.id()];
+        return module(id.module()).get_type(id.id());
     }
     Type& get_type(TypeId id) {
-        return m_types[id.id()];
+        return module(id.module()).get_type(id.id());
     }
 
     Scope const& get_scope(ScopeId id) const {
-        return m_scopes[id.id()];
+        return module(id.module()).get_scope(id.id());
     }
     Scope& get_scope(ScopeId id) {
-        return m_scopes[id.id()];
+        return module(id.module()).get_scope(id.id());
     }
 
     CheckedVariable const& get_variable(VarId id) const {
-        return m_variables[id.id()];
+        return module(id.module()).get_variable(id.id());
     }
     CheckedVariable& get_variable(VarId id) {
-        return m_variables[id.id()];
+        return module(id.module()).get_variable(id.id());
     }
 
     TypeId resolve_type(Util::UString const& name) {
@@ -192,27 +286,10 @@ struct CheckedProgram {
         if (name == "string") {
             return string_type_id;
         }
+        if (name == "void") {
+            return void_type_id;
+        }
         return unknown_type_id;
-    }
-
-    FunctionId add_function() {
-        m_functions.push_back({});
-        return FunctionId { m_functions.size() - 1 };
-    }
-
-    TypeId add_type(Type type) {
-        m_types.push_back(std::move(type));
-        return TypeId { m_types.size() - 1 };
-    }
-
-    ScopeId add_scope(ScopeId parent) {
-        m_scopes.emplace_back(Scope { .parent = parent });
-        return ScopeId { m_scopes.size() - 1 };
-    }
-
-    VarId add_variable(CheckedVariable var) {
-        m_variables.push_back(std::move(var));
-        return VarId { m_variables.size() - 1 };
     }
 
     Util::UString type_name(TypeId id) {
@@ -222,12 +299,8 @@ struct CheckedProgram {
     void print() const;
 
 private:
-    std::vector<std::unique_ptr<CheckedFunction>> m_functions;
-    std::vector<Type> m_types;
-    std::vector<Scope> m_scopes;
-    std::vector<CheckedVariable> m_variables;
-
-    Scope& m_global_scope;
+    Module m_prelude_module;
+    Module m_root_module;
 };
 
 class Typechecker {
@@ -266,8 +339,9 @@ private:
     Parser::ParsedFile m_parsed_file;
     CheckedProgram m_program;
     std::vector<Error> m_errors;
+    Module* m_current_checked_module = nullptr;
     CheckedFunction* m_current_function = nullptr;
-    ScopeId m_current_scope { 0 };
+    ScopeId m_current_scope {};
 };
 
 }

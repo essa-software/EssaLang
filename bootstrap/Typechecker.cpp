@@ -6,18 +6,20 @@
 namespace ESL::Typechecker {
 
 CheckedProgram const& Typechecker::typecheck() {
-    // 1. Add all functions so that they can be referenced
-    for (auto const& func : m_parsed_file.function_declarations) {
+    for (size_t s = 0; s < m_parsed_file.modules.size(); s++) {
+        m_current_checked_module = &m_program.module(s);
 
-        auto function_id = m_program.add_function();
-        m_program.function_to_id.insert({ func.name, function_id });
+        // 1. Add all functions so that they can be referenced
+        for (auto const& func : m_parsed_file.modules[s].function_declarations) {
+            auto function_id = m_current_checked_module->add_function();
+            m_current_checked_module->function_to_id.insert({ func.name, function_id });
+        }
+
+        // 2. Typecheck functions and their bodies.
+        for (auto& func : m_current_checked_module->function_to_id) {
+            get_function(func.second);
+        }
     }
-
-    // 2. Typecheck functions and their bodies.
-    for (auto& func : m_program.function_to_id) {
-        get_function(func.second);
-    }
-
     return m_program;
 }
 
@@ -52,7 +54,9 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     for (auto const& param : function.parameters) {
         checked_function.parameters.push_back(std::make_pair(param.name, typecheck_parameter(param)));
     }
-    checked_function.body = typecheck_block(*function.body);
+    if (function.body) {
+        checked_function.body = typecheck_block(*function.body);
+    }
     return checked_function;
 }
 
@@ -66,7 +70,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
 CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
     assert(m_current_function);
     CheckedBlock checked_block {
-        .scope_id = m_program.add_scope(m_current_scope)
+        .scope_id = m_current_checked_module->add_scope(m_current_scope)
     };
     SCOPED_SCOPE(checked_block.scope_id);
 
@@ -92,7 +96,7 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
                     };
 
                     check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type_id, value.range);
-                    auto var_id = m_program.add_variable(std::move(variable));
+                    auto var_id = m_current_checked_module->add_variable(std::move(variable));
                     m_program.get_scope(checked_block.scope_id).variables.insert({ value.name, var_id });
                     checked_block.statements.push_back(CheckedStatement {
                         .statement = CheckedVariableDeclaration { .var_id = var_id } });
@@ -120,10 +124,13 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
 }
 
 CheckedParameter Typechecker::typecheck_parameter(Parser::ParsedParameter const& parameter) {
-    auto scope_id = m_current_function->body.scope_id;
+    if (!m_current_function->body) {
+        return { .var_id = VarId {} };
+    }
+    auto scope_id = m_current_function->body->scope_id;
     auto& scope = m_program.get_scope(scope_id);
 
-    auto var_id = m_program.add_variable(CheckedVariable {
+    auto var_id = m_current_checked_module->add_variable(CheckedVariable {
         .name = parameter.name,
         .type_id = m_program.resolve_type(parameter.type.name),
         .is_mut = false,
@@ -161,7 +168,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 }
                 assert(resolved_id.type == ResolvedIdentifier::Type::Variable);
                 return CheckedExpression {
-                    .type_id = m_program.get_variable(VarId { resolved_id.id }).type_id,
+                    .type_id = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type_id,
                     .expression = std::move(resolved_id),
                 };
             },
@@ -180,11 +187,11 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     arguments.push_back(typecheck_expression(arg));
                 }
 
-                auto& function = get_function(FunctionId { identifier.id });
+                auto& function = get_function(FunctionId { identifier.module, identifier.id });
                 return CheckedExpression {
                     .type_id = function.return_type,
                     .expression = CheckedExpression::Call {
-                        .function_id = FunctionId { identifier.id },
+                        .function_id = FunctionId { identifier.module, identifier.id },
                         .arguments = std::move(arguments),
                     },
                 };
@@ -200,7 +207,7 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
     checked_expression.rhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.rhs));
     if (expression.is_assignment()) {
         if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
-            return { .type_id = m_program.unknown_type_id, .expression = std::move(checked_expression) };
+            return CheckedExpression::invalid(m_program);
     }
     if (checked_expression.lhs->type_id != checked_expression.rhs->type_id) {
         error(fmt::format("Could not find operator '{}' for '{}' and '{}'",
@@ -232,15 +239,22 @@ ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util
     auto* scope = &m_program.get_scope(m_current_scope);
     do {
         if (auto it = scope->variables.find(id); it != scope->variables.end()) {
-            return ResolvedIdentifier { .type = ResolvedIdentifier::Type::Variable, .id = it->second.id() };
+            return ResolvedIdentifier { .type = ResolvedIdentifier::Type::Variable, .module = it->second.module(), .id = it->second.id() };
         }
         scope = scope->parent ? &m_program.get_scope(*scope->parent) : nullptr;
     } while (scope);
 
     // 2. Maybe it is function...
-    for (auto const& func : m_program.function_to_id) {
+    for (auto const& func : m_current_checked_module->function_to_id) {
         if (func.first == id) {
-            return { .type = ResolvedIdentifier::Type::Function, .id = func.second.id() };
+            return { .type = ResolvedIdentifier::Type::Function, .module = func.second.module(), .id = func.second.id() };
+        }
+    }
+
+    // 3. Maybe it is function in prelude...
+    for (auto const& func : m_program.module(0).function_to_id) {
+        if (func.first == id) {
+            return { .type = ResolvedIdentifier::Type::Function, .module = func.second.module(), .id = func.second.id() };
         }
     }
     error(fmt::format("'{}' is not declared", id.encode()), range);
@@ -252,7 +266,7 @@ CheckedFunction const& Typechecker::get_function(FunctionId id) {
     // correspond to indices in checked functions
     auto& function_ref = m_program.get_function(id);
     if (!function_ref) {
-        function_ref = std::make_unique<CheckedFunction>(typecheck_function(m_parsed_file.function_declarations[id.id()]));
+        function_ref = std::make_unique<CheckedFunction>(typecheck_function(m_parsed_file.modules[id.module()].function_declarations[id.id()]));
     }
     return *function_ref;
 }
@@ -266,29 +280,35 @@ void CheckedVariable::print(CheckedProgram const& program) const {
 }
 
 void CheckedProgram::print() const {
-    fmt::print("Functions:\n");
-    for (auto const& func : m_functions) {
-        fmt::print("    func {}(...) -> {}\n", func->name.encode(), get_type(func->return_type).name().encode());
-        for (auto const& stmt : func->body.statements) {
-            fmt::print("        ");
-            std::visit(
-                Util::Overloaded {
-                    [&](CheckedVariableDeclaration const& decl) {
-                        get_variable(decl.var_id).print(*this);
+    auto print_module = [&](Module const& mod) {
+        fmt::print("Functions:\n");
+        for (auto const& func : mod.functions()) {
+            if (!func) {
+                fmt::print("    <NULL>\n");
+                continue;
+            }
+            fmt::print("    func {}(...) -> {}\n", func->name.encode(), get_type(func->return_type).name().encode());
+            if (!func->body) {
+                fmt::print("        <EXTERN>\n");
+            }
+            for (auto const& stmt : func->body->statements) {
+                fmt::print("        ");
+                std::visit(
+                    Util::Overloaded {
+                        [&](CheckedVariableDeclaration const& decl) {
+                            get_variable(decl.var_id).print(*this);
+                        },
+                        [](auto const&) {
+                            fmt::print("<expr>");
+                        },
                     },
-                    [](auto const&) {
-                        fmt::print("<expr>");
-                    },
-                },
-                stmt.statement);
-            fmt::print("\n");
+                    stmt.statement);
+                fmt::print("\n");
+            }
         }
-    }
-    fmt::print("Variables:\n");
-    for (auto const& var : m_variables) {
-        fmt::print("    ");
-        var.print(*this);
-        fmt::print("\n");
-    }
+    };
+    print_module(m_prelude_module);
+    print_module(m_root_module);
 }
+
 }

@@ -32,10 +32,10 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     for (auto const& error : typechecker.errors()) {
         fmt::print("Typechecker error: {} at {}:{}\n", error.message, error.range.start.line + 1, error.range.start.column + 1);
     }
+    //program.print();
     if (!typechecker.errors().empty()) {
         return false;
     }
-    // program.print();
 
     Util::Writer writer { Util::std_out() };
     ESL::Codegen::CodeGenerator code_generator { writer, program };

@@ -5,6 +5,12 @@
 namespace ESL::Parser {
 
 void ParsedFile::print() const {
+    for (auto const& mod : modules) {
+        mod.print();
+    }
+}
+
+void ParsedModule::print() const {
     for (auto const& decl : function_declarations) {
         decl.print();
     }
@@ -154,6 +160,12 @@ void ParsedBlock::print(size_t depth) const {
 
 Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     ParsedFile file;
+    file.modules.resize(2);
+
+    // Hardcode prelude for now
+    file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration { .name = "print", .return_type = ParsedType { .name = "void" }, .body = nullptr });
+
+    // Parse root
     while (true) {
         if (next_token_is(TokenType::Eof)) {
             break;
@@ -163,7 +175,7 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
         }
         auto keyword = peek();
         if (keyword->type() == TokenType::KeywordFunc) {
-            file.function_declarations.push_back(TRY(parse_function_declaration()));
+            file.modules[1].function_declarations.push_back(TRY(parse_function_declaration()));
         }
         else {
             return error("Invalid top-level declaration");
