@@ -63,6 +63,9 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
     case Typechecker::Type::Primitive::Void:
         TRY(m_writer.write("void"));
         break;
+    case Typechecker::Type::Primitive::Bool:
+        TRY(m_writer.write("bool"));
+        break;
     case Typechecker::Type::Primitive::U32:
         TRY(m_writer.write("uint32_t"));
         break;
@@ -100,6 +103,13 @@ Util::OsErrorOr<void> CodeGenerator::codegen_block(Typechecker::CheckedBlock con
                         TRY(codegen_expression(*stmt.expression));
                     }
                     TRY(m_writer.write(";\n"));
+                    return {};
+                },
+                [&](Typechecker::CheckedIfStatement const& stmt) -> Util::OsErrorOr<void> {
+                    TRY(m_writer.write("if ("));
+                    TRY(codegen_expression(stmt.condition));
+                    TRY(m_writer.write(")"));
+                    TRY(codegen_block(stmt.then_clause));
                     return {};
                 },
             },

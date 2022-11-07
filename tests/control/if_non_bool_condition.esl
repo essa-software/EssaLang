@@ -1,0 +1,7 @@
+// error: If statement's condition must be a bool
+
+func main() {
+    if (1) {
+        print("2137");
+    }
+}

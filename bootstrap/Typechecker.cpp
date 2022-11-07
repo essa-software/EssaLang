@@ -114,6 +114,18 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
                         },
                     });
                 },
+                [&](Parser::ParsedIfStatement const& value) -> void {
+                    auto condition = typecheck_expression(value.condition);
+                    // TODO: range
+                    if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type_id, {})) {
+                        return error("If statement's condition must be a bool", {});
+                    }
+                    checked_block.statements.push_back(CheckedStatement {
+                        .statement = CheckedIfStatement {
+                            .condition = typecheck_expression(value.condition),
+                            .then_clause = typecheck_block(*value.then_clause) },
+                    });
+                },
                 [&](Parser::ParsedExpression const& value) -> void {
                     checked_block.statements.push_back(CheckedStatement { .statement = typecheck_expression(value) });
                 },

@@ -24,6 +24,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "func") {
                 tokens.push_back(create_token(TokenType::KeywordFunc, "func", start));
             }
+            else if (string == "if") {
+                tokens.push_back(create_token(TokenType::KeywordIf, "if", start));
+            }
             else if (string == "let") {
                 tokens.push_back(create_token(TokenType::KeywordLet, "let", start));
             }

@@ -129,17 +129,25 @@ struct CheckedReturnStatement {
     std::optional<CheckedExpression> expression;
 };
 
-struct CheckedStatement {
-    std::variant<
-        CheckedVariableDeclaration,
-        CheckedExpression,
-        CheckedReturnStatement>
-        statement;
-};
+struct CheckedStatement;
 
 struct CheckedBlock {
     ScopeId scope_id {};
     std::vector<CheckedStatement> statements {};
+};
+
+struct CheckedIfStatement {
+    CheckedExpression condition;
+    CheckedBlock then_clause;
+};
+
+struct CheckedStatement {
+    std::variant<
+        CheckedVariableDeclaration,
+        CheckedExpression,
+        CheckedReturnStatement,
+        CheckedIfStatement>
+        statement;
 };
 
 struct CheckedFunction {
@@ -189,7 +197,7 @@ struct Module {
 
     FunctionId add_function() {
         m_functions.push_back({});
-        //fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
+        // fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
         return FunctionId { m_id, m_functions.size() - 1 };
     }
 

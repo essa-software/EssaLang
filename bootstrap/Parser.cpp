@@ -137,6 +137,14 @@ void ParsedReturnStatement::print(size_t depth) const {
     fmt::print(";");
 }
 
+void ParsedIfStatement::print(size_t depth) const {
+    indent(depth);
+    fmt::print("if (");
+    condition.print(depth);
+    fmt::print(")\n");
+    then_clause->print(depth + 1);
+}
+
 void ParsedExpression::print(size_t depth) const {
     std::visit([depth](auto const& v) -> void {
         v->print(depth);
@@ -208,6 +216,9 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     }
     if (token->type() == TokenType::KeywordReturn) {
         return TRY(parse_return_statement());
+    }
+    if (token->type() == TokenType::KeywordIf) {
+        return TRY(parse_if_statement());
     }
     auto expr = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
@@ -307,6 +318,18 @@ constexpr int Additive = 10;
 constexpr int Comparison = 7;
 constexpr int Assignment = 5;
 }
+
+Util::ParseErrorOr<ParsedIfStatement> Parser::parse_if_statement() {
+    get(); // if
+
+    TRY(expect(TokenType::ParenOpen));
+    auto condition = TRY(parse_expression(Precedence::Assignment + 1));
+    TRY(expect(TokenType::ParenClose));
+
+    auto then_clause = TRY(parse_block());
+    return ParsedIfStatement { .condition = std::move(condition), .then_clause = std::move(then_clause) };
+}
+
 static int precedence(ParsedBinaryExpression::Operator op) {
     switch (op) {
     case ParsedBinaryExpression::Operator::Multiply:
