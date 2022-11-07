@@ -30,6 +30,7 @@ enum class TokenType {
     CurlyClose,    // }
     Dot,           // .
     DotDot,        // ..
+    EqualEqual,    // ==
     EqualSign,     // =
     Minus,         // -
     MinusEqual,    // -=

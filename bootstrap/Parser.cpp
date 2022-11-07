@@ -108,6 +108,8 @@ std::string ParsedBinaryExpression::operator_to_string(Operator op) {
         return "/";
     case Operator::Modulo:
         return "%";
+    case Operator::IsEqual:
+        return "==";
     case Operator::Assign:
         return "=";
     case Operator::AssignAdd:
@@ -299,25 +301,34 @@ Util::ParseErrorOr<ParsedReturnStatement> Parser::parse_return_statement() {
     return ParsedReturnStatement { .value = std::move(value), .range = range };
 }
 
+namespace Precedence {
+constexpr int Multiplicative = 15;
+constexpr int Additive = 10;
+constexpr int Comparison = 7;
+constexpr int Assignment = 5;
+}
 static int precedence(ParsedBinaryExpression::Operator op) {
     switch (op) {
     case ParsedBinaryExpression::Operator::Multiply:
     case ParsedBinaryExpression::Operator::Divide:
     case ParsedBinaryExpression::Operator::Modulo:
-        return 15;
+        return Precedence::Multiplicative;
     case ParsedBinaryExpression::Operator::Add:
     case ParsedBinaryExpression::Operator::Subtract:
-        return 10;
+        return Precedence::Additive;
+    case ParsedBinaryExpression::Operator::IsEqual:
+        return Precedence::Comparison;
     case ParsedBinaryExpression::Operator::Assign:
     case ParsedBinaryExpression::Operator::AssignAdd:
     case ParsedBinaryExpression::Operator::AssignSubtract:
     case ParsedBinaryExpression::Operator::AssignMultiply:
     case ParsedBinaryExpression::Operator::AssignDivide:
     case ParsedBinaryExpression::Operator::AssignModulo:
-        return 5;
-    default:
+        return Precedence::Assignment;
+    case ParsedBinaryExpression::Operator::Invalid:
         return 100000;
     }
+    ESSA_UNREACHABLE;
 }
 
 static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token) {
@@ -332,6 +343,8 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::Divide;
     case TokenType::PercentSign:
         return ParsedBinaryExpression::Operator::Modulo;
+    case TokenType::EqualEqual:
+        return ParsedBinaryExpression::Operator::IsEqual;
     case TokenType::EqualSign:
         return ParsedBinaryExpression::Operator::Assign;
     case TokenType::PlusEqual:

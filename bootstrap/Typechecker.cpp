@@ -205,10 +205,17 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
     checked_expression.operator_ = expression.operator_;
     checked_expression.lhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.lhs));
     checked_expression.rhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.rhs));
+
     if (expression.is_assignment()) {
         if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);
     }
+    else if (expression.is_comparison()) {
+        if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
+            return CheckedExpression::invalid(m_program);
+        return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };
+    }
+
     if (checked_expression.lhs->type_id != checked_expression.rhs->type_id) {
         error(fmt::format("Could not find operator '{}' for '{}' and '{}'",
                   Parser::ParsedBinaryExpression::operator_to_string(expression.operator_),
@@ -220,16 +227,31 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
     return { .type_id = checked_expression.lhs->type_id, .expression = std::move(checked_expression) };
 }
 
-bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range) {
+bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, std::optional<Util::SourceRange> range) {
     switch (mode) {
     case TypeCompatibility::Assignment: {
         if (lhs != rhs) {
-            error(fmt::format("Cannot convert '{}' to '{}' in assignment",
-                      m_program.type_name(rhs).encode(),
-                      m_program.type_name(lhs).encode()),
-                range);
+            if (range) {
+                error(fmt::format("Cannot convert '{}' to '{}' in assignment",
+                          m_program.type_name(rhs).encode(),
+                          m_program.type_name(lhs).encode()),
+                    *range);
+            }
             return false;
         }
+        break;
+    }
+    case TypeCompatibility::Comparison: {
+        if (lhs != rhs) {
+            if (range) {
+                error(fmt::format("Cannot compare '{}' with '{}'",
+                          m_program.type_name(rhs).encode(),
+                          m_program.type_name(lhs).encode()),
+                    *range);
+            }
+            return false;
+        }
+        break;
     }
     }
     return true;

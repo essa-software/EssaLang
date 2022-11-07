@@ -111,6 +111,12 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 operator_type = TokenType::Dot;
                 break;
             case '=':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::EqualEqual;
+                    break;
+                }
                 operator_type = TokenType::EqualSign;
                 break;
             case '-':

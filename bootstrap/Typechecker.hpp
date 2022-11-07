@@ -14,6 +14,7 @@ struct Type {
         Unknown,
         Void,
         U32,
+        Bool,
         String
     };
     Primitive type;
@@ -26,6 +27,8 @@ struct Type {
             return "void";
         case Primitive::U32:
             return "u32";
+        case Primitive::Bool:
+            return "bool";
         case Primitive::String:
             return "string";
         }
@@ -220,6 +223,7 @@ struct CheckedProgram {
     TypeId unknown_type_id {};
     TypeId void_type_id {};
     TypeId u32_type_id {};
+    TypeId bool_type_id {};
     TypeId string_type_id {};
 
     CheckedProgram()
@@ -228,6 +232,7 @@ struct CheckedProgram {
         unknown_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Unknown }) };
         void_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Void }) };
         u32_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::U32 }) };
+        bool_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Bool }) };
         string_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::String }) };
     }
 
@@ -329,9 +334,10 @@ private:
     CheckedExpression typecheck_binary_expression(Parser::ParsedBinaryExpression const&);
 
     enum class TypeCompatibility {
-        Assignment
+        Assignment,
+        Comparison
     };
-    bool check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, Util::SourceRange range);
+    bool check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, std::optional<Util::SourceRange> range);
     ResolvedIdentifier resolve_identifier(Util::UString const& id, Util::SourceRange);
 
     CheckedFunction const& get_function(FunctionId id);

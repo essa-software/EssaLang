@@ -87,6 +87,7 @@ struct ParsedBinaryExpression {
         Multiply,
         Divide,
         Modulo,
+        IsEqual,
         Assign,
         AssignAdd,
         AssignSubtract,
@@ -103,6 +104,10 @@ struct ParsedBinaryExpression {
     ParsedExpression rhs;
 
     Util::SourceRange operator_range;
+
+    bool is_comparison() const {
+        return operator_ == Operator::IsEqual;
+    }
 
     bool is_assignment() const {
         return operator_ == Operator::Assign
