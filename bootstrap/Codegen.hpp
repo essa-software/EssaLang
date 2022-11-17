@@ -18,9 +18,10 @@ private:
     Util::OsErrorOr<void> codegen_epilogue();
     Util::OsErrorOr<void> codegen_function(Typechecker::CheckedFunction const&);
     Util::OsErrorOr<void> codegen_type(Typechecker::Type const&);
+    Util::OsErrorOr<void> codegen_statement(Typechecker::CheckedStatement const&);
     Util::OsErrorOr<void> codegen_block(Typechecker::CheckedBlock const&);
     Util::OsErrorOr<void> codegen_expression(Typechecker::CheckedExpression const&);
-    Util::OsErrorOr<void> codegen_binary_expression(Typechecker::CheckedExpression::BinaryExpression const& expression);
+    Util::OsErrorOr<void> codegen_binary_expression(Typechecker::CheckedExpression::BinaryExpression const&);
 
     Util::Writer& m_writer;
     Typechecker::CheckedProgram const& m_program;

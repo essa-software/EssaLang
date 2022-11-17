@@ -23,6 +23,13 @@ CheckedProgram const& Typechecker::typecheck() {
     return m_program;
 }
 
+#define SCOPED_SCOPE(scope)                                      \
+    auto __old_scope = m_current_scope;                          \
+    m_current_scope = (scope);                                   \
+    Util::ScopeGuard scope_guard {                               \
+        [__old_scope, this]() { m_current_scope = __old_scope; } \
+    }
+
 CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaration const& function) {
     TypeId return_type = [&function, this]() {
         TypeId type_id { m_program.unknown_type_id };
@@ -48,8 +55,17 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
         return type_id;
     }();
 
-    CheckedFunction checked_function { .name = function.name, .parameters = {}, .body = {}, .return_type = return_type };
+    CheckedFunction checked_function {
+        .name = function.name,
+        .parameters = {},
+        .body = {},
+        .return_type = return_type,
+        .argument_scope_id = m_current_checked_module->add_scope(ScopeId {}),
+    };
     m_current_function = &checked_function;
+
+    SCOPED_SCOPE(checked_function.argument_scope_id);
+
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
     for (auto const& param : function.parameters) {
         checked_function.parameters.push_back(std::make_pair(param.name, typecheck_parameter(param)));
@@ -60,12 +76,72 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     return checked_function;
 }
 
-#define SCOPED_SCOPE(scope)                                      \
-    auto __old_scope = m_current_scope;                          \
-    m_current_scope = (scope);                                   \
-    Util::ScopeGuard scope_guard {                               \
-        [__old_scope, this]() { m_current_scope = __old_scope; } \
-    }
+CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const& stmt) {
+    return std::visit(
+        Util::Overloaded {
+            [&](Parser::ParsedVariableDeclaration const& value) -> CheckedStatement {
+                auto initializer = typecheck_expression(value.initializer);
+
+                auto type_id = m_program.unknown_type_id;
+                if (!value.type) {
+                    type_id = initializer.type_id;
+                }
+                else {
+                    type_id = m_program.resolve_type(value.type->name);
+                }
+
+                CheckedVariable variable {
+                    .name = value.name,
+                    .type_id = type_id,
+                    .is_mut = value.is_mut,
+                    .initializer = std::move(initializer),
+                };
+
+                check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type_id, value.range);
+                auto var_id = m_current_checked_module->add_variable(std::move(variable));
+                m_program.get_scope(m_current_scope).variables.insert({ value.name, var_id });
+                return CheckedStatement {
+                    .statement = CheckedVariableDeclaration { .var_id = var_id }
+                };
+            },
+            [&](Parser::ParsedReturnStatement const& value) -> CheckedStatement {
+                if (m_current_function->return_type == m_program.void_type_id && value.value) {
+                    error("Void function cannot return a value", value.range);
+                }
+                if (m_current_function->return_type != m_program.void_type_id && !value.value) {
+                    error("Return without value in a non-void function", value.range);
+                }
+                return CheckedStatement {
+                    .statement = CheckedReturnStatement {
+                        .expression = value.value ? typecheck_expression(*value.value) : std::optional<CheckedExpression> {},
+                    },
+                };
+            },
+            [&](Parser::ParsedIfStatement const& value) -> CheckedStatement {
+                auto condition = typecheck_expression(value.condition);
+                // TODO: range
+                if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type_id, {})) {
+                    error("If statement's condition must be a bool", {});
+                    return {};
+                }
+                return CheckedStatement {
+                    .statement = CheckedIfStatement {
+                        .condition = typecheck_expression(value.condition),
+                        .then_clause = typecheck_block(*value.then_clause),
+                        .else_clause = value.else_clause ? std::make_unique<CheckedStatement>(typecheck_statement(*value.else_clause)) : nullptr },
+                };
+            },
+            [&](Parser::ParsedBlock const& value) -> CheckedStatement {
+                return CheckedStatement {
+                    .statement = typecheck_block(value),
+                };
+            },
+            [&](Parser::ParsedExpression const& value) -> CheckedStatement {
+                return CheckedStatement { .statement = typecheck_expression(value) };
+            },
+        },
+        stmt);
+}
 
 CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
     assert(m_current_function);
@@ -75,72 +151,13 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
     SCOPED_SCOPE(checked_block.scope_id);
 
     for (auto const& stmt : block.statements) {
-        std::visit(
-            Util::Overloaded {
-                [&](Parser::ParsedVariableDeclaration const& value) -> void {
-                    auto initializer = typecheck_expression(value.initializer);
-
-                    auto type_id = m_program.unknown_type_id;
-                    if (!value.type) {
-                        type_id = initializer.type_id;
-                    }
-                    else {
-                        type_id = m_program.resolve_type(value.type->name);
-                    }
-
-                    CheckedVariable variable {
-                        .name = value.name,
-                        .type_id = type_id,
-                        .is_mut = value.is_mut,
-                        .initializer = std::move(initializer),
-                    };
-
-                    check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type_id, value.range);
-                    auto var_id = m_current_checked_module->add_variable(std::move(variable));
-                    m_program.get_scope(checked_block.scope_id).variables.insert({ value.name, var_id });
-                    checked_block.statements.push_back(CheckedStatement {
-                        .statement = CheckedVariableDeclaration { .var_id = var_id } });
-                },
-                [&](Parser::ParsedReturnStatement const& value) -> void {
-                    if (m_current_function->return_type == m_program.void_type_id && value.value) {
-                        error("Void function cannot return a value", value.range);
-                    }
-                    if (m_current_function->return_type != m_program.void_type_id && !value.value) {
-                        error("Return without value in a non-void function", value.range);
-                    }
-                    checked_block.statements.push_back(CheckedStatement {
-                        .statement = CheckedReturnStatement {
-                            .expression = value.value ? typecheck_expression(*value.value) : std::optional<CheckedExpression> {},
-                        },
-                    });
-                },
-                [&](Parser::ParsedIfStatement const& value) -> void {
-                    auto condition = typecheck_expression(value.condition);
-                    // TODO: range
-                    if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type_id, {})) {
-                        return error("If statement's condition must be a bool", {});
-                    }
-                    checked_block.statements.push_back(CheckedStatement {
-                        .statement = CheckedIfStatement {
-                            .condition = typecheck_expression(value.condition),
-                            .then_clause = typecheck_block(*value.then_clause) },
-                    });
-                },
-                [&](Parser::ParsedExpression const& value) -> void {
-                    checked_block.statements.push_back(CheckedStatement { .statement = typecheck_expression(value) });
-                },
-            },
-            stmt);
+        checked_block.statements.push_back(typecheck_statement(stmt));
     }
     return checked_block;
 }
 
 CheckedParameter Typechecker::typecheck_parameter(Parser::ParsedParameter const& parameter) {
-    if (!m_current_function->body) {
-        return { .var_id = VarId {} };
-    }
-    auto scope_id = m_current_function->body->scope_id;
-    auto& scope = m_program.get_scope(scope_id);
+    auto& scope = m_program.get_scope(m_current_function->argument_scope_id);
 
     auto var_id = m_current_checked_module->add_variable(CheckedVariable {
         .name = parameter.name,
@@ -174,11 +191,15 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             },
             [&](std::unique_ptr<Parser::ParsedIdentifier> const& identifier) {
                 auto resolved_id = resolve_identifier(identifier->id, identifier->range);
-                if (resolved_id.type == ResolvedIdentifier::Type::Function) {
+                if (resolved_id.type == ResolvedIdentifier::Type::Invalid) {
+                    return CheckedExpression::invalid(m_program);
+                }
+                if (resolved_id.type != ResolvedIdentifier::Type::Variable) {
                     error(fmt::format("Identifier '{}' must refer to a variable", identifier->id.encode()), identifier->range);
                     return CheckedExpression::invalid(m_program);
                 }
                 assert(resolved_id.type == ResolvedIdentifier::Type::Variable);
+                // fmt::print("VAR {} {}.{}\n", identifier->id.encode(), resolved_id.module, resolved_id.id);
                 return CheckedExpression {
                     .type_id = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type_id,
                     .expression = std::move(resolved_id),
@@ -271,6 +292,7 @@ bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, T
 
 ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util::SourceRange range) {
     auto* scope = &m_program.get_scope(m_current_scope);
+    // fmt::print("resolve identifier {} in {}.{}\n", id.encode(), m_current_scope.module(), m_current_scope.id());
     do {
         if (auto it = scope->variables.find(id); it != scope->variables.end()) {
             return ResolvedIdentifier { .type = ResolvedIdentifier::Type::Variable, .module = it->second.module(), .id = it->second.id() };
@@ -344,5 +366,4 @@ void CheckedProgram::print() const {
     print_module(m_prelude_module);
     print_module(m_root_module);
 }
-
 }

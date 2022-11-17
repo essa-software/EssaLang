@@ -1,0 +1,15 @@
+func foo(i: u32): void {
+    if (i == 5) {
+        print("iiii");
+    } else if (i == 4) {
+        print("jjjj");
+    } else {
+        print("aaaa");
+    }
+}
+
+func main() {
+    foo(5);
+    foo(4);
+    foo(3);
+}

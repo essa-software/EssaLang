@@ -145,6 +145,9 @@ void ParsedIfStatement::print(size_t depth) const {
     condition.print(depth);
     fmt::print(")\n");
     then_clause->print(depth + 1);
+    if (else_clause) {
+        fmt::print("else {{ TODO }}\n");
+    }
 }
 
 void ParsedExpression::print(size_t depth) const {
@@ -338,7 +341,22 @@ Util::ParseErrorOr<ParsedIfStatement> Parser::parse_if_statement() {
     TRY(expect(TokenType::ParenClose));
 
     auto then_clause = TRY(parse_block());
-    return ParsedIfStatement { .condition = std::move(condition), .then_clause = std::move(then_clause) };
+
+    if (peek()->type() == TokenType::KeywordElse) {
+        get(); // else
+        if (peek()->type() == TokenType::KeywordIf) {
+            // else if
+            return ParsedIfStatement { .condition = std::move(condition),
+                .then_clause = std::move(then_clause),
+                .else_clause = std::make_unique<ParsedStatement>(TRY(parse_if_statement())) };
+        }
+        auto else_clause = TRY(parse_block());
+        return ParsedIfStatement { .condition = std::move(condition),
+            .then_clause = std::move(then_clause),
+            .else_clause = std::make_unique<ParsedStatement>(std::move(*else_clause)) };
+    }
+
+    return ParsedIfStatement { .condition = std::move(condition), .then_clause = std::move(then_clause), .else_clause = {} };
 }
 
 static int precedence(ParsedBinaryExpression::Operator op) {

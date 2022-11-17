@@ -14,6 +14,7 @@ namespace ESL {
 enum class TokenType {
     // Keywords
     KeywordBool,
+    KeywordElse,
     KeywordFor,
     KeywordFunc,
     KeywordIf,

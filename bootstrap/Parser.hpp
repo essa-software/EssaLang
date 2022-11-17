@@ -140,18 +140,22 @@ struct ParsedReturnStatement {
     void print(size_t depth) const;
 };
 
-struct ParsedIfStatement {
-    ParsedExpression condition;
-    std::unique_ptr<ParsedBlock> then_clause;
-
-    void print(size_t depth) const;
-};
+struct ParsedIfStatement;
 
 using ParsedStatement = std::variant<
     ParsedVariableDeclaration,
     ParsedReturnStatement,
     ParsedExpression,
-    ParsedIfStatement>;
+    ParsedIfStatement,
+    ParsedBlock>;
+
+struct ParsedIfStatement {
+    ParsedExpression condition;
+    std::unique_ptr<ParsedBlock> then_clause;
+    std::unique_ptr<ParsedStatement> else_clause;
+
+    void print(size_t depth) const;
+};
 
 struct ParsedBlock {
     std::vector<ParsedStatement> statements;

@@ -67,7 +67,7 @@ struct ResolvedIdentifier {
         Function,
         Invalid
     };
-    Type type;
+    Type type = Type::Invalid;
     size_t module;
     size_t id;
 };
@@ -139,6 +139,7 @@ struct CheckedBlock {
 struct CheckedIfStatement {
     CheckedExpression condition;
     CheckedBlock then_clause;
+    std::unique_ptr<CheckedStatement> else_clause;
 };
 
 struct CheckedStatement {
@@ -146,7 +147,8 @@ struct CheckedStatement {
         CheckedVariableDeclaration,
         CheckedExpression,
         CheckedReturnStatement,
-        CheckedIfStatement>
+        CheckedIfStatement,
+        CheckedBlock>
         statement;
 };
 
@@ -155,6 +157,7 @@ struct CheckedFunction {
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
     std::optional<CheckedBlock> body; // No body = extern function
     TypeId return_type;
+    ScopeId argument_scope_id;
 };
 
 struct Module {
@@ -213,6 +216,7 @@ struct Module {
 
     VarId add_variable(CheckedVariable var) {
         m_variables.push_back(std::move(var));
+        //fmt::print("Add variable: {}.{}\n", m_id, m_variables.size() - 1);
         return VarId { m_id, m_variables.size() - 1 };
     }
 
@@ -336,6 +340,7 @@ private:
     }
 
     CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
+    CheckedStatement typecheck_statement(Parser::ParsedStatement const&);
     CheckedBlock typecheck_block(Parser::ParsedBlock const&);
     CheckedParameter typecheck_parameter(Parser::ParsedParameter const&);
     CheckedExpression typecheck_expression(Parser::ParsedExpression const&);

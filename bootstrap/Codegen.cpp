@@ -41,6 +41,15 @@ Util::OsErrorOr<void> CodeGenerator::codegen_epilogue() {
 Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFunction const& function) {
     TRY(codegen_type(m_program.get_type(function.return_type)));
     m_writer.writeff(" {}(", function.name == "main" ? "___esl_main" : function.name.encode());
+    for (size_t s = 0; s < function.parameters.size(); s++) {
+        auto const& param = function.parameters[s];
+        auto const& var = m_program.get_variable(param.second.var_id);
+        TRY(codegen_type(m_program.get_type(var.type_id)));
+        m_writer.writeff(" {} {}", var.is_mut ? "" : "const", var.name.encode());
+        if (s != function.parameters.size() - 1) {
+            TRY(m_writer.write(", "));
+        }
+    }
     m_writer.writeff(")");
     if (function.body) {
         m_writer.writeff(" {{\n");
@@ -76,44 +85,56 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
     return {};
 }
 
+Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedStatement const& stmt) {
+    return std::visit(
+        Util::Overloaded {
+            [&](Typechecker::CheckedVariableDeclaration const& decl) -> Util::OsErrorOr<void> {
+                auto const& var = m_program.get_variable(decl.var_id);
+                TRY(codegen_type(m_program.get_type(var.type_id)));
+                m_writer.writeff(" {} {}", var.is_mut ? "" : "const", var.name.encode());
+                if (var.initializer) {
+                    m_writer.writeff(" = ");
+                    TRY(codegen_expression(*var.initializer));
+                }
+                TRY(m_writer.write(";\n"));
+                return {};
+            },
+            [&](Typechecker::CheckedExpression const& expr) -> Util::OsErrorOr<void> {
+                TRY(codegen_expression(expr));
+                TRY(m_writer.write(";\n"));
+                return {};
+            },
+            [&](Typechecker::CheckedReturnStatement const& stmt) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("return "));
+                if (stmt.expression) {
+                    TRY(codegen_expression(*stmt.expression));
+                }
+                TRY(m_writer.write(";\n"));
+                return {};
+            },
+            [&](Typechecker::CheckedIfStatement const& stmt) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("if ("));
+                TRY(codegen_expression(stmt.condition));
+                TRY(m_writer.write(")"));
+                TRY(codegen_block(stmt.then_clause));
+                if (stmt.else_clause) {
+                    TRY(m_writer.write("else\n"));
+                    TRY(codegen_statement(*stmt.else_clause));
+                }
+                return {};
+            },
+            [&](Typechecker::CheckedBlock const& stmt) -> Util::OsErrorOr<void> {
+                TRY(codegen_block(stmt));
+                return {};
+            },
+        },
+        stmt.statement);
+}
+
 Util::OsErrorOr<void> CodeGenerator::codegen_block(Typechecker::CheckedBlock const& block) {
     TRY(m_writer.write("{\n"));
     for (auto const& stmt : block.statements) {
-        TRY(std::visit(
-            Util::Overloaded {
-                [&](Typechecker::CheckedVariableDeclaration const& decl) -> Util::OsErrorOr<void> {
-                    auto const& var = m_program.get_variable(decl.var_id);
-                    TRY(codegen_type(m_program.get_type(var.type_id)));
-                    m_writer.writeff(" {} {}", var.is_mut ? "" : "const", var.name.encode());
-                    if (var.initializer) {
-                        m_writer.writeff(" = ");
-                        TRY(codegen_expression(*var.initializer));
-                    }
-                    TRY(m_writer.write(";\n"));
-                    return {};
-                },
-                [&](Typechecker::CheckedExpression const& expr) -> Util::OsErrorOr<void> {
-                    TRY(codegen_expression(expr));
-                    TRY(m_writer.write(";\n"));
-                    return {};
-                },
-                [&](Typechecker::CheckedReturnStatement const& stmt) -> Util::OsErrorOr<void> {
-                    TRY(m_writer.write("return "));
-                    if (stmt.expression) {
-                        TRY(codegen_expression(*stmt.expression));
-                    }
-                    TRY(m_writer.write(";\n"));
-                    return {};
-                },
-                [&](Typechecker::CheckedIfStatement const& stmt) -> Util::OsErrorOr<void> {
-                    TRY(m_writer.write("if ("));
-                    TRY(codegen_expression(stmt.condition));
-                    TRY(m_writer.write(")"));
-                    TRY(codegen_block(stmt.then_clause));
-                    return {};
-                },
-            },
-            stmt.statement));
+        TRY(codegen_statement(stmt));
     }
     TRY(m_writer.write("}\n"));
     return {};
