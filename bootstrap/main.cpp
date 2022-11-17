@@ -2,6 +2,7 @@
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "Typechecker.hpp"
+#include <EssaUtil/DisplayError.hpp>
 #include <EssaUtil/Stream.hpp>
 #include <EssaUtil/Stream/StandardStreams.hpp>
 
