@@ -1,5 +1,7 @@
 #include "Parser.hpp"
 #include <EssaUtil/Config.hpp>
+#include <EssaUtil/ErrorMappers.hpp>
+#include <EssaUtil/SourceLocation.hpp>
 #include <type_traits>
 
 namespace ESL::Parser {
@@ -433,11 +435,8 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     auto token = get();
     if (token->type() == TokenType::Number) {
-        try {
-            return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = std::stoll(token->value()) }) };
-        } catch (...) {
-            return error_in_already_read("Invalid integer literal");
-        }
+        return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral {
+                                      .value = TRY(token->value().parse<int64_t>().map_error(Util::OsToParseError { token->range() })) }) };
     }
     if (token->type() == TokenType::StringLiteral) {
         return ParsedExpression { .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }) };
