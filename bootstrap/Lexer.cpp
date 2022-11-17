@@ -18,7 +18,10 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             auto string = TRY(consume_while([](uint8_t c) {
                 return isalnum(c) || c == '_';
             }));
-            if (string == "for") {
+            if (string == "bool") {
+                tokens.push_back(create_token(TokenType::KeywordBool, "bool", start));
+            }
+            else if (string == "for") {
                 tokens.push_back(create_token(TokenType::KeywordFor, "for", start));
             }
             else if (string == "func") {
@@ -39,8 +42,14 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "return") {
                 tokens.push_back(create_token(TokenType::KeywordReturn, "return", start));
             }
+            else if (string == "string") {
+                tokens.push_back(create_token(TokenType::KeywordString, "string", start));
+            }
             else if (string == "u32") {
                 tokens.push_back(create_token(TokenType::KeywordU32, "u32", start));
+            }
+            else if (string == "void") {
+                tokens.push_back(create_token(TokenType::KeywordVoid, "void", start));
             }
             else {
                 tokens.push_back(create_token(TokenType::Identifier, string, start));
@@ -165,7 +174,7 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             default:
                 break;
             }
-            tokens.push_back(create_token(operator_type, std::move(value), start));
+            tokens.push_back(create_token(operator_type, Util::UString { value }, start));
         }
     }
     tokens.push_back(create_token(TokenType::Eof, "<EOF>", location()));

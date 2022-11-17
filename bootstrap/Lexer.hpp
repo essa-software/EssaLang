@@ -13,6 +13,7 @@ namespace ESL {
 //     - The same about handlers in lex()
 enum class TokenType {
     // Keywords
+    KeywordBool,
     KeywordFor,
     KeywordFunc,
     KeywordIf,
@@ -20,7 +21,9 @@ enum class TokenType {
     KeywordMut,
     KeywordOf,
     KeywordReturn,
+    KeywordString,
     KeywordU32,
+    KeywordVoid,
 
     // Operators based on special characters
     Asterisk,      // *

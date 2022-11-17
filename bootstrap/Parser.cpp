@@ -229,8 +229,17 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
 
 Util::ParseErrorOr<ParsedType> Parser::parse_type() {
     auto token = get();
+    if (token->type() == TokenType::KeywordBool) {
+        return ParsedType { .name = "bool" };
+    }
+    if (token->type() == TokenType::KeywordString) {
+        return ParsedType { .name = "string" };
+    }
     if (token->type() == TokenType::KeywordU32) {
         return ParsedType { .name = "u32" };
+    }
+    if (token->type() == TokenType::KeywordVoid) {
+        return ParsedType { .name = "void" };
     }
     return error_in_already_read("Invalid type (TODO: Custom types)");
 }
