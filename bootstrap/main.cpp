@@ -5,9 +5,6 @@
 #include <EssaUtil/Stream.hpp>
 #include <EssaUtil/Stream/StandardStreams.hpp>
 
-// TODO: TYPECHECKER
-// TODO: CODEGEN
-
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto stream = TRY(Util::ReadableFileStream::open(file_name));
 
