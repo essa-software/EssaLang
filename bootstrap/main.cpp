@@ -7,6 +7,7 @@
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto stream = TRY(Util::ReadableFileStream::open(file_name));
+    auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
 
     ESL::Lexer lexer { stream };
     auto tokens = TRY(lexer.lex());
@@ -19,7 +20,12 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto parsed_file = parser.parse_file();
     if (parsed_file.is_error()) {
         auto error = parsed_file.release_error();
-        fmt::print("Parse error: {} at {}:{}\n", error.message, error.location.start.line + 1, error.location.start.column + 1);
+        Util::display_error(stream_for_errors,
+            Util::DisplayedError {
+                .message = Util::UString { error.message },
+                .start_offset = error.location.start.offset,
+                .end_offset = error.location.end.offset,
+            });
         return false;
     }
     // parsed_file.value().print();
@@ -27,9 +33,13 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     ESL::Typechecker::Typechecker typechecker { parsed_file.release_value() };
     auto const& program = typechecker.typecheck();
     for (auto const& error : typechecker.errors()) {
-        fmt::print("Typechecker error: {} at {}:{}\n", error.message, error.range.start.line + 1, error.range.start.column + 1);
+        Util::display_error(stream_for_errors,
+            Util::DisplayedError {
+                .message = Util::UString { error.message },
+                .start_offset = error.range.start.offset,
+                .end_offset = error.range.end.offset,
+            });
     }
-    //program.print();
     if (!typechecker.errors().empty()) {
         return false;
     }
