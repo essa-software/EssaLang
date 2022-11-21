@@ -1,0 +1,7 @@
+// output: 0,1,2,3,4,
+
+func main() {
+    for (let i of 0..5) {
+        print("{},", i);
+    }
+}

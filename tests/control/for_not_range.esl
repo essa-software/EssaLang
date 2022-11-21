@@ -1,0 +1,7 @@
+// error: "test" is not an iterable type
+
+func main() {
+    for (let i of "test") {
+        print("{}", i);
+    }
+}

@@ -31,13 +31,26 @@ void print(fmt::format_string<Args...>&& fmtstr, Args&&... args) { fmt::print(st
 
 namespace ___Esl {
 
+class RangeIterator {
+public:
+    explicit RangeIterator(uint64_t value)
+        : m_value(value) {}
+
+    auto operator==(RangeIterator const& other) const { return m_value == other.m_value; }
+    auto operator*() const { return m_value; }
+    auto operator++() { return ++m_value; }
+
+private:
+    uint64_t m_value;
+};
+
 class Range {
 public:
     Range(uint64_t begin, uint64_t end)
         : m_begin(begin), m_end(end) {}
 
-    auto begin() const { return m_begin; }
-    auto end() const { return m_end; }
+    auto begin() const { return RangeIterator { m_begin }; }
+    auto end() const { return RangeIterator { m_end }; }
 
 private:
     uint64_t m_begin;
@@ -50,7 +63,7 @@ template<>
 struct fmt::formatter<___Esl::Range> : public fmt::formatter<std::string_view> {
     template<typename FormatContext>
     constexpr auto format(___Esl::Range const& p, FormatContext& ctx) const {
-        fmt::format_to(ctx.out(), "{}..{}", p.begin(), p.end());
+        fmt::format_to(ctx.out(), "{}..{}", *p.begin(), *p.end());
         return ctx.out();
     }
 };
@@ -107,6 +120,9 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
     case Typechecker::Type::Primitive::String:
         TRY(m_writer.write("Util::UString"));
         break;
+    case Typechecker::Type::Primitive::Range:
+        TRY(m_writer.write("___Esl::Range"));
+        break;
     }
     return {};
 }
@@ -147,6 +163,15 @@ Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedState
                     TRY(m_writer.write("else\n"));
                     TRY(codegen_statement(*stmt.else_clause));
                 }
+                return {};
+            },
+            [&](Typechecker::CheckedForStatement const& stmt) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("for ("));
+                TRY(codegen_type(m_program.get_type(stmt.value_type_id)));
+                m_writer.writeff(" {} : ", stmt.variable_name.encode());
+                TRY(codegen_expression(stmt.iterable));
+                TRY(m_writer.write(")"));
+                TRY(codegen_block(stmt.block));
                 return {};
             },
             [&](Typechecker::CheckedBlock const& stmt) -> Util::OsErrorOr<void> {

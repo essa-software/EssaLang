@@ -1,6 +1,7 @@
 #include "Parser.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ErrorMappers.hpp>
+#include <EssaUtil/GenericParser.hpp>
 #include <EssaUtil/SourceLocation.hpp>
 #include <type_traits>
 
@@ -175,12 +176,23 @@ void ParsedBlock::print(size_t depth) const {
     fmt::print("}}\n");
 }
 
+void ParsedForStatement::print(size_t depth) const {
+    indent(depth);
+    fmt::print("for (TODO in TODO) {{ TODO }}");
+}
+
 Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     ParsedFile file;
     file.modules.resize(2);
 
     // Hardcode prelude for now
-    file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration { .name = "print", .return_type = ParsedType { .name = "void" }, .body = nullptr });
+    file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration {
+        .name = "print",
+        .return_type = ParsedType { .name = "void" },
+        .parameters = {},
+        .body = nullptr,
+        .name_range = {},
+    });
 
     // Parse root
     while (true) {
@@ -226,6 +238,9 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     }
     if (token->type() == TokenType::KeywordIf) {
         return TRY(parse_if_statement());
+    }
+    if (token->type() == TokenType::KeywordFor) {
+        return TRY(parse_for_statement());
     }
     auto expr = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
@@ -360,6 +375,28 @@ Util::ParseErrorOr<ParsedIfStatement> Parser::parse_if_statement() {
     }
 
     return ParsedIfStatement { .condition = std::move(condition), .then_clause = std::move(then_clause), .else_clause = {} };
+}
+
+Util::ParseErrorOr<ParsedForStatement> Parser::parse_for_statement() {
+    get(); // for
+
+    TRY(expect(TokenType::ParenOpen));
+
+    TRY(expect(TokenType::KeywordLet));
+    auto variable_name = TRY(expect(TokenType::Identifier));
+    TRY(expect(TokenType::KeywordOf));
+    auto iterable_start = this->range(offset() - 1, 1).end;
+    auto iterable = TRY(parse_expression(0));
+    auto iterable_end = this->range(offset() - 1, 1).end;
+    TRY(expect(TokenType::ParenClose));
+
+    auto block = TRY(parse_block());
+    return ParsedForStatement {
+        .variable = variable_name.value(),
+        .iterable = std::move(iterable),
+        .block = std::move(block),
+        .iterable_range = { .start = iterable_start, .end = iterable_end }
+    };
 }
 
 static int precedence(ParsedBinaryExpression::Operator op) {
@@ -502,7 +539,7 @@ Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Uti
     get(); // (
     if (next_token_is(TokenType::ParenClose)) {
         get(); // )
-        return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = {} });
+        return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = {}, .name_range {} });
     }
     std::vector<ParsedExpression> arguments;
     while (true) {
@@ -513,7 +550,7 @@ Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Uti
         get();
     }
     TRY(expect(TokenType::ParenClose));
-    return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments) });
+    return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments), .name_range {} });
 }
 
 }

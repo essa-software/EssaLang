@@ -15,7 +15,8 @@ struct Type {
         Void,
         U32,
         Bool,
-        String
+        String,
+        Range
     };
     Primitive type;
 
@@ -31,8 +32,21 @@ struct Type {
             return "bool";
         case Primitive::String:
             return "string";
+        case Primitive::Range:
+            return "range";
         }
         ESSA_UNREACHABLE;
+    }
+
+    bool is_iterable() const { return type == Primitive::Range; }
+
+    Util::UString iterable_value_type() const {
+        switch (type) {
+        case Primitive::Range:
+            return "u32";
+        default:
+            return "unknown";
+        }
     }
 };
 
@@ -142,12 +156,20 @@ struct CheckedIfStatement {
     std::unique_ptr<CheckedStatement> else_clause;
 };
 
+struct CheckedForStatement {
+    Util::UString variable_name;
+    CheckedExpression iterable;
+    TypeId value_type_id;
+    CheckedBlock block;
+};
+
 struct CheckedStatement {
     std::variant<
         CheckedVariableDeclaration,
         CheckedExpression,
         CheckedReturnStatement,
         CheckedIfStatement,
+        CheckedForStatement,
         CheckedBlock>
         statement;
 };
@@ -216,7 +238,7 @@ struct Module {
 
     VarId add_variable(CheckedVariable var) {
         m_variables.push_back(std::move(var));
-        //fmt::print("Add variable: {}.{}\n", m_id, m_variables.size() - 1);
+        // fmt::print("Add variable: {}.{}\n", m_id, m_variables.size() - 1);
         return VarId { m_id, m_variables.size() - 1 };
     }
 
@@ -237,6 +259,7 @@ struct CheckedProgram {
     TypeId u32_type_id {};
     TypeId bool_type_id {};
     TypeId string_type_id {};
+    TypeId range_type_id {};
 
     CheckedProgram()
         : m_prelude_module(0)
@@ -246,6 +269,7 @@ struct CheckedProgram {
         u32_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::U32 }) };
         bool_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Bool }) };
         string_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::String }) };
+        range_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Range }) };
     }
 
     Module const& module(size_t id) const {

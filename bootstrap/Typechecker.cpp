@@ -131,6 +131,35 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                         .else_clause = value.else_clause ? std::make_unique<CheckedStatement>(typecheck_statement(*value.else_clause)) : nullptr },
                 };
             },
+            [&](Parser::ParsedForStatement const& value) -> CheckedStatement {
+                auto iterable = typecheck_expression(value.iterable);
+                auto iterable_type = m_program.get_type(iterable.type_id);
+                if (!iterable_type.is_iterable()) {
+                    error(fmt::format("'{}' is not an iterable type", iterable_type.name().encode()), value.iterable_range);
+                    return CheckedStatement {};
+                }
+
+                auto iterable_value_type = m_program.resolve_type(iterable_type.iterable_value_type());
+
+                auto scope_id = m_current_checked_module->add_scope(m_current_scope);
+                SCOPED_SCOPE(scope_id);
+                auto variable = m_current_checked_module->add_variable({
+                    .name = value.variable,
+                    .type_id = iterable_value_type,
+                    .is_mut = false,
+                    .initializer = {},
+                });
+                m_program.get_scope(m_current_scope).variables.insert({ value.variable, variable });
+                auto block = typecheck_block(*value.block);
+                return CheckedStatement {
+                    .statement = CheckedForStatement {
+                        .variable_name = value.variable,
+                        .iterable = std::move(iterable),
+                        .value_type_id = iterable_value_type,
+                        .block = std::move(block),
+                    }
+                };
+            },
             [&](Parser::ParsedBlock const& value) -> CheckedStatement {
                 return CheckedStatement {
                     .statement = typecheck_block(value),
@@ -248,8 +277,7 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
             error("End of a range must be an integer", expression.operator_range);
             return CheckedExpression::invalid(m_program);
         }
-        // TODO: Real range type
-        return { .type_id = m_program.unknown_type_id, .expression = std::move(checked_expression) };
+        return { .type_id = m_program.range_type_id, .expression = std::move(checked_expression) };
     }
 
     if (expression.is_assignment()) {
@@ -257,7 +285,7 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
             return CheckedExpression::invalid(m_program);
         return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };
     }
-    
+
     if (expression.is_comparison()) {
         if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);
