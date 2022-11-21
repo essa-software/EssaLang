@@ -21,6 +21,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto parsed_file = parser.parse_file();
     if (parsed_file.is_error()) {
         auto error = parsed_file.release_error();
+        auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
                 .message = Util::UString { error.message },
@@ -34,6 +35,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     ESL::Typechecker::Typechecker typechecker { parsed_file.release_value() };
     auto const& program = typechecker.typecheck();
     for (auto const& error : typechecker.errors()) {
+        auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
                 .message = Util::UString { error.message },
