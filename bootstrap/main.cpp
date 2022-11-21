@@ -8,13 +8,12 @@
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto stream = TRY(Util::ReadableFileStream::open(file_name));
-    auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
 
     ESL::Lexer lexer { stream };
     auto tokens = TRY(lexer.lex());
 
     // for (auto const& token : tokens) {
-    //     fmt::print("{} {}\n", (int)token.type(), token.value());
+    //     fmt::print("{} {} {}\n", (int)token.type(), token.value().encode(), token.start().offset);
     // }
 
     ESL::Parser::Parser parser { tokens };
