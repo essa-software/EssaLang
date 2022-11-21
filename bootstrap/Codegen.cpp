@@ -29,6 +29,32 @@ Util::OsErrorOr<void> CodeGenerator::codegen_prelude() {
     TRY(m_writer.write(R"~~~(template<class... Args>
 void print(fmt::format_string<Args...>&& fmtstr, Args&&... args) { fmt::print(std::move(fmtstr), std::forward<Args>(args)...); }
 
+namespace ___Esl {
+
+class Range {
+public:
+    Range(uint64_t begin, uint64_t end)
+        : m_begin(begin), m_end(end) {}
+
+    auto begin() const { return m_begin; }
+    auto end() const { return m_end; }
+
+private:
+    uint64_t m_begin;
+    uint64_t m_end;
+};
+
+}
+
+template<>
+struct fmt::formatter<___Esl::Range> : public fmt::formatter<std::string_view> {
+    template<typename FormatContext>
+    constexpr auto format(___Esl::Range const& p, FormatContext& ctx) const {
+        fmt::format_to(ctx.out(), "{}..{}", p.begin(), p.end());
+        return ctx.out();
+    }
+};
+
 )~~~"));
     return {};
 }
@@ -196,14 +222,20 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
 
 Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::CheckedExpression::BinaryExpression const& expression) {
     TRY(m_writer.write("("));
+
+    if (expression.operator_ == Parser::ParsedBinaryExpression::Operator::Range) {
+        TRY(m_writer.write("___Esl::Range{"));
+        TRY(codegen_expression(*expression.lhs));
+        TRY(m_writer.write(","));
+        TRY(codegen_expression(*expression.rhs));
+        TRY(m_writer.write("})"));
+        return {};
+    }
+
     TRY(codegen_expression(*expression.lhs));
     switch (expression.operator_) {
-    case Parser::ParsedBinaryExpression::Operator::Add:
-        TRY(m_writer.write("+"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Subtract:
-        TRY(m_writer.write("-"));
-        break;
+    case Parser::ParsedBinaryExpression::Operator::Range:
+        ESSA_UNREACHABLE;
     case Parser::ParsedBinaryExpression::Operator::Multiply:
         TRY(m_writer.write("*"));
         break;
@@ -212,6 +244,12 @@ Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::Chec
         break;
     case Parser::ParsedBinaryExpression::Operator::Modulo:
         TRY(m_writer.write("%"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Add:
+        TRY(m_writer.write("+"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Subtract:
+        TRY(m_writer.write("-"));
         break;
     case Parser::ParsedBinaryExpression::Operator::IsEqual:
         TRY(m_writer.write("=="));

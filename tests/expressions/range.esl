@@ -1,0 +1,5 @@
+// output: 5..10
+
+func main() {
+    print("{}\n", 5..10);
+}

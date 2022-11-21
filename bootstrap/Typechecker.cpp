@@ -239,11 +239,26 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
     checked_expression.lhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.lhs));
     checked_expression.rhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.rhs));
 
+    if (expression.operator_ == Parser::ParsedBinaryExpression::Operator::Range) {
+        if (checked_expression.lhs->type_id != m_program.u32_type_id) {
+            error("Begin of a range must be an integer", expression.operator_range);
+            return CheckedExpression::invalid(m_program);
+        }
+        if (checked_expression.rhs->type_id != m_program.u32_type_id) {
+            error("End of a range must be an integer", expression.operator_range);
+            return CheckedExpression::invalid(m_program);
+        }
+        // TODO: Real range type
+        return { .type_id = m_program.unknown_type_id, .expression = std::move(checked_expression) };
+    }
+
     if (expression.is_assignment()) {
         if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);
+        return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };
     }
-    else if (expression.is_comparison()) {
+    
+    if (expression.is_comparison()) {
         if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);
         return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };

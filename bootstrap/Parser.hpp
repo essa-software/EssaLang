@@ -82,11 +82,12 @@ struct ParsedCall {
 
 struct ParsedBinaryExpression {
     enum class Operator {
-        Add,
-        Subtract,
+        Range,
         Multiply,
         Divide,
         Modulo,
+        Add,
+        Subtract,
         IsEqual,
         Assign,
         AssignAdd,

@@ -1,0 +1,6 @@
+// output: begin/end of a range must be an int
+
+func main() {
+    print("{}\n", "test"..10);
+    print("{}\n", 10.."test");
+}

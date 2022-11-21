@@ -100,16 +100,18 @@ void ParsedBinaryExpression::print(size_t depth) const {
 
 std::string ParsedBinaryExpression::operator_to_string(Operator op) {
     switch (op) {
-    case Operator::Add:
-        return "+";
-    case Operator::Subtract:
-        return "-";
+    case Operator::Range:
+        return "..";
     case Operator::Multiply:
         return "*";
     case Operator::Divide:
         return "/";
     case Operator::Modulo:
         return "%";
+    case Operator::Add:
+        return "+";
+    case Operator::Subtract:
+        return "-";
     case Operator::IsEqual:
         return "==";
     case Operator::Assign:
@@ -327,6 +329,7 @@ Util::ParseErrorOr<ParsedReturnStatement> Parser::parse_return_statement() {
 }
 
 namespace Precedence {
+constexpr int Range = 20;
 constexpr int Multiplicative = 15;
 constexpr int Additive = 10;
 constexpr int Comparison = 7;
@@ -361,6 +364,8 @@ Util::ParseErrorOr<ParsedIfStatement> Parser::parse_if_statement() {
 
 static int precedence(ParsedBinaryExpression::Operator op) {
     switch (op) {
+    case ParsedBinaryExpression::Operator::Range:
+        return Precedence::Range;
     case ParsedBinaryExpression::Operator::Multiply:
     case ParsedBinaryExpression::Operator::Divide:
     case ParsedBinaryExpression::Operator::Modulo:
@@ -385,10 +390,8 @@ static int precedence(ParsedBinaryExpression::Operator op) {
 
 static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token) {
     switch (token) {
-    case TokenType::Plus:
-        return ParsedBinaryExpression::Operator::Add;
-    case TokenType::Minus:
-        return ParsedBinaryExpression::Operator::Subtract;
+    case TokenType::DotDot:
+        return ParsedBinaryExpression::Operator::Range;
     case TokenType::Asterisk:
         return ParsedBinaryExpression::Operator::Multiply;
     case TokenType::Slash:
@@ -397,6 +400,10 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::Modulo;
     case TokenType::EqualEqual:
         return ParsedBinaryExpression::Operator::IsEqual;
+    case TokenType::Plus:
+        return ParsedBinaryExpression::Operator::Add;
+    case TokenType::Minus:
+        return ParsedBinaryExpression::Operator::Subtract;
     case TokenType::EqualSign:
         return ParsedBinaryExpression::Operator::Assign;
     case TokenType::PlusEqual:

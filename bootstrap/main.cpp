@@ -44,6 +44,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     if (!typechecker.errors().empty()) {
         return false;
     }
+    // program.print();
 
     Util::Writer writer { Util::std_out() };
     ESL::Codegen::CodeGenerator code_generator { writer, program };

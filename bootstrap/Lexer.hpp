@@ -59,7 +59,7 @@ enum class TokenType {
     // list much harder.
     Eof,
 
-    // Everything else. Probably will be rejected at parting stage.
+    // Everything else. Probably will be rejected at parsing stage.
     Garbage
 };
 
