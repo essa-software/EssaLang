@@ -147,7 +147,7 @@ struct CheckedStatement;
 
 struct CheckedBlock {
     ScopeId scope_id {};
-    std::vector<CheckedStatement> statements {};
+    std::vector<CheckedStatement> statements;
 };
 
 struct CheckedIfStatement {

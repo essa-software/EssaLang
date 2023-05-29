@@ -4,7 +4,12 @@
 #include "Typechecker.hpp"
 #include <EssaUtil/DisplayError.hpp>
 #include <EssaUtil/Stream.hpp>
+#include <EssaUtil/Stream/File.hpp>
 #include <EssaUtil/Stream/StandardStreams.hpp>
+#include <EssaUtil/Stream/Writer.hpp>
+#include <EssaUtil/UString.hpp>
+#include <filesystem>
+#include <string>
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     auto stream = TRY(Util::ReadableFileStream::open(file_name));
@@ -46,10 +51,32 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         return false;
     }
     // program.print();
+    std::filesystem::create_directory("build");
 
-    Util::Writer writer { Util::std_out() };
+    auto f_out = TRY(Util::WritableFileStream::open("build/main.cpp", Util::WritableFileStream::OpenOptions{}));
+
+    Util::Writer writer { f_out };
     ESL::Codegen::CodeGenerator code_generator { writer, program };
     TRY(code_generator.codegen());
+    auto cmake = TRY(Util::WritableFileStream::open("build/CMakeLists.txt", Util::WritableFileStream::OpenOptions{}));
+    Util::Writer cmake_writer(cmake);
+    TRY(cmake_writer.write(R"~~~(project(EssaLangTest)
+cmake_minimum_required(VERSION 3.17)
+
+find_package(EssaUtil REQUIRED)
+
+add_executable(EssaLangTest
+    main.cpp
+)
+target_link_libraries(EssaLangTest essautil)
+essautil_setup_target(EssaLangTest)
+set_property(TARGET EssaLangTest PROPERTY OUTPUT_NAME out)
+)~~~"));
+
+    system("cd build && cmake -GNinja . && ninja");
+    std::filesystem::rename("build/out", "out");
+    std::filesystem::remove_all("build");
+    
     return true;
 }
 
