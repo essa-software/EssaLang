@@ -48,8 +48,8 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
             }
             else {
                 // TODO: Infer type from return statements if possible
-                error("Function must have a return type", { function.name_range });
-                return m_program.unknown_type_id;
+                // error("Function must have a return type", { function.name_range });
+                return m_program.void_type_id;
             }
         }
         return type_id;
