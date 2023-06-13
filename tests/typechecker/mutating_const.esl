@@ -1,0 +1,8 @@
+func foo(): u32 {}
+
+func main() {
+    let const_thingy = 0;
+    const_thingy = 2137;
+    0 = 0;
+    foo() = 5;
+}

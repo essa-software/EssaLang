@@ -4,6 +4,7 @@
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/GenericParser.hpp>
 #include <EssaUtil/UString.hpp>
+#include <EssaUtil/UStringBuilder.hpp>
 #include <compare>
 #include <map>
 
@@ -111,7 +112,7 @@ struct CheckedExpression {
     struct StringLiteral {
         Util::UString value;
     };
-    TypeId type_id;
+    QualifiedType type;
     std::variant<Call,
         BinaryExpression,
         UnsignedIntegerLiteral,
@@ -340,6 +341,15 @@ struct CheckedProgram {
 
     Util::UString type_name(TypeId id) {
         return get_type(id).name();
+    }
+
+    Util::UString type_name(QualifiedType const& type) {
+        Util::UStringBuilder builder;
+        if (type.is_mut) {
+            builder.append("mut ");
+        }
+        builder.append(type_name(type.type_id));
+        return builder.release_string();
     }
 
     void print() const;

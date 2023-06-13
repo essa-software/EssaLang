@@ -206,7 +206,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
                 auto const& func = m_program.get_function(call.function_id);
                 m_writer.writeff("{}(", func->name.encode());
                 for (size_t s = 0; s < call.arguments.size(); s++) {
-                    if (func->name == "print" && s == 0 && m_program.get_type(call.arguments[s].type_id).name() == "string") {
+                    if (func->name == "print" && s == 0 && call.arguments[s].type.type_id == m_program.string_type_id) {
                         m_writer.writeff("\"{}\"", std::get<Typechecker::CheckedExpression::StringLiteral>(call.arguments[s].expression).value.encode());
                     }
                     else {

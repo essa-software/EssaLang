@@ -84,7 +84,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
 
                 auto type_id = m_program.unknown_type_id;
                 if (!value.type) {
-                    type_id = initializer.type_id;
+                    type_id = initializer.type.type_id;
                 }
                 else {
                     type_id = m_program.resolve_type(value.type->name);
@@ -96,7 +96,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     .initializer = std::move(initializer),
                 };
 
-                check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type_id, value.range);
+                check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type.type_id, value.range);
                 auto var_id = m_current_checked_module->add_variable(std::move(variable));
                 m_program.get_scope(m_current_scope).variables.insert({ value.name, var_id });
                 return CheckedStatement {
@@ -119,7 +119,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
             [&](Parser::ParsedIfStatement const& value) -> CheckedStatement {
                 auto condition = typecheck_expression(value.condition);
                 // TODO: range
-                if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type_id, {})) {
+                if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type.type_id, {})) {
                     error("If statement's condition must be a bool", {});
                     return {};
                 }
@@ -132,7 +132,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
             },
             [&](Parser::ParsedForStatement const& value) -> CheckedStatement {
                 auto iterable = typecheck_expression(value.iterable);
-                auto iterable_type = m_program.get_type(iterable.type_id);
+                auto iterable_type = m_program.get_type(iterable.type.type_id);
                 if (!iterable_type.is_iterable()) {
                     error(fmt::format("'{}' is not an iterable type", iterable_type.name().encode()), value.iterable_range);
                     return CheckedStatement {};
@@ -202,7 +202,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             [&](std::unique_ptr<Parser::ParsedIntegerLiteral> const& integer_literal) {
                 assert(integer_literal->value >= 0);
                 return CheckedExpression {
-                    .type_id = m_program.u32_type_id,
+                    .type = { .type_id = m_program.u32_type_id, .is_mut = false },
                     .expression = CheckedExpression::UnsignedIntegerLiteral {
                         .type_id = m_program.u32_type_id,
                         .value = static_cast<uint64_t>(integer_literal->value),
@@ -211,7 +211,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             },
             [&](std::unique_ptr<Parser::ParsedStringLiteral> const& string_literal) {
                 return CheckedExpression {
-                    .type_id = m_program.string_type_id,
+                    .type = { .type_id = m_program.string_type_id, .is_mut = false },
                     .expression = CheckedExpression::StringLiteral { .value = string_literal->value },
                 };
             },
@@ -227,7 +227,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 assert(resolved_id.type == ResolvedIdentifier::Type::Variable);
                 // fmt::print("VAR {} {}.{}\n", identifier->id.encode(), resolved_id.module, resolved_id.id);
                 return CheckedExpression {
-                    .type_id = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type.type_id,
+                    .type = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type,
                     .expression = std::move(resolved_id),
                 };
             },
@@ -248,7 +248,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
 
                 auto& function = get_function(FunctionId { identifier.module, identifier.id });
                 return CheckedExpression {
-                    .type_id = function.return_type,
+                    .type = { .type_id = function.return_type, .is_mut = false },
                     .expression = CheckedExpression::Call {
                         .function_id = FunctionId { identifier.module, identifier.id },
                         .arguments = std::move(arguments),
@@ -266,38 +266,42 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
     checked_expression.rhs = std::make_unique<CheckedExpression>(typecheck_expression(expression.rhs));
 
     if (expression.operator_ == Parser::ParsedBinaryExpression::Operator::Range) {
-        if (checked_expression.lhs->type_id != m_program.u32_type_id) {
+        if (checked_expression.lhs->type.type_id != m_program.u32_type_id) {
             error("Begin of a range must be an integer", expression.operator_range);
             return CheckedExpression::invalid(m_program);
         }
-        if (checked_expression.rhs->type_id != m_program.u32_type_id) {
+        if (checked_expression.rhs->type.type_id != m_program.u32_type_id) {
             error("End of a range must be an integer", expression.operator_range);
             return CheckedExpression::invalid(m_program);
         }
-        return { .type_id = m_program.range_type_id, .expression = std::move(checked_expression) };
+        return { .type = { .type_id = m_program.range_type_id, .is_mut = false }, .expression = std::move(checked_expression) };
     }
 
     if (expression.is_assignment()) {
-        if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
+        if (!checked_expression.lhs->type.is_mut) {
+            error("Cannot assign to non-mutable expression", expression.operator_range);
             return CheckedExpression::invalid(m_program);
-        return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };
+        }
+        if (!check_type_compatibility(TypeCompatibility::Assignment, checked_expression.lhs->type.type_id, checked_expression.rhs->type.type_id, expression.operator_range))
+            return CheckedExpression::invalid(m_program);
+        return { .type = { .type_id = m_program.bool_type_id, .is_mut = false }, .expression = std::move(checked_expression) };
     }
 
     if (expression.is_comparison()) {
-        if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type_id, checked_expression.rhs->type_id, expression.operator_range))
+        if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type.type_id, checked_expression.rhs->type.type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);
-        return { .type_id = m_program.bool_type_id, .expression = std::move(checked_expression) };
+        return { .type = { .type_id = m_program.bool_type_id, .is_mut = false }, .expression = std::move(checked_expression) };
     }
 
-    if (checked_expression.lhs->type_id != checked_expression.rhs->type_id) {
+    if (checked_expression.lhs->type.type_id != checked_expression.rhs->type.type_id) {
         error(fmt::format("Could not find operator '{}' for '{}' and '{}'",
                   Parser::ParsedBinaryExpression::operator_to_string(expression.operator_),
-                  m_program.type_name(checked_expression.rhs->type_id).encode(),
-                  m_program.type_name(checked_expression.lhs->type_id).encode()),
+                  m_program.type_name(checked_expression.rhs->type).encode(),
+                  m_program.type_name(checked_expression.lhs->type).encode()),
             expression.operator_range);
     }
 
-    return { .type_id = checked_expression.lhs->type_id, .expression = std::move(checked_expression) };
+    return { .type = checked_expression.lhs->type, .expression = std::move(checked_expression) };
 }
 
 bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, std::optional<Util::SourceRange> range) {
@@ -368,7 +372,7 @@ CheckedFunction const& Typechecker::get_function(FunctionId id) {
 }
 
 CheckedExpression CheckedExpression::invalid(CheckedProgram const& program) {
-    return CheckedExpression { .type_id = program.unknown_type_id, .expression = std::monostate {} };
+    return CheckedExpression { .type = { .type_id = program.unknown_type_id, .is_mut = false }, .expression = std::monostate {} };
 }
 
 void CheckedVariable::print(CheckedProgram const& program) const {
