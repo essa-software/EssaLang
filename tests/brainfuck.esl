@@ -5,8 +5,16 @@ import fs;
 // `-> arg` says that return value is passed as argument
 // so that is is not copied or even moved. The dereference 
 // of a first argument will be used as return type.
-function zero(retval: *[30000]u8, ) -> arg {
+function zero(retval: *[30000]u8) -> arg {
     mem.set(retval, 0);
+}
+// alternative syntax
+function zero(return retval: *[30000]u8) {
+    mem.set(retval, 0);
+}
+// or just
+function zero(return: *[30000]u8) {
+    mem.set(return, 0);
 }
 
 func main(args: []string) {
@@ -30,7 +38,7 @@ func main(args: []string) {
         // The result of the statement will be used as evaluation result of the
         // block. (It is an error when no value is given here)
         if (input_filename == "-") {
-            sys.stdin;
+            yield sys.stdin;
         } else {
             fs.open(*input_filename, Read) catch(e) {
                 stderr.println("failed to open file: {}", e);
@@ -99,7 +107,7 @@ func main(args: []string) {
             ']': {
                 // TODO  
             };
-            else: {}; // Ignore all the other cases. Maybe needs explicit keyword but not necessarily.
+            else: {}; // Ignore all the other cases. Maybe needs explicit keyword but not necessarily (e.g Python uses "pass")
         }
         ip++; // This also may overflow.
     }
