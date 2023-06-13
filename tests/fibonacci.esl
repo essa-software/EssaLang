@@ -1,6 +1,6 @@
 // output: 8
 
-func fib(n: u32) {
+func fib(n: u32): u32 {
     mut a = 1;
     mut b = 0;
     for (let i of 0..n) { // 0,1,2,3,...,n-1

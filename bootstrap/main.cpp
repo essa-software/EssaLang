@@ -51,32 +51,41 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         return false;
     }
     // program.print();
+    std::filesystem::remove_all("build");
     std::filesystem::create_directory("build");
 
-    auto f_out = TRY(Util::WritableFileStream::open("build/main.cpp", Util::WritableFileStream::OpenOptions{}));
+    auto f_out = TRY(Util::WritableFileStream::open("build/main.cpp", Util::WritableFileStream::OpenOptions {}));
 
     Util::Writer writer { f_out };
     ESL::Codegen::CodeGenerator code_generator { writer, program };
     TRY(code_generator.codegen());
-    auto cmake = TRY(Util::WritableFileStream::open("build/CMakeLists.txt", Util::WritableFileStream::OpenOptions{}));
+    auto cmake = TRY(Util::WritableFileStream::open("build/CMakeLists.txt", Util::WritableFileStream::OpenOptions {}));
     Util::Writer cmake_writer(cmake);
+
     TRY(cmake_writer.write(R"~~~(project(EssaLangTest)
 cmake_minimum_required(VERSION 3.17)
 
-find_package(EssaUtil REQUIRED)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+
+find_package(fmt REQUIRED)
 
 add_executable(EssaLangTest
     main.cpp
 )
-target_link_libraries(EssaLangTest essautil)
-essautil_setup_target(EssaLangTest)
+
+# FIXME: Don't rebuild runtime for every project!
+set(ESL_RUNTIME )~~~"));
+    TRY(cmake_writer.write(ESL_DIR));
+    TRY(cmake_writer.write(R"~~~(/runtime)
+add_subdirectory(${ESL_RUNTIME} build/runtime)
+target_link_libraries(EssaLangTest PRIVATE EssaLangRuntime)
+target_include_directories(EssaLangTest PRIVATE ${ESL_RUNTIME}/..)
+
 set_property(TARGET EssaLangTest PROPERTY OUTPUT_NAME out)
 )~~~"));
 
     system("cd build && cmake -GNinja . && ninja");
-    std::filesystem::rename("build/out", "out");
-    std::filesystem::remove_all("build");
-    
     return true;
 }
 
