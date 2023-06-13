@@ -1,8 +1,8 @@
 // output: 2, 10
 
 func main() {
-    let a = 5;
-    let b = 10;
+    mut a = 5;
+    mut b = 10;
     a *= b; // a = 50
     b = a; // b = 50
     a -= 25; // a = 25
