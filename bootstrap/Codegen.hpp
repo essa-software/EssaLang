@@ -18,6 +18,7 @@ private:
     Util::OsErrorOr<void> codegen_epilogue();
     Util::OsErrorOr<void> codegen_function(Typechecker::CheckedFunction const&);
     Util::OsErrorOr<void> codegen_type(Typechecker::Type const&);
+    Util::OsErrorOr<void> codegen_qualified_type(Typechecker::QualifiedType const&);
     Util::OsErrorOr<void> codegen_statement(Typechecker::CheckedStatement const&);
     Util::OsErrorOr<void> codegen_block(Typechecker::CheckedBlock const&);
     Util::OsErrorOr<void> codegen_expression(Typechecker::CheckedExpression const&);

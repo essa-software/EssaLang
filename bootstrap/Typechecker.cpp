@@ -92,8 +92,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
 
                 CheckedVariable variable {
                     .name = value.name,
-                    .type_id = type_id,
-                    .is_mut = value.is_mut,
+                    .type = { .type_id = type_id, .is_mut = value.is_mut },
                     .initializer = std::move(initializer),
                 };
 
@@ -145,8 +144,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                 SCOPED_SCOPE(scope_id);
                 auto variable = m_current_checked_module->add_variable({
                     .name = value.variable,
-                    .type_id = iterable_value_type,
-                    .is_mut = false,
+                    .type = { .type_id = iterable_value_type, .is_mut = false },
                     .initializer = {},
                 });
                 m_program.get_scope(m_current_scope).variables.insert({ value.variable, variable });
@@ -190,8 +188,7 @@ CheckedParameter Typechecker::typecheck_parameter(Parser::ParsedParameter const&
 
     auto var_id = m_current_checked_module->add_variable(CheckedVariable {
         .name = parameter.name,
-        .type_id = m_program.resolve_type(parameter.type.name),
-        .is_mut = false,
+        .type = { .type_id = m_program.resolve_type(parameter.type.name), .is_mut = false },
         .initializer = {},
     });
     scope.variables.insert({ parameter.name, var_id });
@@ -230,7 +227,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 assert(resolved_id.type == ResolvedIdentifier::Type::Variable);
                 // fmt::print("VAR {} {}.{}\n", identifier->id.encode(), resolved_id.module, resolved_id.id);
                 return CheckedExpression {
-                    .type_id = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type_id,
+                    .type_id = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type.type_id,
                     .expression = std::move(resolved_id),
                 };
             },
@@ -375,7 +372,7 @@ CheckedExpression CheckedExpression::invalid(CheckedProgram const& program) {
 }
 
 void CheckedVariable::print(CheckedProgram const& program) const {
-    fmt::print("{} {}: {} = <expr>", is_mut ? "mut" : "let", name.encode(), program.get_type(type_id).name().encode());
+    fmt::print("{} {}: {} = <expr>", type.is_mut ? "mut" : "let", name.encode(), program.get_type(type.type_id).name().encode());
 }
 
 void CheckedProgram::print() const {

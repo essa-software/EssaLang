@@ -83,8 +83,8 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFuncti
     for (size_t s = 0; s < function.parameters.size(); s++) {
         auto const& param = function.parameters[s];
         auto const& var = m_program.get_variable(param.second.var_id);
-        TRY(codegen_type(m_program.get_type(var.type_id)));
-        m_writer.writeff(" {} {}", var.is_mut ? "" : "const", var.name.encode());
+        TRY(codegen_qualified_type(var.type));
+        m_writer.writeff(" {}", var.name.encode());
         if (s != function.parameters.size() - 1) {
             TRY(m_writer.write(", "));
         }
@@ -127,13 +127,21 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
     return {};
 }
 
+Util::OsErrorOr<void> CodeGenerator::codegen_qualified_type(Typechecker::QualifiedType const& type) {
+    TRY(codegen_type(m_program.get_type(type.type_id)));
+    if (!type.is_mut) {
+        TRY(m_writer.write(" const"));
+    }
+    return {};
+}
+
 Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedStatement const& stmt) {
     return std::visit(
         Util::Overloaded {
             [&](Typechecker::CheckedVariableDeclaration const& decl) -> Util::OsErrorOr<void> {
                 auto const& var = m_program.get_variable(decl.var_id);
-                TRY(codegen_type(m_program.get_type(var.type_id)));
-                m_writer.writeff(" {} {}", var.is_mut ? "" : "const", var.name.encode());
+                TRY(codegen_qualified_type(var.type));
+                m_writer.writeff(" {}", var.name.encode());
                 if (var.initializer) {
                     m_writer.writeff(" = ");
                     TRY(codegen_expression(*var.initializer));

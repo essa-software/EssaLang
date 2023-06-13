@@ -75,6 +75,12 @@ using VarId = Id<struct VarId_TAG>;
 using FunctionId = Id<struct FunctionId_TAG>;
 using ScopeId = Id<struct ScopeId_TAG>;
 
+// Type with all its qualifiers
+struct QualifiedType {
+    TypeId type_id;
+    bool is_mut = false;
+};
+
 struct ResolvedIdentifier {
     enum class Type {
         Variable,
@@ -119,8 +125,7 @@ struct CheckedExpression {
 
 struct CheckedVariable {
     Util::UString name;
-    TypeId type_id;
-    bool is_mut = false;
+    QualifiedType type;
     std::optional<CheckedExpression> initializer;
 
     void print(CheckedProgram const& program) const;
