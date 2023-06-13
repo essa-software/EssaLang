@@ -183,7 +183,7 @@ struct CheckedStatement {
 struct CheckedFunction {
     Util::UString name;
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
-    std::optional<CheckedBlock> body; // No body = extern function
+    std::optional<CheckedBlock> body; // No body = extern function (or just not checked yet)
     TypeId return_type;
     ScopeId argument_scope_id;
 };
@@ -378,7 +378,10 @@ private:
         m_errors.push_back({ std::move(message), range });
     }
 
+    // First pass: only signature (return value & args)
     CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
+    // Second pass: body
+    void typecheck_function_body(CheckedFunction&, Parser::ParsedFunctionDeclaration const&);
     CheckedStatement typecheck_statement(Parser::ParsedStatement const&);
     CheckedBlock typecheck_block(Parser::ParsedBlock const&);
     CheckedParameter typecheck_parameter(Parser::ParsedParameter const&);

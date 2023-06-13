@@ -1,5 +1,6 @@
 #include "Typechecker.hpp"
-#include "bootstrap/Parser.hpp"
+
+#include "Parser.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ScopeGuard.hpp>
 
@@ -15,9 +16,15 @@ CheckedProgram const& Typechecker::typecheck() {
             m_current_checked_module->function_to_id.insert({ func.name, function_id });
         }
 
-        // 2. Typecheck functions and their bodies.
+        // 2. Typecheck functions (first pass)
         for (auto& func : m_current_checked_module->function_to_id) {
             get_function(func.second);
+        }
+
+        // 3. Typecheck function bodies.
+        for (auto& func : m_current_checked_module->function_to_id) {
+            auto& checked_function = *m_program.get_function(func.second);
+            typecheck_function_body(checked_function, m_parsed_file.modules[func.second.module()].function_declarations[func.second.id()]);
         }
     }
     return m_program;
@@ -70,10 +77,14 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     for (auto const& param : function.parameters) {
         checked_function.parameters.push_back(std::make_pair(param.name, typecheck_parameter(param)));
     }
+    return checked_function;
+}
+
+void Typechecker::typecheck_function_body(CheckedFunction& checked_function, Parser::ParsedFunctionDeclaration const& function) {
+    SCOPED_SCOPE(checked_function.argument_scope_id);
     if (function.body) {
         checked_function.body = typecheck_block(*function.body);
     }
-    return checked_function;
 }
 
 CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const& stmt) {

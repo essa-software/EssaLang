@@ -1,0 +1,11 @@
+// output: 120
+func foo(n: u32): u32 {
+    if (n == 0) {
+        return 1;
+    }
+    return n * foo(n - 1);
+}
+
+func main() {
+    print("{}", foo(5));
+}
