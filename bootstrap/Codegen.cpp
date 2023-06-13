@@ -292,7 +292,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::Chec
         TRY(m_writer.write("*="));
         break;
     case Parser::ParsedBinaryExpression::Operator::AssignDivide:
-        TRY(m_writer.write("/*="));
+        TRY(m_writer.write("/="));
         break;
     case Parser::ParsedBinaryExpression::Operator::AssignModulo:
         TRY(m_writer.write("%="));
