@@ -77,10 +77,10 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
                 .end_offset = error.range.end.offset,
             });
     }
+    program.print();
     if (!typechecker.errors().empty()) {
         return false;
     }
-    // program.print();
     std::filesystem::remove_all("build");
     std::filesystem::create_directory("build");
 

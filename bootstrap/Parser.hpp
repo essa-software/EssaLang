@@ -8,8 +8,24 @@
 
 namespace ESL::Parser {
 
-struct ParsedType {
+struct ParsedType;
+
+struct ParsedArrayType {
+    size_t size; // TODO: This should be an expression
+    std::unique_ptr<ParsedType> type;
+};
+
+struct ParsedUnqualifiedType {
     Util::UString name;
+
+    void print() const;
+};
+
+struct ParsedType {
+    std::variant<
+        ParsedUnqualifiedType,
+        ParsedArrayType>
+        type;
 
     void print() const;
 };
@@ -44,6 +60,7 @@ struct ParsedStringLiteral {
 
     void print(size_t depth) const;
 };
+
 struct ParsedIdentifier {
     Util::UString id;
 
@@ -52,9 +69,7 @@ struct ParsedIdentifier {
     void print(size_t depth) const;
 };
 
-struct ParsedIntegerLiteral;
-struct ParsedStringLiteral;
-struct ParsedIdentifier;
+struct ParsedInlineArray;
 struct ParsedBinaryExpression;
 struct ParsedCall;
 
@@ -63,10 +78,18 @@ struct ParsedExpression {
     std::variant<
         std::unique_ptr<ParsedIntegerLiteral>,
         std::unique_ptr<ParsedStringLiteral>,
+        std::unique_ptr<ParsedInlineArray>,
         std::unique_ptr<ParsedIdentifier>,
         std::unique_ptr<ParsedBinaryExpression>,
         std::unique_ptr<ParsedCall>>
         expression;
+
+    void print(size_t depth) const;
+};
+
+struct ParsedInlineArray {
+    std::vector<ParsedExpression> elements;
+    Util::SourceRange range;
 
     void print(size_t depth) const;
 };
@@ -198,6 +221,8 @@ public:
 private:
     Util::ParseErrorOr<std::unique_ptr<ParsedBlock>> parse_block();
     Util::ParseErrorOr<ParsedStatement> parse_statement();
+    Util::ParseErrorOr<ParsedArrayType> parse_array_type();
+    Util::ParseErrorOr<ParsedInlineArray> parse_inline_array();
     Util::ParseErrorOr<ParsedType> parse_type();
     Util::ParseErrorOr<ParsedFunctionDeclaration> parse_function_declaration();
     Util::ParseErrorOr<ParsedVariableDeclaration> parse_variable_declaration();
@@ -207,6 +232,7 @@ private:
     Util::ParseErrorOr<ParsedExpression> parse_expression(int min_precedence);
     Util::ParseErrorOr<ParsedExpression> parse_primary_expression();
     Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
+    Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
     Util::ParseErrorOr<std::unique_ptr<ParsedCall>> parse_call_arguments(Util::UString id);
 };
 

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <bits/ranges_algobase.h>
 #include <fmt/format.h>
 #include <runtime/UString.hpp>
 
@@ -31,6 +33,15 @@ public:
 private:
     uint64_t m_begin;
     uint64_t m_end;
+};
+
+struct EmptyArray {
+    template<class T, size_t S>
+    operator std::array<T, S>() const {
+        std::array<T, S> a;
+        std::ranges::fill(a, T());
+        return a;
+    }
 };
 
 }

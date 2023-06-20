@@ -42,6 +42,17 @@ void ParsedFunctionDeclaration::print() const {
 }
 
 void ParsedType::print() const {
+    std::visit(
+        Util::Overloaded {
+            [](ParsedUnqualifiedType const& t) { t.print(); },
+            [](ParsedArrayType const& t) {
+                fmt::print("[{}]", t.size);
+                t.type->print();
+            } },
+        type);
+}
+
+void ParsedUnqualifiedType::print() const {
     fmt::print("{}", name.encode());
 }
 
@@ -71,6 +82,11 @@ void ParsedIntegerLiteral::print(size_t depth) const {
 void ParsedStringLiteral::print(size_t depth) const {
     indent(depth);
     fmt::print("\"{}\"", value.encode());
+}
+
+void ParsedInlineArray::print(size_t depth) const {
+    indent(depth);
+    fmt::print("[...TODO...]");
 }
 
 void ParsedIdentifier::print(size_t depth) const {
@@ -188,7 +204,7 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     // Hardcode prelude for now
     file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration {
         .name = "print",
-        .return_type = ParsedType { .name = "void" },
+        .return_type = ParsedType { .type = ParsedUnqualifiedType { .name = "void" } },
         .parameters = {},
         .body = nullptr,
         .name_range = {},
@@ -247,19 +263,42 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     return expr;
 }
 
+Util::ParseErrorOr<ParsedArrayType> Parser::parse_array_type() {
+    get(); // [
+    auto size_token = TRY(expect(TokenType::Number));
+    auto size = TRY(size_token.value().parse<size_t>().map_error(Util::OsToParseError(size_token.range())));
+    TRY(expect(TokenType::BraceClose)); // ]
+
+    return ParsedArrayType { .size = size, .type = std::make_unique<ParsedType>(TRY(parse_type())) };
+}
+
+Util::ParseErrorOr<ParsedInlineArray> Parser::parse_inline_array() {
+    auto start = this->offset();
+    get(); // [
+    auto elements = TRY(parse_expression_list(TokenType::BraceClose));
+    TRY(expect(TokenType::BraceClose)); // ]
+    return ParsedInlineArray { .elements = std::move(elements), .range = this->range(start, this->offset() - start) };
+}
+
 Util::ParseErrorOr<ParsedType> Parser::parse_type() {
-    auto token = get();
+    auto token = peek();
+
+    if (token->type() == Token::Type::BraceOpen) {
+        return ParsedType { .type = TRY(parse_array_type()) };
+    }
+
+    get();
     if (token->type() == TokenType::KeywordBool) {
-        return ParsedType { .name = "bool" };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "bool" } };
     }
     if (token->type() == TokenType::KeywordString) {
-        return ParsedType { .name = "string" };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "string" } };
     }
     if (token->type() == TokenType::KeywordU32) {
-        return ParsedType { .name = "u32" };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "u32" } };
     }
     if (token->type() == TokenType::KeywordVoid) {
-        return ParsedType { .name = "void" };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "void" } };
     }
     return error_in_already_read("Invalid type (TODO: Custom types)");
 }
@@ -504,15 +543,18 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
 }
 
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
-    auto token = get();
+    auto token = peek();
     if (token->type() == TokenType::Number) {
+        token = get();
         return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral {
                                       .value = TRY(token->value().parse<int64_t>().map_error(Util::OsToParseError { token->range() })) }) };
     }
     if (token->type() == TokenType::StringLiteral) {
+        token = get();
         return ParsedExpression { .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }) };
     }
     if (token->type() == TokenType::Identifier) {
+        token = get();
         Util::UString id { token->value() };
         if (next_token_is(TokenType::ParenOpen)) {
             auto name_range = range(offset() - 1, 1);
@@ -527,6 +569,9 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
             })
         };
     }
+    if (token->type() == TokenType::BraceOpen) {
+        return ParsedExpression { .expression = std::make_unique<ParsedInlineArray>(TRY(parse_inline_array())) };
+    }
     return expected("expression", *token);
 }
 
@@ -535,22 +580,25 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_expression(int min_precedence
     return TRY(parse_operand(std::move(lhs), min_precedence));
 }
 
-Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Util::UString id) {
-    get(); // (
-    if (next_token_is(TokenType::ParenClose)) {
-        get(); // )
-        return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = {}, .name_range {} });
-    }
-    std::vector<ParsedExpression> arguments;
+Util::ParseErrorOr<std::vector<ParsedExpression>> Parser::parse_expression_list(TokenType end_token) {
+    std::vector<ParsedExpression> expressions;
     while (true) {
-        arguments.push_back(TRY(parse_expression(0)));
+        if (peek()->type() == end_token) {
+            break;
+        }
+        expressions.push_back(TRY(parse_expression(0)));
         if (!next_token_is(TokenType::Comma)) {
             break;
         }
         get();
     }
+    return expressions;
+}
+
+Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Util::UString id) {
+    get(); // (
+    std::vector<ParsedExpression> arguments = TRY(parse_expression_list(TokenType::ParenClose));
     TRY(expect(TokenType::ParenClose));
     return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments), .name_range {} });
 }
-
 }

@@ -61,25 +61,41 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFuncti
 }
 
 Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type) {
-    switch (type.type) {
-    case Typechecker::Type::Primitive::Unknown:
-        ESSA_UNREACHABLE;
-    case Typechecker::Type::Primitive::Void:
-        TRY(m_writer.write("void"));
-        break;
-    case Typechecker::Type::Primitive::Bool:
-        TRY(m_writer.write("bool"));
-        break;
-    case Typechecker::Type::Primitive::U32:
-        TRY(m_writer.write("uint32_t"));
-        break;
-    case Typechecker::Type::Primitive::String:
-        TRY(m_writer.write("Util::UString"));
-        break;
-    case Typechecker::Type::Primitive::Range:
-        TRY(m_writer.write("___Esl::Range"));
-        break;
-    }
+    return std::visit(
+        Util::Overloaded {
+            [&](Typechecker::PrimitiveType const& primitive) -> Util::OsErrorOr<void> {
+                switch (primitive.type) {
+                case Typechecker::PrimitiveType::Unknown:
+                    ESSA_UNREACHABLE;
+                case Typechecker::PrimitiveType::Void:
+                    TRY(m_writer.write("void"));
+                    break;
+                case Typechecker::PrimitiveType::Bool:
+                    TRY(m_writer.write("bool"));
+                    break;
+                case Typechecker::PrimitiveType::U32:
+                    TRY(m_writer.write("uint32_t"));
+                    break;
+                case Typechecker::PrimitiveType::String:
+                    TRY(m_writer.write("Util::UString"));
+                    break;
+                case Typechecker::PrimitiveType::Range:
+                    TRY(m_writer.write("___Esl::Range"));
+                    break;
+                case Typechecker::PrimitiveType::EmptyArray:
+                    TRY(m_writer.write("___Esl::EmptyArray"));
+                    break;
+                }
+                return {};
+            },
+            [&](Typechecker::ArrayType const& array) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("std::array<"));
+                TRY(codegen_type(m_program.get_type(array.inner)));
+                m_writer.writeff(", {}>", array.size);
+                return {};
+            },
+        },
+        type.type);
     return {};
 }
 
@@ -185,6 +201,23 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
             [&](Typechecker::CheckedExpression::StringLiteral const& expr) -> Util::OsErrorOr<void> {
                 // TODO: Escape
                 m_writer.writeff("Util::UString{{\"{}\"}}", expr.value.encode());
+                return {};
+            },
+            [&](Typechecker::CheckedExpression::EmptyInlineArray const&) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("___Esl::EmptyArray{}"));
+                return {};
+            },
+            [&](Typechecker::CheckedExpression::InlineArray const& array) -> Util::OsErrorOr<void> {
+                auto type = m_program.get_type(array.element_type_id);
+                m_writer.writeff("std::array<{}, ", array.elements.size());
+                TRY(codegen_type(type));
+                TRY(m_writer.write(">{"));
+                for (size_t s = 0; s < array.elements.size(); s++) {
+                    TRY(codegen_expression(array.elements[s]));
+                    if (s != array.elements.size() - 1)
+                        TRY(m_writer.write(", "));
+                }
+                TRY(m_writer.write("}"));
                 return {};
             },
             [&](Typechecker::ResolvedIdentifier const& expr) -> Util::OsErrorOr<void> {

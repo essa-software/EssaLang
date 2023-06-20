@@ -104,6 +104,12 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 }
                 operator_type = TokenType::Asterisk;
                 break;
+            case '[':
+                operator_type = TokenType::BraceOpen;
+                break;
+            case ']':
+                operator_type = TokenType::BraceClose;
+                break;
             case ':':
                 operator_type = TokenType::Colon;
                 break;

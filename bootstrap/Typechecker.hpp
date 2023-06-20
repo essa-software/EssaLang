@@ -10,46 +10,7 @@
 
 namespace ESL::Typechecker {
 
-struct Type {
-    enum class Primitive {
-        Unknown,
-        Void,
-        U32,
-        Bool,
-        String,
-        Range
-    };
-    Primitive type;
-
-    Util::UString name() const {
-        switch (type) {
-        case Primitive::Unknown:
-            return "unknown";
-        case Primitive::Void:
-            return "void";
-        case Primitive::U32:
-            return "u32";
-        case Primitive::Bool:
-            return "bool";
-        case Primitive::String:
-            return "string";
-        case Primitive::Range:
-            return "range";
-        }
-        ESSA_UNREACHABLE;
-    }
-
-    bool is_iterable() const { return type == Primitive::Range; }
-
-    Util::UString iterable_value_type() const {
-        switch (type) {
-        case Primitive::Range:
-            return "u32";
-        default:
-            return "unknown";
-        }
-    }
-};
+struct Type;
 
 template<class TAG>
 struct Id {
@@ -76,6 +37,70 @@ using VarId = Id<struct VarId_TAG>;
 using FunctionId = Id<struct FunctionId_TAG>;
 using ScopeId = Id<struct ScopeId_TAG>;
 
+struct CheckedProgram;
+
+struct PrimitiveType {
+    enum Primitive {
+        Unknown,
+        Void,
+        U32,
+        Bool,
+        String,
+        Range,
+        EmptyArray,
+    };
+    Primitive type;
+
+    Util::UString name(CheckedProgram const&) const {
+        switch (type) {
+        case Primitive::Unknown:
+            return "unknown";
+        case Primitive::Void:
+            return "void";
+        case Primitive::U32:
+            return "u32";
+        case Primitive::Bool:
+            return "bool";
+        case Primitive::String:
+            return "string";
+        case Primitive::Range:
+            return "range";
+        case Primitive::EmptyArray:
+            return "<empty array>";
+        }
+        ESSA_UNREACHABLE;
+    }
+
+    std::optional<TypeId> iterable_type(CheckedProgram const& program) const;
+    bool operator==(PrimitiveType const&) const = default;
+};
+
+struct ArrayType {
+    TypeId inner;
+    size_t size;
+
+    Util::UString name(CheckedProgram const&) const;
+
+    std::optional<TypeId> iterable_type(CheckedProgram const& program) const;
+    bool operator==(ArrayType const&) const = default;
+};
+
+struct Type {
+    std::variant<
+        PrimitiveType,
+        ArrayType>
+        type;
+
+    Util::UString name(CheckedProgram const& program) const {
+        return std::visit([&](auto const& t) { return t.name(program); }, type);
+    }
+    std::optional<TypeId> iterable_type(CheckedProgram const& program) const {
+        return std::visit([&](auto const& t) { return t.iterable_type(program); }, type);
+    }
+
+    bool operator==(Type const&) const = default;
+};
+
 // Type with all its qualifiers
 struct QualifiedType {
     TypeId type_id;
@@ -92,8 +117,6 @@ struct ResolvedIdentifier {
     size_t module;
     size_t id;
 };
-
-struct CheckedProgram;
 
 struct CheckedExpression {
     struct Call {
@@ -112,11 +135,19 @@ struct CheckedExpression {
     struct StringLiteral {
         Util::UString value;
     };
+    // FIXME: This should not be separate. Make this working with type inference + generics ??
+    struct EmptyInlineArray { };
+    struct InlineArray {
+        TypeId element_type_id;
+        std::vector<CheckedExpression> elements;
+    };
     QualifiedType type;
     std::variant<Call,
         BinaryExpression,
         UnsignedIntegerLiteral,
         StringLiteral,
+        EmptyInlineArray,
+        InlineArray,
         ResolvedIdentifier,
         std::monostate>
         expression;
@@ -237,6 +268,15 @@ struct Module {
         return TypeId { m_id, m_types.size() - 1 };
     }
 
+    TypeId get_or_add_type(Type type) {
+        for (size_t i = 0; i < m_types.size(); ++i) {
+            if (m_types[i] == type) {
+                return TypeId { m_id, i };
+            }
+        }
+        return add_type(std::move(type));
+    }
+
     ScopeId add_scope(ScopeId parent) {
         m_scopes.emplace_back(Scope { .parent = parent });
         return ScopeId { m_id, m_scopes.size() - 1 };
@@ -266,16 +306,22 @@ struct CheckedProgram {
     TypeId bool_type_id {};
     TypeId string_type_id {};
     TypeId range_type_id {};
+    TypeId empty_array_type_id {};
 
     CheckedProgram()
         : m_prelude_module(0)
         , m_root_module(1) {
-        unknown_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Unknown }) };
-        void_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Void }) };
-        u32_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::U32 }) };
-        bool_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Bool }) };
-        string_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::String }) };
-        range_type_id = { m_prelude_module.add_type(Type { .type = Type::Primitive::Range }) };
+        auto create_primitive = [&](PrimitiveType::Primitive primitive) -> TypeId {
+            return { m_prelude_module.add_type(Type { .type = PrimitiveType { .type = primitive } }) };
+        };
+        unknown_type_id = create_primitive(PrimitiveType::Unknown);
+        void_type_id = create_primitive(PrimitiveType::Void);
+        u32_type_id = create_primitive(PrimitiveType::U32);
+        bool_type_id = create_primitive(PrimitiveType::Bool);
+        string_type_id = create_primitive(PrimitiveType::String);
+        range_type_id = create_primitive(PrimitiveType::Range);
+        // FIXME: This is a hack to allow default-initialization using empty array syntax.
+        empty_array_type_id = create_primitive(PrimitiveType::EmptyArray);
     }
 
     Module const& module(size_t id) const {
@@ -326,24 +372,13 @@ struct CheckedProgram {
         return module(id.module()).get_variable(id.id());
     }
 
-    TypeId resolve_type(Util::UString const& name) {
-        if (name == "u32") {
-            return u32_type_id;
-        }
-        if (name == "string") {
-            return string_type_id;
-        }
-        if (name == "void") {
-            return void_type_id;
-        }
-        return unknown_type_id;
+    TypeId resolve_type(Parser::ParsedType const& type);
+
+    Util::UString type_name(TypeId id) const {
+        return get_type(id).name(*this);
     }
 
-    Util::UString type_name(TypeId id) {
-        return get_type(id).name();
-    }
-
-    Util::UString type_name(QualifiedType const& type) {
+    Util::UString type_name(QualifiedType const& type) const {
         Util::UStringBuilder builder;
         if (type.is_mut) {
             builder.append("mut ");

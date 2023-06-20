@@ -3,8 +3,21 @@
 #include "Parser.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ScopeGuard.hpp>
+#include <variant>
 
 namespace ESL::Typechecker {
+
+Util::UString ArrayType::name(CheckedProgram const& program) const {
+    return Util::UString::format("[{}]{}", size, program.get_type(inner).name(program).encode());
+}
+
+std::optional<TypeId> PrimitiveType::iterable_type(CheckedProgram const& program) const {
+    return type == PrimitiveType::Range ? std::optional(program.u32_type_id) : std::nullopt;
+}
+
+std::optional<TypeId> ArrayType::iterable_type(CheckedProgram const&) const {
+    return inner;
+}
 
 CheckedProgram const& Typechecker::typecheck() {
     for (size_t s = 0; s < m_parsed_file.modules.size(); s++) {
@@ -41,7 +54,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     TypeId return_type = [&function, this]() {
         TypeId type_id { m_program.unknown_type_id };
         if (function.return_type) {
-            type_id = m_program.resolve_type(function.return_type->name);
+            type_id = m_program.resolve_type(*function.return_type);
             if (function.name == "main") {
                 // TODO: Change it to i32.
                 if (type_id != m_program.u32_type_id) {
@@ -98,7 +111,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     type_id = initializer.type.type_id;
                 }
                 else {
-                    type_id = m_program.resolve_type(value.type->name);
+                    type_id = m_program.resolve_type(*value.type);
                 }
 
                 CheckedVariable variable {
@@ -143,19 +156,18 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
             },
             [&](Parser::ParsedForStatement const& value) -> CheckedStatement {
                 auto iterable = typecheck_expression(value.iterable);
-                auto iterable_type = m_program.get_type(iterable.type.type_id);
-                if (!iterable_type.is_iterable()) {
-                    error(fmt::format("'{}' is not an iterable type", iterable_type.name().encode()), value.iterable_range);
+                auto container_type = m_program.get_type(iterable.type.type_id);
+                auto value_type = container_type.iterable_type(m_program);
+                if (!value_type) {
+                    error(fmt::format("'{}' is not an iterable type", container_type.name(m_program).encode()), value.iterable_range);
                     return CheckedStatement {};
                 }
-
-                auto iterable_value_type = m_program.resolve_type(iterable_type.iterable_value_type());
 
                 auto scope_id = m_current_checked_module->add_scope(m_current_scope);
                 SCOPED_SCOPE(scope_id);
                 auto variable = m_current_checked_module->add_variable({
                     .name = value.variable,
-                    .type = { .type_id = iterable_value_type, .is_mut = false },
+                    .type = { .type_id = *value_type, .is_mut = false },
                     .initializer = {},
                 });
                 m_program.get_scope(m_current_scope).variables.insert({ value.variable, variable });
@@ -164,7 +176,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     .statement = CheckedForStatement {
                         .variable_name = value.variable,
                         .iterable = std::move(iterable),
-                        .value_type_id = iterable_value_type,
+                        .value_type_id = *value_type,
                         .block = std::move(block),
                     }
                 };
@@ -199,7 +211,7 @@ CheckedParameter Typechecker::typecheck_parameter(Parser::ParsedParameter const&
 
     auto var_id = m_current_checked_module->add_variable(CheckedVariable {
         .name = parameter.name,
-        .type = { .type_id = m_program.resolve_type(parameter.type.name), .is_mut = false },
+        .type = { .type_id = m_program.resolve_type(parameter.type), .is_mut = false },
         .initializer = {},
     });
     scope.variables.insert({ parameter.name, var_id });
@@ -224,6 +236,46 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 return CheckedExpression {
                     .type = { .type_id = m_program.string_type_id, .is_mut = false },
                     .expression = CheckedExpression::StringLiteral { .value = string_literal->value },
+                };
+            },
+            [&](std::unique_ptr<Parser::ParsedInlineArray> const& array) {
+                if (array->elements.empty()) {
+                    return CheckedExpression {
+                        .type = { .type_id = m_program.empty_array_type_id, .is_mut = false },
+                        .expression = CheckedExpression::EmptyInlineArray {}
+                    };
+                }
+
+                std::vector<CheckedExpression> elements;
+
+                // Check base type
+                std::optional<TypeId> element_type;
+                for (auto const& el : array->elements) {
+                    auto checked_expr = typecheck_expression(el);
+                    if (!element_type) {
+                        element_type = checked_expr.type.type_id;
+                        continue;
+                    }
+                    if (*element_type != checked_expr.type.type_id) {
+                        error("All elements of an inline array must have the same type", array->range);
+                        return CheckedExpression::invalid(m_program);
+                    }
+                }
+
+                return CheckedExpression {
+                    .type = {
+                        .type_id = m_current_checked_module->get_or_add_type(Type {
+                            .type = ArrayType {
+                                .inner = *element_type,
+                                .size = array->elements.size(),
+                            },
+                        }),
+                        .is_mut = false,
+                    },
+                    .expression = CheckedExpression::InlineArray {
+                        .element_type_id = *element_type,
+                        .elements = std::move(elements),
+                    },
                 };
             },
             [&](std::unique_ptr<Parser::ParsedIdentifier> const& identifier) {
@@ -318,6 +370,11 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
 bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, std::optional<Util::SourceRange> range) {
     switch (mode) {
     case TypeCompatibility::Assignment: {
+        auto lhs_type = m_program.get_type(lhs);
+        // Special case: empty array can be assigned to any array
+        if (std::holds_alternative<ArrayType>(lhs_type.type) && rhs == m_program.empty_array_type_id) {
+            return true;
+        }
         if (lhs != rhs) {
             if (range) {
                 error(fmt::format("Cannot convert '{}' to '{}' in assignment",
@@ -382,12 +439,46 @@ CheckedFunction const& Typechecker::get_function(FunctionId id) {
     return *function_ref;
 }
 
+TypeId CheckedProgram::resolve_type(Parser::ParsedType const& type) {
+    return std::visit(
+        Util::Overloaded {
+            [&](Parser::ParsedUnqualifiedType const& type) {
+                if (type.name == "bool") {
+                    return bool_type_id;
+                }
+                if (type.name == "range") {
+                    return range_type_id;
+                }
+                if (type.name == "string") {
+                    return string_type_id;
+                }
+                if (type.name == "u32") {
+                    return u32_type_id;
+                }
+                if (type.name == "void") {
+                    return void_type_id;
+                }
+                return unknown_type_id;
+            },
+            [&](Parser::ParsedArrayType const& type) {
+                Type checked_type {
+                    .type = ArrayType {
+                        .inner = resolve_type(*type.type),
+                        .size = type.size,
+                    },
+                };
+                return m_root_module.get_or_add_type(checked_type);
+            },
+        },
+        type.type);
+}
+
 CheckedExpression CheckedExpression::invalid(CheckedProgram const& program) {
     return CheckedExpression { .type = { .type_id = program.unknown_type_id, .is_mut = false }, .expression = std::monostate {} };
 }
 
 void CheckedVariable::print(CheckedProgram const& program) const {
-    fmt::print("{} {}: {} = <expr>", type.is_mut ? "mut" : "let", name.encode(), program.get_type(type.type_id).name().encode());
+    fmt::print("{} {}: {} = <expr>", type.is_mut ? "mut" : "let", name.encode(), program.get_type(type.type_id).name(program).encode());
 }
 
 void CheckedProgram::print() const {
@@ -398,9 +489,10 @@ void CheckedProgram::print() const {
                 fmt::print("    <NULL>\n");
                 continue;
             }
-            fmt::print("    func {}(...) -> {}\n", func->name.encode(), get_type(func->return_type).name().encode());
+            fmt::print("    func {}(...) -> {}\n", func->name.encode(), get_type(func->return_type).name(*this).encode());
             if (!func->body) {
                 fmt::print("        <EXTERN>\n");
+                continue;
             }
             for (auto const& stmt : func->body->statements) {
                 fmt::print("        ");

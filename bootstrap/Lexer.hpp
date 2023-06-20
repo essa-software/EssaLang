@@ -29,6 +29,8 @@ enum class TokenType {
     // Operators based on special characters
     Asterisk,      // *
     AsteriskEqual, // *=
+    BraceOpen,     // [
+    BraceClose,    // ]
     Colon,         // :
     Comma,         // ,
     CurlyOpen,     // {
