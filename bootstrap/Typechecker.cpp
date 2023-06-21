@@ -297,6 +297,27 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             [&](std::unique_ptr<Parser::ParsedBinaryExpression> const& expr) -> CheckedExpression {
                 return typecheck_binary_expression(*expr);
             },
+            [&](std::unique_ptr<Parser::ParsedArrayIndex> const& expr) -> CheckedExpression {
+                auto array = typecheck_expression(expr->array);
+                auto index = typecheck_expression(expr->index);
+                if (index.type.type_id != m_program.u32_type_id) {
+                    error("Array index must be an unsigned integer", expr->range);
+                    return CheckedExpression::invalid(m_program);
+                }
+                auto array_type = m_program.get_type(array.type.type_id);
+                if (!std::holds_alternative<ArrayType>(array_type.type)) {
+                    // TODO: Better range
+                    error("Indexed expression is not an array", expr->range);
+                    return CheckedExpression::invalid(m_program);
+                }
+                return CheckedExpression {
+                    .type = QualifiedType { .type_id = std::get<ArrayType>(array_type.type).inner, .is_mut = array.type.is_mut },
+                    .expression = CheckedExpression::ArrayIndex {
+                        .array = std::make_unique<CheckedExpression>(std::move(array)),
+                        .index = std::make_unique<CheckedExpression>(std::move(index)),
+                    },
+                };
+            },
             [&](std::unique_ptr<Parser::ParsedCall> const& call) {
                 auto identifier = resolve_identifier(call->name, call->name_range);
                 if (identifier.type != ResolvedIdentifier::Type::Function) {

@@ -128,6 +128,10 @@ struct CheckedExpression {
         Parser::ParsedBinaryExpression::Operator operator_;
         std::unique_ptr<CheckedExpression> rhs;
     };
+    struct ArrayIndex {
+        std::unique_ptr<CheckedExpression> array;
+        std::unique_ptr<CheckedExpression> index;
+    };
     struct UnsignedIntegerLiteral {
         TypeId type_id;
         uint64_t value;
@@ -144,6 +148,7 @@ struct CheckedExpression {
     QualifiedType type;
     std::variant<Call,
         BinaryExpression,
+        ArrayIndex,
         UnsignedIntegerLiteral,
         StringLiteral,
         EmptyInlineArray,

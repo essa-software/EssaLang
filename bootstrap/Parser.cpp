@@ -56,6 +56,13 @@ void ParsedUnqualifiedType::print() const {
     fmt::print("{}", name.encode());
 }
 
+void ParsedArrayIndex::print(size_t depth) const {
+    array.print(depth);
+    fmt::print("[");
+    index.print(depth);
+    fmt::print("]");
+}
+
 void indent(size_t depth) {
     for (size_t s = 0; s < depth; s++) {
         fmt::print("    ");
@@ -542,6 +549,26 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
     }
 }
 
+Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression() {
+    auto expr = TRY(parse_primary_expression());
+
+    if (peek()->type() == TokenType::BraceOpen) {
+        // Special-case for array indexing.
+        auto start = this->offset();
+        get();
+        auto index = TRY(parse_expression(0));
+        TRY(expect(TokenType::BraceClose));
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedArrayIndex>(ParsedArrayIndex {
+                .array = std::move(expr),
+                .index = std::move(index),
+                .range = this->range(start, this->offset() - start),
+            }),
+        };
+    }
+    return expr;
+}
+
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     auto token = peek();
     if (token->type() == TokenType::Number) {
@@ -576,7 +603,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
 }
 
 Util::ParseErrorOr<ParsedExpression> Parser::parse_expression(int min_precedence) {
-    auto lhs = TRY(parse_primary_expression());
+    auto lhs = TRY(parse_primary_or_postfix_expression());
     return TRY(parse_operand(std::move(lhs), min_precedence));
 }
 

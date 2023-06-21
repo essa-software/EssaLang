@@ -1,10 +1,17 @@
 #include <algorithm>
-#include <bits/ranges_algobase.h>
 #include <fmt/format.h>
 #include <runtime/UString.hpp>
 
 template<class... Args>
 void print(fmt::format_string<Args...>&& fmtstr, Args&&... args) { fmt::print(std::move(fmtstr), std::forward<Args>(args)...); }
+
+template<class... Args>
+inline void panic(fmt::format_string<Args...>&& fmtstr, Args&&... args) {
+    fmt::print(stderr, "\e[31;1mPanic:\e[m ");
+    fmt::print(stderr, std::move(fmtstr), std::forward<Args>(args)...);
+    fmt::print(stderr, "\n");
+    abort();
+}
 
 namespace ___Esl {
 
@@ -43,6 +50,27 @@ struct EmptyArray {
         return a;
     }
 };
+
+template<class Container>
+Container::value_type const& safe_array_access(Container const& container, size_t idx) {
+    auto size = std::size(container);
+    if (idx >= size) {
+        panic("Array out of bounds access: {} >= {}", idx, size);
+    }
+    // FIXME: Technically this is still not safe, because ptr may
+    //        overflow. But this is really an edge case...
+    return container[idx];
+}
+template<class Container>
+Container::value_type& safe_array_access_mut(Container& container, size_t idx) {
+    auto size = std::size(container);
+    if (idx >= size) {
+        panic("Array out of bounds access: {} >= {}", idx, size);
+    }
+    // FIXME: Technically this is still not safe, because ptr may
+    //        overflow. But this is really an edge case...
+    return container[idx];
+}
 
 }
 

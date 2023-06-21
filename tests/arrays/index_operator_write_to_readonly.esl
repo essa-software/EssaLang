@@ -1,0 +1,7 @@
+
+// error: Cannot assign to non-mutable expression
+func main() {
+    let arr = [1,2,3,4,5];
+    arr[2] = 2137;
+    print("{},", arr[2]);
+}

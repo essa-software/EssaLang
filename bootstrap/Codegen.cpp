@@ -194,6 +194,14 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
                 TRY(codegen_binary_expression(expr));
                 return {};
             },
+            [&](Typechecker::CheckedExpression::ArrayIndex const& expr) -> Util::OsErrorOr<void> {
+                m_writer.writeff("___Esl::{}((", expr.array->type.is_mut ? "safe_array_access_mut" : "safe_array_access");
+                TRY(codegen_expression(*expr.array));
+                TRY(m_writer.write("), ("));
+                TRY(codegen_expression(*expr.index));
+                TRY(m_writer.write("))"));
+                return {};
+            },
             [&](Typechecker::CheckedExpression::UnsignedIntegerLiteral const& expr) -> Util::OsErrorOr<void> {
                 m_writer.writeff("{}ull", expr.value);
                 return {};

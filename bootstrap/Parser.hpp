@@ -71,6 +71,7 @@ struct ParsedIdentifier {
 
 struct ParsedInlineArray;
 struct ParsedBinaryExpression;
+struct ParsedArrayIndex;
 struct ParsedCall;
 
 struct ParsedExpression {
@@ -81,6 +82,7 @@ struct ParsedExpression {
         std::unique_ptr<ParsedInlineArray>,
         std::unique_ptr<ParsedIdentifier>,
         std::unique_ptr<ParsedBinaryExpression>,
+        std::unique_ptr<ParsedArrayIndex>,
         std::unique_ptr<ParsedCall>>
         expression;
 
@@ -141,6 +143,15 @@ struct ParsedBinaryExpression {
             || operator_ == Operator::AssignDivide
             || operator_ == Operator::AssignModulo;
     }
+
+    void print(size_t depth) const;
+};
+
+struct ParsedArrayIndex {
+    ParsedExpression array;
+    ParsedExpression index;
+
+    Util::SourceRange range;
 
     void print(size_t depth) const;
 };
@@ -230,6 +241,7 @@ private:
     Util::ParseErrorOr<ParsedIfStatement> parse_if_statement();
     Util::ParseErrorOr<ParsedForStatement> parse_for_statement();
     Util::ParseErrorOr<ParsedExpression> parse_expression(int min_precedence);
+    Util::ParseErrorOr<ParsedExpression> parse_primary_or_postfix_expression();
     Util::ParseErrorOr<ParsedExpression> parse_primary_expression();
     Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
     Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
