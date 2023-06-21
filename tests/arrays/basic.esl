@@ -1,3 +1,7 @@
+// output: 1,2,3,4,5,
 func main() {
-    let arr: [5]u32 = [0,0,0,0,0];
+    let arr: [5]u32 = [1,2,3,4,5];
+    for (let i of arr) {
+        print("{},", i);
+    }
 }
