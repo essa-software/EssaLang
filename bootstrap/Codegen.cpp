@@ -209,9 +209,9 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
             },
             [&](Typechecker::CheckedExpression::InlineArray const& array) -> Util::OsErrorOr<void> {
                 auto type = m_program.get_type(array.element_type_id);
-                m_writer.writeff("std::array<{}, ", array.elements.size());
+                m_writer.writeff("std::array<");
                 TRY(codegen_type(type));
-                TRY(m_writer.write(">{"));
+                m_writer.writeff(", {}>{{", array.elements.size());
                 for (size_t s = 0; s < array.elements.size(); s++) {
                     TRY(codegen_expression(array.elements[s]));
                     if (s != array.elements.size() - 1)

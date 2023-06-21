@@ -1,0 +1,3 @@
+func main() {
+    let arr: [5]u32 = [];
+}

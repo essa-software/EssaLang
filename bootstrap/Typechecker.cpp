@@ -254,12 +254,12 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     auto checked_expr = typecheck_expression(el);
                     if (!element_type) {
                         element_type = checked_expr.type.type_id;
-                        continue;
                     }
-                    if (*element_type != checked_expr.type.type_id) {
+                    else if (*element_type != checked_expr.type.type_id) {
                         error("All elements of an inline array must have the same type", array->range);
                         return CheckedExpression::invalid(m_program);
                     }
+                    elements.push_back(std::move(checked_expr));
                 }
 
                 return CheckedExpression {
