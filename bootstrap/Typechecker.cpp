@@ -192,7 +192,6 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                 // TODO: range
                 if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type.type_id, {})) {
                     error("If statement's condition must be a bool", {});
-                    return {};
                 }
                 return CheckedStatement {
                     .statement = CheckedIfStatement {
