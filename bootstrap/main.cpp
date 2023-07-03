@@ -105,13 +105,10 @@ add_executable(EssaLangTest
     main.cpp
 )
 
-# FIXME: Don't rebuild runtime for every project!
-set(ESL_RUNTIME )~~~"));
-    TRY(cmake_writer.write(ESL_DIR));
-    TRY(cmake_writer.write(R"~~~(/runtime)
-add_subdirectory(${ESL_RUNTIME} build/runtime)
-target_link_libraries(EssaLangTest PRIVATE EssaLangRuntime)
-target_include_directories(EssaLangTest PRIVATE ${ESL_RUNTIME}/..)
+set(ESL_SOURCE_DIR ")~~~")); TRY(cmake_writer.write(ESL_SOURCE_DIR)); TRY(cmake_writer.write(R"~~~(")
+set(ESL_BINARY_DIR ")~~~")); TRY(cmake_writer.write(ESL_BINARY_DIR)); TRY(cmake_writer.write(R"~~~(")
+target_include_directories(EssaLangTest PRIVATE ${ESL_SOURCE_DIR})
+target_link_libraries(EssaLangTest PRIVATE ${ESL_BINARY_DIR}/runtime/libesl-runtime.a fmt::fmt)
 
 set_property(TARGET EssaLangTest PROPERTY OUTPUT_NAME out)
 )~~~"));

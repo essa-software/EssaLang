@@ -17,3 +17,4 @@ FetchContent_MakeAvailable(Essa)
 
 find_package(fmt REQUIRED)
 add_subdirectory(bootstrap)
+add_subdirectory(runtime)

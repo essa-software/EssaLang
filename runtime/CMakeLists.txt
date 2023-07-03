@@ -1,4 +1,4 @@
-add_library(EssaLangRuntime SHARED
+add_library(EssaLangRuntime STATIC
     Buffer.cpp
     UString.cpp
     Utf8.cpp
