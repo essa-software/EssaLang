@@ -152,6 +152,10 @@ struct CheckedExpression {
         std::unique_ptr<CheckedExpression> array;
         std::unique_ptr<CheckedExpression> index;
     };
+    struct MemberAccess {
+        std::unique_ptr<CheckedExpression> object;
+        Util::UString member;
+    };
     struct UnsignedIntegerLiteral {
         TypeId type_id;
         uint64_t value;
@@ -169,6 +173,7 @@ struct CheckedExpression {
     std::variant<Call,
         BinaryExpression,
         ArrayIndex,
+        MemberAccess,
         UnsignedIntegerLiteral,
         StringLiteral,
         EmptyInlineArray,
@@ -236,6 +241,9 @@ struct CheckedStatement {
         statement;
 };
 
+template<class T>
+using Ref = std::reference_wrapper<T>;
+
 struct CheckedStruct {
     Util::UString name;
     struct Field {
@@ -244,6 +252,8 @@ struct CheckedStruct {
         bool operator==(Field const&) const = default;
     };
     std::vector<Field> fields;
+
+    std::optional<Ref<Field const>> find_field(Util::UString const&) const;
 };
 
 struct CheckedFunction {

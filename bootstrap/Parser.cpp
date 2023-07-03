@@ -66,6 +66,11 @@ void ParsedArrayIndex::print(size_t depth) const {
     fmt::print("]");
 }
 
+void ParsedMemberAccess::print(size_t depth) const {
+    object.print(depth);
+    fmt::print(".{}", member.encode());
+}
+
 void indent(size_t depth) {
     for (size_t s = 0; s < depth; s++) {
         fmt::print("    ");
@@ -608,6 +613,16 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                     .array = std::move(expr),
                     .index = std::move(index),
                     .range = this->range(start, this->offset() - start),
+                }),
+            };
+        }
+        else if (peek()->type() == TokenType::Dot) {
+            get();
+            auto name = TRY(expect(TokenType::Identifier));
+            expr = ParsedExpression {
+                .expression = std::make_unique<ParsedMemberAccess>(ParsedMemberAccess {
+                    .object = std::move(expr),
+                    .member = name.value(),
                 }),
             };
         }

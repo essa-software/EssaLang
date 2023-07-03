@@ -96,6 +96,7 @@ struct ParsedIdentifier {
 struct ParsedInlineArray;
 struct ParsedBinaryExpression;
 struct ParsedArrayIndex;
+struct ParsedMemberAccess;
 struct ParsedCall;
 
 struct ParsedExpression {
@@ -107,6 +108,7 @@ struct ParsedExpression {
         std::unique_ptr<ParsedIdentifier>,
         std::unique_ptr<ParsedBinaryExpression>,
         std::unique_ptr<ParsedArrayIndex>,
+        std::unique_ptr<ParsedMemberAccess>,
         std::unique_ptr<ParsedCall>>
         expression;
 
@@ -176,6 +178,13 @@ struct ParsedArrayIndex {
     ParsedExpression index;
 
     Util::SourceRange range;
+
+    void print(size_t depth) const;
+};
+
+struct ParsedMemberAccess {
+    ParsedExpression object;
+    Util::UString member;
 
     void print(size_t depth) const;
 };

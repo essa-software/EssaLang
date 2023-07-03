@@ -226,6 +226,11 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
                 TRY(m_writer.write("))"));
                 return {};
             },
+            [&](Typechecker::CheckedExpression::MemberAccess const& expr) -> Util::OsErrorOr<void> {
+                TRY(codegen_expression(*expr.object));
+                m_writer.writeff(".{}", expr.member.encode());
+                return {};
+            },
             [&](Typechecker::CheckedExpression::UnsignedIntegerLiteral const& expr) -> Util::OsErrorOr<void> {
                 m_writer.writeff("{}ull", expr.value);
                 return {};

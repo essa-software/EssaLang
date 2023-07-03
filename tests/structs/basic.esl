@@ -1,4 +1,4 @@
-// output: 69420 2137
+// output: 2137 8888888
 
 struct Test {
     your: u32;
@@ -6,6 +6,8 @@ struct Test {
 }
 
 func main() {
-    let test: Test = [];
-    //print("{} {}\n", test.your, test.mum);
+    mut test: Test = [];
+    test.your = 2137;
+    test.mum = 8888888;
+    print("{} {}\n", test.your, test.mum);
 }

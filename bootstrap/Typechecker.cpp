@@ -23,6 +23,16 @@ std::optional<TypeId> ArrayType::iterable_type(CheckedProgram const&) const {
     return inner;
 }
 
+std::optional<Ref<CheckedStruct::Field const>> CheckedStruct::find_field(Util::UString const& name) const {
+    // TODO: Optimize it
+    for (auto const& field : fields) {
+        if (field.name == name) {
+            return field;
+        }
+    }
+    return std::nullopt;
+}
+
 CheckedProgram const& Typechecker::typecheck() {
     for (size_t s = 0; s < m_parsed_file.modules.size(); s++) {
         m_current_checked_module = &m_program.module(s);
@@ -353,6 +363,28 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                         .array = std::make_unique<CheckedExpression>(std::move(array)),
                         .index = std::make_unique<CheckedExpression>(std::move(index)),
                     },
+                };
+            },
+            [&](std::unique_ptr<Parser::ParsedMemberAccess> const& access) {
+                auto object = typecheck_expression(access->object);
+                auto& type = m_program.get_type(object.type.type_id);
+                if (!std::holds_alternative<StructType>(type.type)) {
+                    // FIXME: range
+                    error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), {});
+                    return CheckedExpression::invalid(m_program);
+                }
+
+                auto& struct_ = m_program.get_struct(std::get<StructType>(type.type).id);
+                auto field = struct_->find_field(access->member);
+                if (!field) {
+                    // FIXME: range
+                    error(fmt::format("No such field '{}' in struct '{}'", access->member.encode(), type.name(m_program).encode()), {});
+                    return CheckedExpression::invalid(m_program);
+                }
+
+                return CheckedExpression {
+                    .type = QualifiedType { .type_id = field->get().type, .is_mut = object.type.is_mut },
+                    .expression = CheckedExpression::MemberAccess { .object = std::make_unique<CheckedExpression>(std::move(object)), .member = access->member },
                 };
             },
             [&](std::unique_ptr<Parser::ParsedCall> const& call) {
