@@ -42,12 +42,15 @@ void ParsedFunctionDeclaration::print() const {
 }
 
 void ParsedType::print() const {
-    std::visit(
+    fmt::print("{}", to_string().encode());
+}
+
+Util::UString ParsedType::to_string() const {
+    return std::visit(
         Util::Overloaded {
-            [](ParsedUnqualifiedType const& t) { t.print(); },
+            [](ParsedUnqualifiedType const& t) { return t.name; },
             [](ParsedArrayType const& t) {
-                fmt::print("[{}]", t.size);
-                t.type->print();
+                return Util::UString::format("[{}]", t.size);
             } },
         type);
 }
