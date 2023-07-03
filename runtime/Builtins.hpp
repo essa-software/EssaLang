@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fmt/format.h>
 #include <runtime/UString.hpp>
+#include <type_traits>
 
 template<class... Args>
 void print(fmt::format_string<Args...>&& fmtstr, Args&&... args) { fmt::print(std::move(fmtstr), std::forward<Args>(args)...); }
@@ -49,6 +50,10 @@ struct EmptyArray {
         std::ranges::fill(a, T());
         return a;
     }
+    // Hack to support default init of structs with "[]"
+    template<class T>
+        requires(std::is_class_v<T>)
+    operator T() const { return T(); }
 };
 
 template<class Container>

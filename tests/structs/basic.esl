@@ -1,0 +1,11 @@
+// output: 69420 2137
+
+struct Test {
+    your: u32;
+    mum: u32;
+}
+
+func main() {
+    let test: Test = [];
+    //print("{} {}\n", test.your, test.mum);
+}

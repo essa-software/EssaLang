@@ -11,6 +11,10 @@ Util::UString ArrayType::name(CheckedProgram const& program) const {
     return Util::UString::format("[{}]{}", size, program.get_type(inner).name(program).encode());
 }
 
+Util::UString StructType::name(CheckedProgram const& program) const {
+    return program.get_struct(id)->name;
+}
+
 std::optional<TypeId> PrimitiveType::iterable_type(CheckedProgram const& program) const {
     return type == PrimitiveType::Range ? std::optional(program.u32_type_id) : std::nullopt;
 }
@@ -23,18 +27,26 @@ CheckedProgram const& Typechecker::typecheck() {
     for (size_t s = 0; s < m_parsed_file.modules.size(); s++) {
         m_current_checked_module = &m_program.module(s);
 
-        // 1. Add all functions so that they can be referenced
+        // 1. Typecheck structs
+        for (auto& struct_ : m_parsed_file.modules[s].struct_declarations) {
+            auto struct_id = m_current_checked_module->add_struct(typecheck_struct(struct_));
+            fmt::print("Adding type: {} -> {}\n", struct_.name.encode(), struct_id.id());
+            auto type_id = m_current_checked_module->add_type(Type { .type = StructType { .id = struct_id } });
+            m_current_checked_module->type_to_id.insert({ struct_.name, type_id });
+        }
+
+        // 2. Add all functions so that they can be referenced
         for (auto const& func : m_parsed_file.modules[s].function_declarations) {
             auto function_id = m_current_checked_module->add_function();
             m_current_checked_module->function_to_id.insert({ func.name, function_id });
         }
 
-        // 2. Typecheck functions (first pass)
+        // 3. Typecheck functions (first pass)
         for (auto& func : m_current_checked_module->function_to_id) {
             get_function(func.second);
         }
 
-        // 3. Typecheck function bodies.
+        // 4. Typecheck function bodies.
         for (auto& func : m_current_checked_module->function_to_id) {
             auto& checked_function = *m_program.get_function(func.second);
             typecheck_function_body(checked_function, m_parsed_file.modules[func.second.module()].function_declarations[func.second.id()]);
@@ -49,6 +61,21 @@ CheckedProgram const& Typechecker::typecheck() {
     Util::ScopeGuard scope_guard {                               \
         [__old_scope, this]() { m_current_scope = __old_scope; } \
     }
+
+CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration const& struct_) {
+    std::vector<CheckedStruct::Field> fields;
+
+    for (auto const& field : struct_.fields) {
+        fields.push_back(CheckedStruct::Field {
+            .name = field.name,
+            .type = m_program.resolve_type(field.type),
+        });
+    }
+    return CheckedStruct {
+        .name = struct_.name,
+        .fields = std::move(fields),
+    };
+}
 
 CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaration const& function) {
     TypeId return_type = [&function, this]() {
@@ -392,8 +419,10 @@ bool Typechecker::check_type_compatibility(TypeCompatibility mode, TypeId lhs, T
     switch (mode) {
     case TypeCompatibility::Assignment: {
         auto lhs_type = m_program.get_type(lhs);
-        // Special case: empty array can be assigned to any array
-        if (std::holds_alternative<ArrayType>(lhs_type.type) && rhs == m_program.empty_array_type_id) {
+        // Special case: empty array can be assigned to any array/struct
+        // FIXME: Add struct initializer instead of abusing empty array expression
+        if ((std::holds_alternative<ArrayType>(lhs_type.type) || std::holds_alternative<StructType>(lhs_type.type))
+            && rhs == m_program.empty_array_type_id) {
             return true;
         }
         if (lhs != rhs) {
@@ -479,7 +508,11 @@ TypeId CheckedProgram::resolve_type(Parser::ParsedType const& type) {
                 if (type.name == "void") {
                     return void_type_id;
                 }
-                return unknown_type_id;
+                auto custom_type = m_root_module.type_to_id.find(type.name);
+                if (custom_type == m_root_module.type_to_id.end()) {
+                    return unknown_type_id;
+                }
+                return custom_type->second;
             },
             [&](Parser::ParsedArrayType const& type) {
                 Type checked_type {

@@ -48,6 +48,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "string") {
                 tokens.push_back(create_token(TokenType::KeywordString, "string", start));
             }
+            else if (string == "struct") {
+                tokens.push_back(create_token(TokenType::KeywordStruct, "struct", start));
+            }
             else if (string == "u32") {
                 tokens.push_back(create_token(TokenType::KeywordU32, "u32", start));
             }

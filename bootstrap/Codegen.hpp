@@ -16,6 +16,7 @@ public:
 private:
     Util::OsErrorOr<void> codegen_prelude();
     Util::OsErrorOr<void> codegen_epilogue();
+    Util::OsErrorOr<void> codegen_struct(Typechecker::CheckedStruct const&);
     Util::OsErrorOr<void> codegen_function(Typechecker::CheckedFunction const&);
     Util::OsErrorOr<void> codegen_type(Typechecker::Type const&);
     Util::OsErrorOr<void> codegen_qualified_type(Typechecker::QualifiedType const&);

@@ -35,6 +35,7 @@ private:
 using TypeId = Id<struct TypeId_TAG>;
 using VarId = Id<struct VarId_TAG>;
 using FunctionId = Id<struct FunctionId_TAG>;
+using StructId = Id<struct StructId_TAG>;
 using ScopeId = Id<struct ScopeId_TAG>;
 
 struct CheckedProgram;
@@ -85,10 +86,29 @@ struct ArrayType {
     bool operator==(ArrayType const&) const = default;
 };
 
+struct StructType {
+    Util::UString name(CheckedProgram const&) const;
+    std::optional<TypeId> iterable_type(CheckedProgram const&) const { return {}; }
+    bool operator==(StructType const&) const = default;
+
+    StructId id;
+};
+
+// Hack to disable default construction of Type because of std::variant
+// "inheriting" default ctor of its first alternative (??????)
+struct Nc {
+    Nc() = delete;
+    Util::UString name(CheckedProgram const&) const { return ""; }
+    std::optional<TypeId> iterable_type(CheckedProgram const&) const { return {}; }
+    bool operator==(Nc const&) const = default;
+};
+
 struct Type {
     std::variant<
+        Nc,
+        ArrayType,
         PrimitiveType,
-        ArrayType>
+        StructType>
         type;
 
     Util::UString name(CheckedProgram const& program) const {
@@ -216,6 +236,16 @@ struct CheckedStatement {
         statement;
 };
 
+struct CheckedStruct {
+    Util::UString name;
+    struct Field {
+        Util::UString name;
+        TypeId type;
+        bool operator==(Field const&) const = default;
+    };
+    std::vector<Field> fields;
+};
+
 struct CheckedFunction {
     Util::UString name;
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
@@ -225,6 +255,7 @@ struct CheckedFunction {
 };
 
 struct Module {
+    std::map<Util::UString, TypeId> type_to_id;
     std::map<Util::UString, FunctionId> function_to_id;
 
     Module(size_t id)
@@ -232,6 +263,7 @@ struct Module {
         , m_scopes {}
         , m_global_scope((m_scopes.emplace_back(), m_scopes[0])) { }
 
+    auto const& structs() const { return m_structs; }
     auto const& functions() const { return m_functions; }
 
     std::unique_ptr<CheckedFunction> const& get_function(size_t id) const {
@@ -239,6 +271,13 @@ struct Module {
     }
     std::unique_ptr<CheckedFunction>& get_function(size_t id) {
         return m_functions[id];
+    }
+
+    std::unique_ptr<CheckedStruct> const& get_struct(size_t id) const {
+        return m_structs[id];
+    }
+    std::unique_ptr<CheckedStruct>& get_struct(size_t id) {
+        return m_structs[id];
     }
 
     Type const& get_type(size_t id) const {
@@ -267,7 +306,11 @@ struct Module {
         // fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
         return FunctionId { m_id, m_functions.size() - 1 };
     }
-
+    StructId add_struct(CheckedStruct&& s) {
+        m_structs.push_back(std::make_unique<CheckedStruct>(std::move(s)));
+        // fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
+        return StructId { m_id, m_structs.size() - 1 };
+    }
     TypeId add_type(Type type) {
         m_types.push_back(std::move(type));
         return TypeId { m_id, m_types.size() - 1 };
@@ -296,6 +339,7 @@ struct Module {
 private:
     size_t m_id {};
 
+    std::vector<std::unique_ptr<CheckedStruct>> m_structs;
     std::vector<std::unique_ptr<CheckedFunction>> m_functions;
     std::vector<Type> m_types;
     std::vector<Scope> m_scopes;
@@ -354,6 +398,13 @@ struct CheckedProgram {
     }
     std::unique_ptr<CheckedFunction>& get_function(FunctionId id) {
         return module(id.module()).get_function(id.id());
+    }
+
+    std::unique_ptr<CheckedStruct> const& get_struct(StructId id) const {
+        return module(id.module()).get_struct(id.id());
+    }
+    std::unique_ptr<CheckedStruct>& get_struct(StructId id) {
+        return module(id.module()).get_struct(id.id());
     }
 
     Type const& get_type(TypeId id) const {
@@ -418,6 +469,7 @@ private:
         m_errors.push_back({ std::move(message), range });
     }
 
+    CheckedStruct typecheck_struct(Parser::ParsedStructDeclaration const&);
     // First pass: only signature (return value & args)
     CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
     // Second pass: body

@@ -23,6 +23,7 @@ enum class TokenType {
     KeywordOf,
     KeywordReturn,
     KeywordString,
+    KeywordStruct,
     KeywordU32,
     KeywordVoid,
 

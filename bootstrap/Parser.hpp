@@ -3,6 +3,7 @@
 #include "Lexer.hpp"
 #include <EssaUtil/GenericParser.hpp>
 #include <EssaUtil/UString.hpp>
+#include <list>
 #include <memory>
 #include <variant>
 
@@ -48,6 +49,26 @@ struct ParsedFunctionDeclaration {
     Util::SourceRange name_range;
 
     void print() const;
+};
+
+struct ParsedStructDeclaration {
+    struct Field {
+        Util::UString name;
+        ParsedType type;
+    };
+
+    ParsedStructDeclaration(const ParsedStructDeclaration&) = default;
+    ParsedStructDeclaration(ParsedStructDeclaration&&) noexcept = default;
+    ParsedStructDeclaration& operator=(const ParsedStructDeclaration&) = default;
+    ParsedStructDeclaration& operator=(ParsedStructDeclaration&&) noexcept = default;
+
+    // WTF WHY IS THIS NEEDED ?????
+    ParsedStructDeclaration(Util::UString _name, std::vector<Field> _fields)
+        : name(std::move(_name))
+        , fields(std::move(_fields)) { }
+
+    Util::UString name;
+    std::vector<Field> fields;
 };
 
 struct ParsedIntegerLiteral {
@@ -212,6 +233,7 @@ struct ParsedBlock {
 
 struct ParsedModule {
     std::vector<ParsedFunctionDeclaration> function_declarations;
+    std::vector<ParsedStructDeclaration> struct_declarations;
 
     void print() const;
 };
@@ -236,6 +258,7 @@ private:
     Util::ParseErrorOr<ParsedInlineArray> parse_inline_array();
     Util::ParseErrorOr<ParsedType> parse_type();
     Util::ParseErrorOr<ParsedFunctionDeclaration> parse_function_declaration();
+    Util::ParseErrorOr<ParsedStructDeclaration> parse_struct_declaration();
     Util::ParseErrorOr<ParsedVariableDeclaration> parse_variable_declaration();
     Util::ParseErrorOr<ParsedReturnStatement> parse_return_statement();
     Util::ParseErrorOr<ParsedIfStatement> parse_if_statement();

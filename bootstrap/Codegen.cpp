@@ -9,6 +9,9 @@ Util::OsErrorOr<void> CodeGenerator::codegen() {
     TRY(codegen_prelude());
 
     auto codegen_module = [&](Typechecker::Module const& mod) -> Util::OsErrorOr<void> {
+        for (auto const& struct_ : mod.structs()) {
+            TRY(codegen_struct(*struct_));
+        }
         for (auto const& function : mod.functions()) {
             TRY(codegen_function(*function));
         }
@@ -30,6 +33,19 @@ Util::OsErrorOr<void> CodeGenerator::codegen_prelude() {
 
 Util::OsErrorOr<void> CodeGenerator::codegen_epilogue() {
     TRY(m_writer.write("int main() { return (int)___esl_main(); }\n\n"));
+    return {};
+}
+
+Util::OsErrorOr<void> CodeGenerator::codegen_struct(Typechecker::CheckedStruct const& struct_) {
+    m_writer.writeff("struct {} {{\n", struct_.name.encode());
+
+    for (auto const& field : struct_.fields) {
+        TRY(m_writer.write("    "));
+        TRY(codegen_type(m_program.get_type(field.type)));
+        m_writer.writeff(" {} = {{}};\n", field.name.encode());
+    }
+
+    TRY(m_writer.write("};\n"));
     return {};
 }
 
@@ -63,6 +79,9 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFuncti
 Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type) {
     return std::visit(
         Util::Overloaded {
+            [&](Typechecker::Nc const&) -> Util::OsErrorOr<void> {
+                ESSA_UNREACHABLE;
+            },
             [&](Typechecker::PrimitiveType const& primitive) -> Util::OsErrorOr<void> {
                 switch (primitive.type) {
                 case Typechecker::PrimitiveType::Unknown:
@@ -92,6 +111,11 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
                 TRY(m_writer.write("std::array<"));
                 TRY(codegen_type(m_program.get_type(array.inner)));
                 m_writer.writeff(", {}>", array.size);
+                return {};
+            },
+            [&](Typechecker::StructType const& struct_) -> Util::OsErrorOr<void> {
+                // Struct type is codegen'd first
+                m_writer.writeff("{}", struct_.name(m_program).encode());
                 return {};
             },
         },
@@ -309,5 +333,4 @@ Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::Chec
     TRY(m_writer.write(")"));
     return {};
 }
-
 }

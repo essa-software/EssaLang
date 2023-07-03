@@ -229,6 +229,9 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
         if (keyword->type() == TokenType::KeywordFunc) {
             file.modules[1].function_declarations.push_back(TRY(parse_function_declaration()));
         }
+        else if (keyword->type() == TokenType::KeywordStruct) {
+            file.modules[1].struct_declarations.push_back(TRY(parse_struct_declaration()));
+        }
         else {
             return error("Invalid top-level declaration");
         }
@@ -307,7 +310,9 @@ Util::ParseErrorOr<ParsedType> Parser::parse_type() {
     if (token->type() == TokenType::KeywordVoid) {
         return ParsedType { .type = ParsedUnqualifiedType { .name = "void" } };
     }
-    return error_in_already_read("Invalid type (TODO: Custom types)");
+    return ParsedType {
+        .type = ParsedUnqualifiedType { .name = token->value() }
+    };
 }
 
 Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration() {
@@ -342,6 +347,38 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
     declaration.body = TRY(parse_block());
 
     return declaration;
+}
+
+Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
+    // 'struct' name '{' fields... '}'
+
+    get(); // "struct"
+    auto name = TRY(expect(TokenType::Identifier));
+
+    std::vector<ParsedStructDeclaration::Field> fields;
+
+    TRY(expect(TokenType::CurlyOpen));
+
+    while (true) {
+        if (next_token_is(TokenType::CurlyClose)) {
+            break;
+        }
+        // name ':' type ';'
+        auto name = TRY(expect(TokenType::Identifier));
+        TRY(expect(TokenType::Colon));
+        auto type = TRY(parse_type());
+        TRY(expect(TokenType::Semicolon));
+
+        fields.push_back(ParsedStructDeclaration::Field { .name = name.value(), .type = std::move(type) });
+    }
+
+    // Note: We won't exit loop unless we get '}', so this shouldn't fail
+    MUST(expect(TokenType::CurlyClose));
+
+    return ParsedStructDeclaration {
+        name.value(),
+        std::move(fields),
+    };
 }
 
 Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration() {
