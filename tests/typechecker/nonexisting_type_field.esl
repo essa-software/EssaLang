@@ -1,0 +1,6 @@
+struct Foo {
+    bar: Bar;
+}
+func main() {
+    let foo: Foo = [];
+}

@@ -66,9 +66,13 @@ CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration cons
     std::vector<CheckedStruct::Field> fields;
 
     for (auto const& field : struct_.fields) {
+        auto type_id = m_program.resolve_type(field.type);
+        if (type_id == m_program.unknown_type_id) {
+            error(fmt::format("Invalid type '{}' in field declaration", field.type.to_string().encode()), field.type.range);
+        }
         fields.push_back(CheckedStruct::Field {
             .name = field.name,
-            .type = m_program.resolve_type(field.type),
+            .type = type_id,
         });
     }
     return CheckedStruct {
@@ -141,13 +145,19 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     type_id = m_program.resolve_type(*value.type);
                 }
 
+                if (type_id == m_program.unknown_type_id) {
+                    error(fmt::format("Invalid type '{}' in variable declaration", value.type->to_string().encode()), value.range);
+                }
+
                 CheckedVariable variable {
                     .name = value.name,
                     .type = { .type_id = type_id, .is_mut = value.is_mut },
                     .initializer = std::move(initializer),
                 };
 
-                check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type.type_id, value.range);
+                if (type_id != m_program.unknown_type_id) {
+                    check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type.type_id, value.range);
+                }
                 auto var_id = m_current_checked_module->add_variable(std::move(variable));
                 m_program.get_scope(m_current_scope).variables.insert({ value.name, var_id });
                 return CheckedStatement {
