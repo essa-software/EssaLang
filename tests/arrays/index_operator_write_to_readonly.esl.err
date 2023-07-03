@@ -1,0 +1,3 @@
+[1;31mError:[m Cannot assign to non-mutable expression
+   5 |     arr[2] [31m=[m 2137;
+                  ^ [31mCannot assign to non-mutable expression[m

@@ -1,0 +1,6 @@
+[1;31mError:[m Begin of a range must be an integer
+   4 |     print("{}\n", "test"[31m.[m[31m.[m10);
+                               ^^ [31mBegin of a range must be an integer[m
+[1;31mError:[m End of a range must be an integer
+   5 |     print("{}\n", 10[31m.[m[31m.[m"test");
+                           ^^ [31mEnd of a range must be an integer[m

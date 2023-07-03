@@ -1,0 +1,3 @@
+[1;31mError:[m Invalid type 'Foo' in variable declaration
+   2 |     let [31mf[m[31mo[m[31mo[m[31m:[m[31m [m[31mF[m[31mo[m[31mo[m[31m [m[31m=[m[31m [m[31m[[m[31m][m[31m;[m
+               ^^^^^^^^^^^^^^ [31mInvalid type 'Foo' in variable declaration[m

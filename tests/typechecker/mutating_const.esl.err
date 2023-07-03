@@ -1,0 +1,9 @@
+[1;31mError:[m Cannot assign to non-mutable expression
+   5 |     const_thingy [31m=[m 2137;
+                        ^ [31mCannot assign to non-mutable expression[m
+[1;31mError:[m Cannot assign to non-mutable expression
+   6 |     0 [31m=[m 0;
+             ^ [31mCannot assign to non-mutable expression[m
+[1;31mError:[m Cannot assign to non-mutable expression
+   7 |     foo() [31m=[m 5;
+                 ^ [31mCannot assign to non-mutable expression[m

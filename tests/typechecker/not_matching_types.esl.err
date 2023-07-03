@@ -1,0 +1,3 @@
+[1;31mError:[m Could not find operator '+' for 'string' and 'u32'
+   2 |     1 [31m+[m "string";
+             ^ [31mCould not find operator '+' for 'string' and 'u32'[m

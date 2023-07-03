@@ -1,0 +1,3 @@
+[1;31mError:[m Invalid top-level declaration
+   1 | [31mi[m[31mm[m[31mp[m[31mo[m[31mr[m[31mt[m sys.stderr; //[as stderr];
+       ^^^^^^ [31mInvalid top-level declaration[m

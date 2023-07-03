@@ -1,0 +1,3 @@
+[1;31mError:[m 'string' is not an iterable type
+   4 |     for (let i of[31m [m[31m"[m[31mt[m[31me[m[31ms[m[31mt[m[31m"[m) {
+                        ^^^^^^^ [31m'string' is not an iterable type[m
