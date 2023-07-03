@@ -597,19 +597,23 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression() {
     auto expr = TRY(parse_primary_expression());
 
-    if (peek()->type() == TokenType::BraceOpen) {
-        // Special-case for array indexing.
-        auto start = this->offset();
-        get();
-        auto index = TRY(parse_expression(0));
-        TRY(expect(TokenType::BraceClose));
-        return ParsedExpression {
-            .expression = std::make_unique<ParsedArrayIndex>(ParsedArrayIndex {
-                .array = std::move(expr),
-                .index = std::move(index),
-                .range = this->range(start, this->offset() - start),
-            }),
-        };
+    while (true) {
+        if (peek()->type() == TokenType::BraceOpen) {
+            auto start = this->offset();
+            get();
+            auto index = TRY(parse_expression(0));
+            TRY(expect(TokenType::BraceClose));
+            expr = ParsedExpression {
+                .expression = std::make_unique<ParsedArrayIndex>(ParsedArrayIndex {
+                    .array = std::move(expr),
+                    .index = std::move(index),
+                    .range = this->range(start, this->offset() - start),
+                }),
+            };
+        }
+        else {
+            break;
+        }
     }
     return expr;
 }

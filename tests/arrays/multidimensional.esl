@@ -1,0 +1,6 @@
+// output: 0
+func main() {
+    mut arr: [3][3]u32 = [];
+    arr[1][2] = 2137;
+    print("{}", arr[1][2]);
+}
