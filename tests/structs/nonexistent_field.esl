@@ -1,0 +1,9 @@
+// error: No such field 'mum' in struct 'Foo'
+struct Foo {
+    your: u32;
+}
+
+func main() {
+    let foo: Foo = [];
+    print("{}", foo.mum);
+}
