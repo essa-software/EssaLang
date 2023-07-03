@@ -214,7 +214,7 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     // Hardcode prelude for now
     file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration {
         .name = "print",
-        .return_type = ParsedType { .type = ParsedUnqualifiedType { .name = "void" } },
+        .return_type = ParsedType { .type = ParsedUnqualifiedType { .name = "void" }, .range = {} },
         .parameters = {},
         .body = nullptr,
         .name_range = {},
@@ -297,24 +297,29 @@ Util::ParseErrorOr<ParsedType> Parser::parse_type() {
     auto token = peek();
 
     if (token->type() == Token::Type::BraceOpen) {
-        return ParsedType { .type = TRY(parse_array_type()) };
+        auto start = this->offset();
+        return ParsedType { .type = TRY(parse_array_type()), .range = this->range(start, this->offset() - start) };
     }
 
     get();
+
+    auto range = this->range(this->offset() - 1, 1);
+
     if (token->type() == TokenType::KeywordBool) {
-        return ParsedType { .type = ParsedUnqualifiedType { .name = "bool" } };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "bool" }, .range = range };
     }
     if (token->type() == TokenType::KeywordString) {
-        return ParsedType { .type = ParsedUnqualifiedType { .name = "string" } };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "string" }, .range = range };
     }
     if (token->type() == TokenType::KeywordU32) {
-        return ParsedType { .type = ParsedUnqualifiedType { .name = "u32" } };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "u32" }, .range = range };
     }
     if (token->type() == TokenType::KeywordVoid) {
-        return ParsedType { .type = ParsedUnqualifiedType { .name = "void" } };
+        return ParsedType { .type = ParsedUnqualifiedType { .name = "void" }, .range = range };
     }
     return ParsedType {
-        .type = ParsedUnqualifiedType { .name = token->value() }
+        .type = ParsedUnqualifiedType { .name = token->value() },
+        .range = range,
     };
 }
 

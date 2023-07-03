@@ -28,6 +28,8 @@ struct ParsedType {
         ParsedArrayType>
         type;
 
+    Util::SourceRange range;
+
     Util::UString to_string() const;
     void print() const;
 };
