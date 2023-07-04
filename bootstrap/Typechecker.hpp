@@ -37,6 +37,7 @@ using VarId = Id<struct VarId_TAG>;
 using FunctionId = Id<struct FunctionId_TAG>;
 using StructId = Id<struct StructId_TAG>;
 using ScopeId = Id<struct ScopeId_TAG>;
+using ModuleId = size_t;
 
 struct CheckedProgram;
 
@@ -265,6 +266,7 @@ struct CheckedFunction {
 };
 
 struct Module {
+    std::string path;
     std::map<Util::UString, TypeId> type_to_id;
     std::map<Util::UString, FunctionId> function_to_id;
 
@@ -277,37 +279,47 @@ struct Module {
     auto const& functions() const { return m_functions; }
 
     std::unique_ptr<CheckedFunction> const& get_function(size_t id) const {
+        assert(id < m_functions.size());
         return m_functions[id];
     }
     std::unique_ptr<CheckedFunction>& get_function(size_t id) {
+        assert(id < m_functions.size());
         return m_functions[id];
     }
 
     std::unique_ptr<CheckedStruct> const& get_struct(size_t id) const {
+        assert(id < m_structs.size());
         return m_structs[id];
     }
     std::unique_ptr<CheckedStruct>& get_struct(size_t id) {
+        assert(id < m_structs.size());
         return m_structs[id];
     }
 
     Type const& get_type(size_t id) const {
+        assert(id < m_types.size());
         return m_types[id];
     }
     Type& get_type(size_t id) {
+        assert(id < m_types.size());
         return m_types[id];
     }
 
     Scope const& get_scope(size_t id) const {
+        assert(id < m_scopes.size());
         return m_scopes[id];
     }
     Scope& get_scope(size_t id) {
+        assert(id < m_scopes.size());
         return m_scopes[id];
     }
 
     CheckedVariable const& get_variable(size_t id) const {
+        assert(id < m_variables.size());
         return m_variables[id];
     }
     CheckedVariable& get_variable(size_t id) {
+        assert(id < m_variables.size());
         return m_variables[id];
     }
 
@@ -346,6 +358,12 @@ struct Module {
         return VarId { m_id, m_variables.size() - 1 };
     }
 
+    void add_imported_module(Module& mod) {
+        m_imported_modules.push_back(mod);
+    }
+
+    auto& imported_modules() const { return m_imported_modules; }
+
 private:
     size_t m_id {};
 
@@ -354,6 +372,7 @@ private:
     std::vector<Type> m_types;
     std::vector<Scope> m_scopes;
     std::vector<CheckedVariable> m_variables;
+    std::vector<Ref<Module>> m_imported_modules;
 
     Scope& m_global_scope;
 };
@@ -367,41 +386,26 @@ struct CheckedProgram {
     TypeId range_type_id {};
     TypeId empty_array_type_id {};
 
-    CheckedProgram()
-        : m_prelude_module(0)
-        , m_root_module(1) {
-        auto create_primitive = [&](PrimitiveType::Primitive primitive) -> TypeId {
-            return { m_prelude_module.add_type(Type { .type = PrimitiveType { .type = primitive } }) };
-        };
-        unknown_type_id = create_primitive(PrimitiveType::Unknown);
-        void_type_id = create_primitive(PrimitiveType::Void);
-        u32_type_id = create_primitive(PrimitiveType::U32);
-        bool_type_id = create_primitive(PrimitiveType::Bool);
-        string_type_id = create_primitive(PrimitiveType::String);
-        range_type_id = create_primitive(PrimitiveType::Range);
-        // FIXME: This is a hack to allow default-initialization using empty array syntax.
-        empty_array_type_id = create_primitive(PrimitiveType::EmptyArray);
+    struct Mod {
+        ModuleId id;
+        Module& module;
+    };
+    Mod add_module() {
+        auto& module = m_modules.emplace_back(std::make_unique<Module>(m_modules.size()));
+        return { m_modules.size() - 1, *module };
     }
 
-    Module const& module(size_t id) const {
-        if (id == 0) {
-            return m_prelude_module;
-        }
-        if (id == 1) {
-            return m_root_module;
-        }
-        ESSA_UNREACHABLE;
+    Module const& module(ModuleId id) const {
+        assert(id < m_modules.size());
+        return *m_modules[id];
     }
 
-    Module& module(size_t id) {
-        if (id == 0) {
-            return m_prelude_module;
-        }
-        if (id == 1) {
-            return m_root_module;
-        }
-        ESSA_UNREACHABLE;
+    Module& module(ModuleId id) {
+        assert(id < m_modules.size());
+        return *m_modules[id];
     }
+
+    auto const& modules() const { return m_modules; }
 
     std::unique_ptr<CheckedFunction> const& get_function(FunctionId id) const {
         return module(id.module()).get_function(id.id());
@@ -438,8 +442,6 @@ struct CheckedProgram {
         return module(id.module()).get_variable(id.id());
     }
 
-    TypeId resolve_type(Parser::ParsedType const& type);
-
     Util::UString type_name(TypeId id) const {
         return get_type(id).name(*this);
     }
@@ -456,16 +458,16 @@ struct CheckedProgram {
     void print() const;
 
 private:
-    Module m_prelude_module;
-    Module m_root_module;
+    std::vector<std::unique_ptr<Module>> m_modules;
 };
 
 class Typechecker {
 public:
-    Typechecker(Parser::ParsedFile parsed_file)
-        : m_parsed_file(std::move(parsed_file)) { }
+    explicit Typechecker(Parser::ParsedFile parsed_file)
+        : m_parsed_files()
+        , m_entry_point(*m_parsed_files.emplace_back(std::make_unique<Parser::ParsedFile>(std::move(parsed_file)))) { }
 
-    CheckedProgram const& typecheck();
+    CheckedProgram const& typecheck(std::string root_path);
 
     struct Error {
         std::string message;
@@ -479,6 +481,8 @@ private:
         m_errors.push_back({ std::move(message), range });
     }
 
+    std::optional<Ref<Module>> load_module(Util::UString const& name);
+    void typecheck_module(Module&, Parser::ParsedModule const& parsed_module);
     CheckedStruct typecheck_struct(Parser::ParsedStructDeclaration const&);
     // First pass: only signature (return value & args)
     CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
@@ -496,10 +500,13 @@ private:
     };
     bool check_type_compatibility(TypeCompatibility mode, TypeId lhs, TypeId rhs, std::optional<Util::SourceRange> range);
     ResolvedIdentifier resolve_identifier(Util::UString const& id, Util::SourceRange);
+    TypeId resolve_type(Parser::ParsedType const& type);
 
     CheckedFunction const& get_function(FunctionId id);
 
-    Parser::ParsedFile m_parsed_file;
+    std::vector<std::unique_ptr<Parser::ParsedFile>> m_parsed_files;
+    std::map<std::filesystem::path, Module*> m_modules_by_path;
+    Parser::ParsedFile& m_entry_point;
     CheckedProgram m_program;
     std::vector<Error> m_errors;
     Module* m_current_checked_module = nullptr;

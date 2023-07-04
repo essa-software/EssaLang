@@ -1,13 +1,16 @@
 #include "Codegen.hpp"
+#include "EssaUtil/GenericParser.hpp"
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "Typechecker.hpp"
+#include "bootstrap/Esl.hpp"
 #include <EssaUtil/DisplayError.hpp>
 #include <EssaUtil/Stream.hpp>
 #include <EssaUtil/Stream/File.hpp>
 #include <EssaUtil/Stream/StandardStreams.hpp>
 #include <EssaUtil/Stream/Writer.hpp>
 #include <EssaUtil/UString.hpp>
+#include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <spawn.h>
@@ -38,23 +41,17 @@ Util::OsErrorOr<void> run_process(std::vector<std::string> const& args, bool out
         fmt::print("failed to wait for {}: {}\n", args[0], strerror(errno));
         return Util::OsError { .error = errno, .function = "run_process waitpid" };
     }
+    if (WEXITSTATUS(status) != 0) {
+        fmt::print("exit status of {} was {}\n", args[0], WEXITSTATUS(status));
+        return Util::OsError { .error = 0, .function = "exit status != 0" };
+    }
     return {};
 }
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
-    auto stream = TRY(Util::ReadableFileStream::open(file_name));
-
-    ESL::Lexer lexer { stream };
-    auto tokens = TRY(lexer.lex());
-
-    // for (auto const& token : tokens) {
-    //     fmt::print("{} {} {}\n", (int)token.type(), token.value().encode(), token.start().offset);
-    // }
-
-    ESL::Parser::Parser parser { tokens };
-    auto parsed_file = parser.parse_file();
-    if (parsed_file.is_error()) {
-        auto error = parsed_file.release_error();
+    auto parsed_entry_point = ESL::parse_file(file_name);
+    if (parsed_entry_point.is_error_of_type<Util::ParseError>()) {
+        auto error = parsed_entry_point.release_error_of_type<Util::ParseError>();
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
@@ -64,10 +61,13 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
             });
         return false;
     }
-    // parsed_file.value().print();
+    else if (parsed_entry_point.is_error_of_type<Util::OsError>()) {
+        return parsed_entry_point.release_error_of_type<Util::OsError>();
+    }
+    parsed_entry_point.value().print();
 
-    ESL::Typechecker::Typechecker typechecker { parsed_file.release_value() };
-    auto const& program = typechecker.typecheck();
+    ESL::Typechecker::Typechecker typechecker { parsed_entry_point.release_value() };
+    auto const& program = typechecker.typecheck(file_name);
     for (auto const& error : typechecker.errors()) {
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
@@ -105,8 +105,12 @@ add_executable(EssaLangTest
     main.cpp
 )
 
-set(ESL_SOURCE_DIR ")~~~")); TRY(cmake_writer.write(ESL_SOURCE_DIR)); TRY(cmake_writer.write(R"~~~(")
-set(ESL_BINARY_DIR ")~~~")); TRY(cmake_writer.write(ESL_BINARY_DIR)); TRY(cmake_writer.write(R"~~~(")
+set(ESL_SOURCE_DIR ")~~~"));
+    TRY(cmake_writer.write(ESL_SOURCE_DIR));
+    TRY(cmake_writer.write(R"~~~(")
+set(ESL_BINARY_DIR ")~~~"));
+    TRY(cmake_writer.write(ESL_BINARY_DIR));
+    TRY(cmake_writer.write(R"~~~(")
 target_include_directories(EssaLangTest PRIVATE ${ESL_SOURCE_DIR})
 target_link_libraries(EssaLangTest PRIVATE ${ESL_BINARY_DIR}/runtime/libesl-runtime.a fmt::fmt)
 

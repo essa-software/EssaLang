@@ -1,8 +1,12 @@
 #include "Typechecker.hpp"
 
 #include "Parser.hpp"
+#include "bootstrap/Esl.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ScopeGuard.hpp>
+#include <cstdlib>
+#include <filesystem>
+#include <fmt/core.h>
 #include <variant>
 
 namespace ESL::Typechecker {
@@ -33,35 +37,137 @@ std::optional<Ref<CheckedStruct::Field const>> CheckedStruct::find_field(Util::U
     return std::nullopt;
 }
 
-CheckedProgram const& Typechecker::typecheck() {
-    for (size_t s = 0; s < m_parsed_file.modules.size(); s++) {
-        m_current_checked_module = &m_program.module(s);
+std::optional<Ref<Module>> Typechecker::load_module(Util::UString const& name) {
+    // fmt::print("load_module({})\n", name.encode());
 
-        // 1. Typecheck structs
-        for (auto& struct_ : m_parsed_file.modules[s].struct_declarations) {
-            auto struct_id = m_current_checked_module->add_struct(typecheck_struct(struct_));
-            fmt::print("Adding type: {} -> {}\n", struct_.name.encode(), struct_id.id());
-            auto type_id = m_current_checked_module->add_type(Type { .type = StructType { .id = struct_id } });
-            m_current_checked_module->type_to_id.insert({ struct_.name, type_id });
-        }
+    namespace fs = std::filesystem;
 
-        // 2. Add all functions so that they can be referenced
-        for (auto const& func : m_parsed_file.modules[s].function_declarations) {
-            auto function_id = m_current_checked_module->add_function();
-            m_current_checked_module->function_to_id.insert({ func.name, function_id });
-        }
+    auto local_path = fs::absolute((fs::path(m_current_checked_module->path).parent_path() / name.encode())).lexically_normal() += ".esl";
+    // fmt::print("{} exists?? {}\n", local_path.string(), fs::exists(local_path));
+    auto builtin_path = fs::absolute((fs::path(ESL_SOURCE_DIR) / "lib" / name.encode())).lexically_normal() += ".esl";
+    // fmt::print("{} exists?? {}\n", builtin_path.string(), fs::exists(builtin_path));
 
-        // 3. Typecheck functions (first pass)
-        for (auto& func : m_current_checked_module->function_to_id) {
-            get_function(func.second);
-        }
-
-        // 4. Typecheck function bodies.
-        for (auto& func : m_current_checked_module->function_to_id) {
-            auto& checked_function = *m_program.get_function(func.second);
-            typecheck_function_body(checked_function, m_parsed_file.modules[func.second.module()].function_declarations[func.second.id()]);
-        }
+    auto path = fs::exists(local_path) ? local_path : builtin_path;
+    if (!fs::exists(path)) {
+        // FIXME: range
+        error(fmt::format("Module '{}' not found", name.encode()), {});
+        return {};
     }
+
+    if (auto it = m_modules_by_path.find(path); it != m_modules_by_path.end()) {
+        return *it->second;
+    }
+
+    auto& mod = m_program.add_module().module;
+    m_modules_by_path.insert({ path, &mod });
+    mod.path = path;
+
+    bool is_prelude = name == "prelude";
+    if (is_prelude) {
+        // fmt::print("SETTING UP PRELUDE. THIS SHOULD BE RUN ONLY ONCE.\n");
+        auto create_primitive = [&](PrimitiveType::Primitive primitive) -> TypeId {
+            return { mod.add_type(Type { .type = PrimitiveType { .type = primitive } }) };
+        };
+        m_program.unknown_type_id = create_primitive(PrimitiveType::Unknown);
+        m_program.void_type_id = create_primitive(PrimitiveType::Void);
+        m_program.u32_type_id = create_primitive(PrimitiveType::U32);
+        m_program.bool_type_id = create_primitive(PrimitiveType::Bool);
+        m_program.string_type_id = create_primitive(PrimitiveType::String);
+        m_program.range_type_id = create_primitive(PrimitiveType::Range);
+        // FIXME: This is a hack to allow default-initialization using empty array syntax.
+        m_program.empty_array_type_id = create_primitive(PrimitiveType::EmptyArray);
+    }
+
+    // fmt::print("try load mod from {}\n", mod.path);
+    auto maybe_parsed_file = parse_file(mod.path);
+    if (maybe_parsed_file.is_error_of_type<Util::ParseError>()) {
+        auto error = maybe_parsed_file.release_error_of_type<Util::ParseError>();
+        // FIXME: range
+        // fmt::print(stderr, "module loaded from {} err at {}\n", path.string(), error.location.start.offset);
+        this->error(fmt::format("Failed to parse module '{}': {}", name.encode(), error.message), error.location);
+        return {};
+    }
+    else if (maybe_parsed_file.is_error_of_type<Util::OsError>()) {
+        auto error = maybe_parsed_file.release_error_of_type<Util::OsError>();
+        fmt::print(stderr, "Failed to load module (from file {}): {}\n", path.string(), error);
+        return {};
+    }
+    auto& parsed_file = *m_parsed_files.emplace_back(std::make_unique<Parser::ParsedFile>(maybe_parsed_file.release_value()));
+    if (!is_prelude) {
+        auto prelude = load_module("prelude");
+        if (!prelude) {
+            fmt::print(stderr, "Panic: failed to load prelude!!!! Errors encountered:\n");
+            for (auto const& error : m_errors) {
+                fmt::print(stderr, "- {}\n", error.message);
+            }
+            abort();
+        }
+        mod.add_imported_module(prelude->get());
+    }
+    // FIXME: This will stack overflow on circular imports
+    typecheck_module(mod, parsed_file.module);
+    // fmt::print("YAY loaded and typechecked {}\n", mod.path);
+    return mod;
+}
+
+void Typechecker::typecheck_module(Module& module, Parser::ParsedModule const& parsed_module) {
+    auto old_checked_module = m_current_checked_module;
+    m_current_checked_module = &module;
+    Util::ScopeGuard guard = [&]() {
+        m_current_checked_module = old_checked_module;
+    };
+
+    // 1. Bring in imported stuff
+    for (auto const& import : parsed_module.imports) {
+        auto mod = load_module(import.module);
+        if (!mod) {
+            return;
+        }
+        module.add_imported_module(mod->get());
+    }
+
+    // 2. Typecheck structs
+    for (auto& struct_ : parsed_module.struct_declarations) {
+        auto struct_id = module.add_struct(typecheck_struct(struct_));
+        auto type_id = module.add_type(Type { .type = StructType { .id = struct_id } });
+        module.type_to_id.insert({ struct_.name, type_id });
+    }
+
+    // 3. Add all functions so that they can be referenced
+    for (auto const& func : parsed_module.function_declarations) {
+        auto function_id = module.add_function();
+        module.function_to_id.insert({ func.name, function_id });
+    }
+
+    // 4. Typecheck functions (first pass)
+    for (auto& func : module.function_to_id) {
+        get_function(func.second);
+    }
+
+    // 5. Typecheck function bodies.
+    for (auto& func : m_current_checked_module->function_to_id) {
+        auto& checked_function = *m_program.get_function(func.second);
+        typecheck_function_body(checked_function, parsed_module.function_declarations[func.second.id()]);
+    }
+}
+
+CheckedProgram const& Typechecker::typecheck(std::string root_path) {
+    // This balances the parsed file added in constructor.
+    auto& root_module = m_program.add_module().module;
+    root_module.path = std::move(root_path);
+
+    m_current_checked_module = &root_module;
+    auto prelude = load_module("prelude");
+    if (!prelude) {
+        fmt::print(stderr, "Panic: failed to load prelude from root module!!!! Errors encountered:\n");
+        for (auto const& error : m_errors) {
+            fmt::print(stderr, "- {}\n", error.message);
+        }
+        abort();
+    }
+    root_module.add_imported_module(prelude->get());
+
+    typecheck_module(root_module, m_entry_point.module);
     return m_program;
 }
 
@@ -76,7 +182,7 @@ CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration cons
     std::vector<CheckedStruct::Field> fields;
 
     for (auto const& field : struct_.fields) {
-        auto type_id = m_program.resolve_type(field.type);
+        auto type_id = resolve_type(field.type);
         if (type_id == m_program.unknown_type_id) {
             error(fmt::format("Invalid type '{}' in field declaration", field.type.to_string().encode()), field.type.range);
         }
@@ -95,7 +201,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     TypeId return_type = [&function, this]() {
         TypeId type_id { m_program.unknown_type_id };
         if (function.return_type) {
-            type_id = m_program.resolve_type(*function.return_type);
+            type_id = resolve_type(*function.return_type);
             if (function.name == "main") {
                 // TODO: Change it to i32.
                 if (type_id != m_program.u32_type_id) {
@@ -124,7 +230,9 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
         .argument_scope_id = m_current_checked_module->add_scope(ScopeId {}),
     };
     m_current_function = &checked_function;
-
+    Util::ScopeGuard guard = [this]() {
+        m_current_function = nullptr;
+    };
     SCOPED_SCOPE(checked_function.argument_scope_id);
 
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
@@ -135,6 +243,11 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
 }
 
 void Typechecker::typecheck_function_body(CheckedFunction& checked_function, Parser::ParsedFunctionDeclaration const& function) {
+    m_current_function = &checked_function;
+    Util::ScopeGuard guard = [this]() {
+        m_current_function = nullptr;
+    };
+
     SCOPED_SCOPE(checked_function.argument_scope_id);
     if (function.body) {
         checked_function.body = typecheck_block(*function.body);
@@ -152,11 +265,12 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     type_id = initializer.type.type_id;
                 }
                 else {
-                    type_id = m_program.resolve_type(*value.type);
+                    type_id = resolve_type(*value.type);
                 }
 
                 if (type_id == m_program.unknown_type_id) {
-                    error(fmt::format("Invalid type '{}' in variable declaration", value.type->to_string().encode()), value.range);
+                    fmt::print("{} ??\n", value.type.has_value());
+                    error(fmt::format("Invalid type '{}' in variable declaration", value.type ? value.type->to_string().encode() : "<not inferred>"), value.range);
                 }
 
                 CheckedVariable variable {
@@ -206,7 +320,6 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                 auto value_type = container_type.iterable_type(m_program);
                 if (!value_type) {
                     error(fmt::format("'{}' is not an iterable type", container_type.name(m_program).encode()), value.iterable_range);
-                    return CheckedStatement {};
                 }
 
                 auto scope_id = m_current_checked_module->add_scope(m_current_scope);
@@ -255,9 +368,14 @@ CheckedBlock Typechecker::typecheck_block(Parser::ParsedBlock const& block) {
 CheckedParameter Typechecker::typecheck_parameter(Parser::ParsedParameter const& parameter) {
     auto& scope = m_program.get_scope(m_current_function->argument_scope_id);
 
+    auto type = resolve_type(parameter.type);
+    if (type == m_program.unknown_type_id) {
+        error(fmt::format("Invalid type '{}' in function parameter", parameter.type.to_string().encode()),
+            parameter.type.range);
+    }
     auto var_id = m_current_checked_module->add_variable(CheckedVariable {
         .name = parameter.name,
-        .type = { .type_id = m_program.resolve_type(parameter.type), .is_mut = false },
+        .type = { .type_id = type, .is_mut = false },
         .initializer = {},
     });
     scope.variables.insert({ parameter.name, var_id });
@@ -503,17 +621,19 @@ ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util
         scope = scope->parent ? &m_program.get_scope(*scope->parent) : nullptr;
     } while (scope);
 
-    // 2. Maybe it is function...
+    // 2. Maybe it is a function...
     for (auto const& func : m_current_checked_module->function_to_id) {
         if (func.first == id) {
             return { .type = ResolvedIdentifier::Type::Function, .module = func.second.module(), .id = func.second.id() };
         }
     }
 
-    // 3. Maybe it is function in prelude...
-    for (auto const& func : m_program.module(0).function_to_id) {
-        if (func.first == id) {
-            return { .type = ResolvedIdentifier::Type::Function, .module = func.second.module(), .id = func.second.id() };
+    // 3. Maybe it is a function in an imported module...
+    for (auto const& module : m_current_checked_module->imported_modules()) {
+        for (auto const& func : module.get().function_to_id) {
+            if (func.first == id) {
+                return { .type = ResolvedIdentifier::Type::Function, .module = func.second.module(), .id = func.second.id() };
+            }
         }
     }
     error(fmt::format("'{}' is not declared", id.encode()), range);
@@ -525,33 +645,34 @@ CheckedFunction const& Typechecker::get_function(FunctionId id) {
     // correspond to indices in checked functions
     auto& function_ref = m_program.get_function(id);
     if (!function_ref) {
-        function_ref = std::make_unique<CheckedFunction>(typecheck_function(m_parsed_file.modules[id.module()].function_declarations[id.id()]));
+        function_ref = std::make_unique<CheckedFunction>(typecheck_function(m_parsed_files[id.module()]->module.function_declarations[id.id()]));
     }
     return *function_ref;
 }
 
-TypeId CheckedProgram::resolve_type(Parser::ParsedType const& type) {
+TypeId Typechecker::resolve_type(Parser::ParsedType const& type) {
     return std::visit(
         Util::Overloaded {
             [&](Parser::ParsedUnqualifiedType const& type) {
                 if (type.name == "bool") {
-                    return bool_type_id;
+                    return m_program.bool_type_id;
                 }
                 if (type.name == "range") {
-                    return range_type_id;
+                    return m_program.range_type_id;
                 }
                 if (type.name == "string") {
-                    return string_type_id;
+                    return m_program.string_type_id;
                 }
                 if (type.name == "u32") {
-                    return u32_type_id;
+                    return m_program.u32_type_id;
                 }
                 if (type.name == "void") {
-                    return void_type_id;
+                    return m_program.void_type_id;
                 }
-                auto custom_type = m_root_module.type_to_id.find(type.name);
-                if (custom_type == m_root_module.type_to_id.end()) {
-                    return unknown_type_id;
+                assert(m_current_checked_module);
+                auto custom_type = m_current_checked_module->type_to_id.find(type.name);
+                if (custom_type == m_current_checked_module->type_to_id.end()) {
+                    return m_program.unknown_type_id;
                 }
                 return custom_type->second;
             },
@@ -562,7 +683,8 @@ TypeId CheckedProgram::resolve_type(Parser::ParsedType const& type) {
                         .size = type.size,
                     },
                 };
-                return m_root_module.get_or_add_type(checked_type);
+                assert(m_current_checked_module);
+                return m_current_checked_module->get_or_add_type(checked_type);
             },
         },
         type.type);
@@ -578,6 +700,11 @@ void CheckedVariable::print(CheckedProgram const& program) const {
 
 void CheckedProgram::print() const {
     auto print_module = [&](Module const& mod) {
+        fmt::print("Imports: ");
+        for (auto const& imp : mod.imported_modules()) {
+            fmt::print("{}, ", imp.get().path);
+        }
+        fmt::print("\n");
         fmt::print("Functions:\n");
         for (auto const& func : mod.functions()) {
             if (!func) {
@@ -605,7 +732,10 @@ void CheckedProgram::print() const {
             }
         }
     };
-    print_module(m_prelude_module);
-    print_module(m_root_module);
+    for (auto const& mod : m_modules) {
+        fmt::print("-- Module {}\n", mod->path);
+        print_module(*mod);
+    }
 }
+
 }

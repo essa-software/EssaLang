@@ -18,6 +18,7 @@ enum class TokenType {
     KeywordFor,
     KeywordFunc,
     KeywordIf,
+    KeywordImport,
     KeywordLet,
     KeywordMut,
     KeywordOf,

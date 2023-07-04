@@ -8,9 +8,7 @@
 namespace ESL::Parser {
 
 void ParsedFile::print() const {
-    for (auto const& mod : modules) {
-        mod.print();
-    }
+    module.print();
 }
 
 void ParsedModule::print() const {
@@ -214,16 +212,6 @@ void ParsedForStatement::print(size_t depth) const {
 
 Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     ParsedFile file;
-    file.modules.resize(2);
-
-    // Hardcode prelude for now
-    file.modules[0].function_declarations.push_back(ParsedFunctionDeclaration {
-        .name = "print",
-        .return_type = ParsedType { .type = ParsedUnqualifiedType { .name = "void" }, .range = {} },
-        .parameters = {},
-        .body = nullptr,
-        .name_range = {},
-    });
 
     // Parse root
     while (true) {
@@ -235,10 +223,13 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
         }
         auto keyword = peek();
         if (keyword->type() == TokenType::KeywordFunc) {
-            file.modules[1].function_declarations.push_back(TRY(parse_function_declaration()));
+            file.module.function_declarations.push_back(TRY(parse_function_declaration()));
         }
         else if (keyword->type() == TokenType::KeywordStruct) {
-            file.modules[1].struct_declarations.push_back(TRY(parse_struct_declaration()));
+            file.module.struct_declarations.push_back(TRY(parse_struct_declaration()));
+        }
+        else if (keyword->type() == TokenType::KeywordImport) {
+            file.module.imports.push_back(TRY(parse_import()));
         }
         else {
             return error("Invalid top-level declaration");
@@ -392,6 +383,14 @@ Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
         name.value(),
         std::move(fields),
     };
+}
+
+// 'import' name ';'
+Util::ParseErrorOr<ParsedImport> Parser::parse_import() {
+    get();
+    auto name = TRY(expect(TokenType::Identifier)).value();
+    TRY(expect(TokenType::Semicolon));
+    return ParsedImport { .module = std::move(name) };
 }
 
 Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration() {

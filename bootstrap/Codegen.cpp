@@ -8,17 +8,22 @@ namespace ESL::Codegen {
 Util::OsErrorOr<void> CodeGenerator::codegen() {
     TRY(codegen_prelude());
 
-    auto codegen_module = [&](Typechecker::Module const& mod) -> Util::OsErrorOr<void> {
-        for (auto const& struct_ : mod.structs()) {
+    for (auto const& mod : m_program.modules()) {
+        for (auto const& struct_ : mod->structs()) {
             TRY(codegen_struct(*struct_));
         }
-        for (auto const& function : mod.functions()) {
+    }
+    for (auto const& mod : m_program.modules()) {
+        for (auto const& function : mod->functions()) {
+            TRY(codegen_function_declaration(*function));
+            TRY(m_writer.write(";\n"));
+        }
+    }
+    for (auto const& mod : m_program.modules()) {
+        for (auto const& function : mod->functions()) {
             TRY(codegen_function(*function));
         }
-        return {};
-    };
-
-    TRY(codegen_module(m_program.module(1))); // root
+    }
 
     TRY(codegen_epilogue());
 
@@ -49,7 +54,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_struct(Typechecker::CheckedStruct c
     return {};
 }
 
-Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFunction const& function) {
+Util::OsErrorOr<void> CodeGenerator::codegen_function_declaration(Typechecker::CheckedFunction const& function) {
     TRY(codegen_type(m_program.get_type(function.return_type)));
     m_writer.writeff(" {}(", function.name == "main" ? "___esl_main" : function.name.encode());
     for (size_t s = 0; s < function.parameters.size(); s++) {
@@ -62,6 +67,11 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFuncti
         }
     }
     m_writer.writeff(")");
+    return {};
+}
+
+Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFunction const& function) {
+    TRY(codegen_function_declaration(function));
     if (function.body) {
         m_writer.writeff(" {{\n");
         TRY(codegen_block(*function.body));
@@ -85,7 +95,8 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
             [&](Typechecker::PrimitiveType const& primitive) -> Util::OsErrorOr<void> {
                 switch (primitive.type) {
                 case Typechecker::PrimitiveType::Unknown:
-                    ESSA_UNREACHABLE;
+                    TRY(m_writer.write("/*unknown*/"));
+                    break;
                 case Typechecker::PrimitiveType::Void:
                     TRY(m_writer.write("void"));
                     break;

@@ -33,6 +33,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "if") {
                 tokens.push_back(create_token(TokenType::KeywordIf, "if", start));
             }
+            else if (string == "import") {
+                tokens.push_back(create_token(TokenType::KeywordImport, "import", start));
+            }
             else if (string == "let") {
                 tokens.push_back(create_token(TokenType::KeywordLet, "let", start));
             }
@@ -82,8 +85,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             // Comments
             TRY(consume());
             if (TRY(peek()) == '/') {
-                auto string = TRY(consume_until('\n'));
-                tokens.push_back(create_token(TokenType::Comment, "/" + string, start));
+                TRY(consume_until('\n'));
+                // FIXME: Add an option for that
+                // tokens.push_back(create_token(TokenType::Comment, "/" + string, start));
             }
             else if (TRY(peek()) == '=') {
                 TRY(consume());

@@ -74,6 +74,10 @@ struct ParsedStructDeclaration {
     std::vector<Field> fields;
 };
 
+struct ParsedImport {
+    Util::UString module;
+};
+
 struct ParsedIntegerLiteral {
     int64_t value;
 
@@ -246,12 +250,13 @@ struct ParsedBlock {
 struct ParsedModule {
     std::vector<ParsedFunctionDeclaration> function_declarations;
     std::vector<ParsedStructDeclaration> struct_declarations;
+    std::vector<ParsedImport> imports;
 
     void print() const;
 };
 
 struct ParsedFile {
-    std::vector<ParsedModule> modules;
+    ParsedModule module;
 
     void print() const;
 };
@@ -271,6 +276,7 @@ private:
     Util::ParseErrorOr<ParsedType> parse_type();
     Util::ParseErrorOr<ParsedFunctionDeclaration> parse_function_declaration();
     Util::ParseErrorOr<ParsedStructDeclaration> parse_struct_declaration();
+    Util::ParseErrorOr<ParsedImport> parse_import();
     Util::ParseErrorOr<ParsedVariableDeclaration> parse_variable_declaration();
     Util::ParseErrorOr<ParsedReturnStatement> parse_return_statement();
     Util::ParseErrorOr<ParsedIfStatement> parse_if_statement();

@@ -1,0 +1,5 @@
+func hello(name: u32) {
+    // FIXME: We do not support printing strings because
+    //        of this encode() thing. Fix this somehow.
+    print("Hello, {}, from Test!", name);
+}

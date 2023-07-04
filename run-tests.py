@@ -43,48 +43,54 @@ def pass_(test, compiler_time):
 total_start_time = time.perf_counter_ns()
 
 for p in Path(TESTS_DIR).rglob("*.esl"):
-    # print(p)
-    expected_out = load_expectation(
-        os.path.join(TESTS_DIR, str(p) + ".out"))
-    expected_err = load_expectation(
-        os.path.join(TESTS_DIR, str(p) + ".err"))
+    try:
+        # print(p)
+        expected_out = load_expectation(
+            os.path.join(TESTS_DIR, str(p) + ".out"))
+        expected_err = load_expectation(
+            os.path.join(TESTS_DIR, str(p) + ".err"))
 
-    start_time = time.perf_counter_ns()
-
-    proc = sp.Popen([COMPILER_PATH, str(p)], stdout=sp.PIPE, stderr=sp.PIPE)
-    out, err = proc.communicate()
-    ret = proc.returncode
-    compiler_time = time.perf_counter_ns() - start_time
-    # print("out:", out, "err:", err, "ret:", ret)
-
-    if ret != 0:
-        if err != expected_err:
-            if len(out) > 0:
-                fail(p, "expected success but got compiler error")
-            else:
-                fail(p, "got different compile error message than expected")
+        if len(expected_out) == 0 and len(expected_err) == 0:
             continue
-    elif len(err) > 0:
-        fail(p, "expected compile error but got success")
-        continue
 
-    proc = sp.Popen([os.path.join(ROOT, "build", "build", "out")],
-                    stdout=sp.PIPE, stderr=sp.PIPE)
-    out, err = proc.communicate()
-    ret = proc.returncode
+        start_time = time.perf_counter_ns()
 
-    if ret != 0:
-        if err != expected_err:
-            if len(out) > 0:
-                fail(p, "expected success but got runtime error")
-            else:
-                fail(p, "got different runtime error message than expected")
+        proc = sp.Popen([COMPILER_PATH, str(p)], stdout=sp.PIPE, stderr=sp.PIPE)
+        out, err = proc.communicate()
+        ret = proc.returncode
+        compiler_time = time.perf_counter_ns() - start_time
+        # print("out:", out, "err:", err, "ret:", ret)
+
+        if ret != 0:
+            if err != expected_err:
+                if len(out) > 0:
+                    fail(p, "expected success but got compiler error")
+                else:
+                    fail(p, "got different compile error message than expected")
+                continue
+        elif len(err) > 0:
+            fail(p, "expected compile error but got success")
             continue
-    elif len(err) > 0:
-        fail(p, "expected runtime error but got success")
-        continue
 
-    pass_(p, compiler_time)
+        proc = sp.Popen([os.path.join(ROOT, "build", "build", "out")],
+                        stdout=sp.PIPE, stderr=sp.PIPE)
+        out, err = proc.communicate()
+        ret = proc.returncode
+
+        if ret != 0:
+            if err != expected_err:
+                if len(out) > 0:
+                    fail(p, "expected success but got runtime error")
+                else:
+                    fail(p, "got different runtime error message than expected")
+                continue
+        elif len(err) > 0:
+            fail(p, "expected runtime error but got success")
+            continue
+
+        pass_(p, compiler_time)
+    except Exception as e:
+        fail(p, str(e))
 
 print(
     f"\n\033[32mPassed:\033[m {passed}, \033[31mFailed:\033[m {failed}, Took {(time.perf_counter_ns() - total_start_time)/1e9:.2f}s")
