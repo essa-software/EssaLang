@@ -222,7 +222,7 @@ Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
             get();
         }
         auto keyword = peek();
-        if (keyword->type() == TokenType::KeywordFunc) {
+        if (keyword->type() == TokenType::KeywordFunc || keyword->type() == TokenType::KeywordExtern) {
             file.module.function_declarations.push_back(TRY(parse_function_declaration()));
         }
         else if (keyword->type() == TokenType::KeywordStruct) {
@@ -320,7 +320,10 @@ Util::ParseErrorOr<ParsedType> Parser::parse_type() {
 }
 
 Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration() {
-    get(); // `func`
+    bool extern_ = get()->type() == TokenType::KeywordExtern; // `func` | `extern`
+    if (extern_) {
+        TRY(expect(TokenType::KeywordFunc));
+    }
 
     ParsedFunctionDeclaration declaration;
     declaration.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
@@ -348,7 +351,12 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         declaration.return_type = TRY(parse_type());
     }
 
-    declaration.body = TRY(parse_block());
+    if (extern_) {
+        TRY(expect(TokenType::Semicolon));
+    }
+    else {
+        declaration.body = TRY(parse_block());
+    }
 
     return declaration;
 }

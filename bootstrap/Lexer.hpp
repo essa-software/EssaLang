@@ -15,6 +15,7 @@ enum class TokenType {
     // Keywords
     KeywordBool,
     KeywordElse,
+    KeywordExtern,
     KeywordFor,
     KeywordFunc,
     KeywordIf,

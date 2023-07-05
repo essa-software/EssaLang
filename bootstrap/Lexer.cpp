@@ -24,6 +24,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "else") {
                 tokens.push_back(create_token(TokenType::KeywordElse, "else", start));
             }
+            else if (string == "extern") {
+                tokens.push_back(create_token(TokenType::KeywordExtern, "extern", start));
+            }
             else if (string == "for") {
                 tokens.push_back(create_token(TokenType::KeywordFor, "for", start));
             }

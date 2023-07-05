@@ -47,7 +47,7 @@ struct ParsedFunctionDeclaration {
     Util::UString name;
     std::optional<ParsedType> return_type;
     std::vector<ParsedParameter> parameters;
-    std::unique_ptr<ParsedBlock> body;
+    std::unique_ptr<ParsedBlock> body; // null for extern functions
 
     Util::SourceRange name_range;
 
