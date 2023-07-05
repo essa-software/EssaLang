@@ -144,6 +144,11 @@ struct ParsedBinaryExpression {
         Add,
         Subtract,
         IsEqual,
+        IsNotEqual,
+        IsLess,
+        IsLessEq,
+        IsGreater,
+        IsGreaterEq,
         Assign,
         AssignAdd,
         AssignSubtract,
@@ -162,7 +167,12 @@ struct ParsedBinaryExpression {
     Util::SourceRange operator_range;
 
     bool is_comparison() const {
-        return operator_ == Operator::IsEqual;
+        return operator_ == Operator::IsEqual
+            || operator_ == Operator::IsNotEqual
+            || operator_ == Operator::IsLess
+            || operator_ == Operator::IsLessEq
+            || operator_ == Operator::IsGreater
+            || operator_ == Operator::IsGreaterEq;
     }
 
     bool is_assignment() const {

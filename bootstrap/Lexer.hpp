@@ -30,25 +30,31 @@ namespace ESL {
     E(KeywordStruct, "struct")                                         \
     E(KeywordU32, "u32")                                               \
     E(KeywordVoid, "void")                                             \
+    E(KeywordWhile, "while")                                           \
     /* Operators */                                                    \
     E(Asterisk, "*")                                                   \
     E(AsteriskEqual, "*=")                                             \
-    E(BraceOpen, "[")                                                  \
     E(BraceClose, "]")                                                 \
+    E(BraceOpen, "[")                                                  \
     E(Colon, ":")                                                      \
     E(Comma, ",")                                                      \
-    E(CurlyOpen, "{")                                                  \
     E(CurlyClose, "}")                                                 \
+    E(CurlyOpen, "{")                                                  \
     E(Dot, ".")                                                        \
     E(DotDot, "..")                                                    \
     E(EqualEqual, "==")                                                \
     E(EqualSign, "=")                                                  \
+    E(ExclEqual, "")                                                   \
+    E(Greater, "")                                                     \
+    E(GreaterEqual, "")                                                \
+    E(Less, "")                                                        \
+    E(LessEqual, "")                                                   \
     E(Minus, "-")                                                      \
     E(MinusEqual, "-=")                                                \
-    E(ParenOpen, "(")                                                  \
     E(ParenClose, ")")                                                 \
-    E(PercentSign, "%")                                                \
+    E(ParenOpen, "(")                                                  \
     E(PercentEqual, "%=")                                              \
+    E(PercentSign, "%")                                                \
     E(Plus, "+")                                                       \
     E(PlusEqual, "+=")                                                 \
     E(Semicolon, ";")                                                  \

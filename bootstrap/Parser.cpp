@@ -144,6 +144,16 @@ std::string ParsedBinaryExpression::operator_to_string(Operator op) {
         return "-";
     case Operator::IsEqual:
         return "==";
+    case Operator::IsNotEqual:
+        return "!=";
+    case Operator::IsLess:
+        return "<";
+    case Operator::IsLessEq:
+        return "<=";
+    case Operator::IsGreater:
+        return ">";
+    case Operator::IsGreaterEq:
+        return ">=";
     case Operator::Assign:
         return "=";
     case Operator::AssignAdd:
@@ -514,6 +524,11 @@ static int precedence(ParsedBinaryExpression::Operator op) {
     case ParsedBinaryExpression::Operator::Subtract:
         return Precedence::Additive;
     case ParsedBinaryExpression::Operator::IsEqual:
+    case ParsedBinaryExpression::Operator::IsNotEqual:
+    case ParsedBinaryExpression::Operator::IsLess:
+    case ParsedBinaryExpression::Operator::IsLessEq:
+    case ParsedBinaryExpression::Operator::IsGreater:
+    case ParsedBinaryExpression::Operator::IsGreaterEq:
         return Precedence::Comparison;
     case ParsedBinaryExpression::Operator::Assign:
     case ParsedBinaryExpression::Operator::AssignAdd:
@@ -524,6 +539,7 @@ static int precedence(ParsedBinaryExpression::Operator op) {
         return Precedence::Assignment;
     case ParsedBinaryExpression::Operator::Invalid:
         return 100000;
+        break;
     }
     ESSA_UNREACHABLE;
 }
@@ -540,6 +556,16 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::Modulo;
     case TokenType::EqualEqual:
         return ParsedBinaryExpression::Operator::IsEqual;
+    case TokenType::ExclEqual:
+        return ParsedBinaryExpression::Operator::IsNotEqual;
+    case TokenType::Less:
+        return ParsedBinaryExpression::Operator::IsLess;
+    case TokenType::LessEqual:
+        return ParsedBinaryExpression::Operator::IsLessEq;
+    case TokenType::Greater:
+        return ParsedBinaryExpression::Operator::IsGreater;
+    case TokenType::GreaterEqual:
+        return ParsedBinaryExpression::Operator::IsGreaterEq;
     case TokenType::Plus:
         return ParsedBinaryExpression::Operator::Add;
     case TokenType::Minus:

@@ -324,6 +324,21 @@ Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::Chec
     case Parser::ParsedBinaryExpression::Operator::IsEqual:
         TRY(m_writer.write("=="));
         break;
+    case Parser::ParsedBinaryExpression::Operator::IsNotEqual:
+        TRY(m_writer.write("!="));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::IsLess:
+        TRY(m_writer.write("<"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::IsLessEq:
+        TRY(m_writer.write("<="));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::IsGreater:
+        TRY(m_writer.write(">"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::IsGreaterEq:
+        TRY(m_writer.write(">="));
+        break;
     case Parser::ParsedBinaryExpression::Operator::Assign:
         TRY(m_writer.write("="));
         break;

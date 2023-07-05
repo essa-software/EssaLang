@@ -63,6 +63,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "void") {
                 tokens.push_back(create_token(TokenType::KeywordVoid, "void", start));
             }
+            else if (string == "while") {
+                tokens.push_back(create_token(TokenType::KeywordWhile, "while", start));
+            }
             else {
                 tokens.push_back(create_token(TokenType::Identifier, string, start));
             }
@@ -149,6 +152,34 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                     break;
                 }
                 operator_type = TokenType::EqualSign;
+                break;
+            case '!':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::ExclEqual;
+                    break;
+                }
+                // FIXME: Use as negation etc.
+                operator_type = TokenType::Garbage;
+                break;
+            case '>':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::GreaterEqual;
+                    break;
+                }
+                operator_type = TokenType::Greater;
+                break;
+            case '<':
+                if (TRY(peek()) == '=') {
+                    TRY(consume());
+                    value += '=';
+                    operator_type = TokenType::LessEqual;
+                    break;
+                }
+                operator_type = TokenType::Less;
                 break;
             case '-':
                 if (TRY(peek()) == '=') {
