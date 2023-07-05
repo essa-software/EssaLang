@@ -1,1 +1,2 @@
-extern func print(): void; // (compiler built-in)
+extern func print(): void;
+extern func input(): string;

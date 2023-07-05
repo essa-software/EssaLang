@@ -6,6 +6,8 @@
 template<class... Args>
 void print(fmt::format_string<Args...>&& fmtstr, Args&&... args) { fmt::print(std::move(fmtstr), std::forward<Args>(args)...); }
 
+Util::UString input();
+
 template<class... Args>
 inline void panic(fmt::format_string<Args...>&& fmtstr, Args&&... args) {
     fmt::print(stderr, "\e[31;1mPanic:\e[m ");
@@ -84,6 +86,15 @@ struct fmt::formatter<___Esl::Range> : public fmt::formatter<std::string_view> {
     template<typename FormatContext>
     constexpr auto format(___Esl::Range const& p, FormatContext& ctx) const {
         fmt::format_to(ctx.out(), "{}..{}", *p.begin(), *p.end());
+        return ctx.out();
+    }
+};
+
+template<>
+struct fmt::formatter<Util::UString> : public fmt::formatter<std::string_view> {
+    template<typename FormatContext>
+    constexpr auto format(Util::UString const& p, FormatContext& ctx) const {
+        fmt::format_to(ctx.out(), "{}", p.encode());
         return ctx.out();
     }
 };

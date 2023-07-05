@@ -1,5 +1,6 @@
 add_library(EssaLangRuntime STATIC
     Buffer.cpp
+    Builtins.cpp
     UString.cpp
     Utf8.cpp
 )
