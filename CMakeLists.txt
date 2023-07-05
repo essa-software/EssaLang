@@ -10,7 +10,7 @@ include(FetchContent)
 set(ESSA_UTIL_ONLY ON)
 FetchContent_Declare(Essa
     GIT_REPOSITORY https://github.com/essa-software/EssaGUI.git
-    GIT_TAG ed5dd1409f605e712b283bf89ec45336f641ae41
+    GIT_TAG e9cfe93830c596aa17e89b36e9ae4cefc3460bfe
     OVERRIDE_FIND_PACKAGE
 )
 FetchContent_MakeAvailable(Essa)
