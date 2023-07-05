@@ -340,6 +340,19 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     }
                 };
             },
+            [&](Parser::ParsedWhileStatement const& value) -> CheckedStatement {
+                auto condition = typecheck_expression(value.condition);
+                if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type.type_id, {})) {
+                    error("While statement's condition must be a bool", {});
+                }
+                auto block = typecheck_block(*value.block);
+                return CheckedStatement {
+                    .statement = CheckedWhileStatement {
+                        .condition = std::move(condition),
+                        .block = std::move(block),
+                    }
+                };
+            },
             [&](Parser::ParsedBlock const& value) -> CheckedStatement {
                 return CheckedStatement {
                     .statement = typecheck_block(value),

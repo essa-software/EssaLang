@@ -231,6 +231,11 @@ struct CheckedForStatement {
     CheckedBlock block;
 };
 
+struct CheckedWhileStatement {
+    CheckedExpression condition;
+    CheckedBlock block;
+};
+
 struct CheckedStatement {
     std::variant<
         CheckedVariableDeclaration,
@@ -238,6 +243,7 @@ struct CheckedStatement {
         CheckedReturnStatement,
         CheckedIfStatement,
         CheckedForStatement,
+        CheckedWhileStatement,
         CheckedBlock>
         statement;
 };

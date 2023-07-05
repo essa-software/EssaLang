@@ -220,6 +220,11 @@ void ParsedForStatement::print(size_t depth) const {
     fmt::print("for (TODO in TODO) {{ TODO }}");
 }
 
+void ParsedWhileStatement::print(size_t depth) const {
+    indent(depth);
+    fmt::print("while (TODO) {{ TODO }}");
+}
+
 Util::ParseErrorOr<ParsedFile> Parser::parse_file() {
     ParsedFile file;
 
@@ -276,6 +281,9 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     }
     if (token->type() == TokenType::KeywordFor) {
         return TRY(parse_for_statement());
+    }
+    if (token->type() == TokenType::KeywordWhile) {
+        return TRY(parse_while_statement());
     }
     auto expr = TRY(parse_expression(0));
     TRY(expect(TokenType::Semicolon));
@@ -509,6 +517,22 @@ Util::ParseErrorOr<ParsedForStatement> Parser::parse_for_statement() {
         .iterable = std::move(iterable),
         .block = std::move(block),
         .iterable_range = { .start = iterable_start, .end = iterable_end }
+    };
+}
+
+// "while" "(" expression ")" block
+Util::ParseErrorOr<ParsedWhileStatement> Parser::parse_while_statement() {
+    get(); // while
+
+    TRY(expect(TokenType::ParenOpen));
+    auto condition = TRY(parse_expression(Precedence::Assignment + 1));
+    TRY(expect(TokenType::ParenClose));
+
+    auto block = TRY(parse_block());
+
+    return ParsedWhileStatement {
+        .condition = std::move(condition),
+        .block = std::move(block),
     };
 }
 

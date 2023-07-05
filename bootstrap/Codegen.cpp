@@ -189,6 +189,13 @@ Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedState
                 TRY(codegen_block(stmt.block));
                 return {};
             },
+            [&](Typechecker::CheckedWhileStatement const& stmt) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write("while ("));
+                TRY(codegen_expression(stmt.condition));
+                TRY(m_writer.write(")"));
+                TRY(codegen_block(stmt.block));
+                return {};
+            },
             [&](Typechecker::CheckedBlock const& stmt) -> Util::OsErrorOr<void> {
                 TRY(codegen_block(stmt));
                 return {};

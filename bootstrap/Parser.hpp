@@ -224,6 +224,7 @@ struct ParsedReturnStatement {
 
 struct ParsedIfStatement;
 struct ParsedForStatement;
+struct ParsedWhileStatement;
 
 using ParsedStatement = std::variant<
     ParsedVariableDeclaration,
@@ -231,6 +232,7 @@ using ParsedStatement = std::variant<
     ParsedExpression,
     ParsedIfStatement,
     ParsedForStatement,
+    ParsedWhileStatement,
     ParsedBlock>;
 
 struct ParsedIfStatement {
@@ -247,6 +249,13 @@ struct ParsedForStatement {
     std::unique_ptr<ParsedBlock> block;
 
     Util::SourceRange iterable_range;
+
+    void print(size_t depth) const;
+};
+
+struct ParsedWhileStatement {
+    ParsedExpression condition;
+    std::unique_ptr<ParsedBlock> block;
 
     void print(size_t depth) const;
 };
@@ -291,6 +300,7 @@ private:
     Util::ParseErrorOr<ParsedReturnStatement> parse_return_statement();
     Util::ParseErrorOr<ParsedIfStatement> parse_if_statement();
     Util::ParseErrorOr<ParsedForStatement> parse_for_statement();
+    Util::ParseErrorOr<ParsedWhileStatement> parse_while_statement();
     Util::ParseErrorOr<ParsedExpression> parse_expression(int min_precedence);
     Util::ParseErrorOr<ParsedExpression> parse_primary_or_postfix_expression();
     Util::ParseErrorOr<ParsedExpression> parse_primary_expression();
