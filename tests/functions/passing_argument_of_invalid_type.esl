@@ -1,0 +1,5 @@
+func foo(foo: u32) {}
+
+func main() {
+    foo("test");
+}

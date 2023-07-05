@@ -510,13 +510,36 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     error(fmt::format("'{}' is not callable", call->name.encode()), call->name_range);
                     return CheckedExpression::invalid(m_program);
                 }
-                // TODO: Typecheck if arguments matches
-                std::vector<CheckedExpression> arguments;
-                for (auto const& arg : call->arguments) {
-                    arguments.push_back(typecheck_expression(arg));
-                }
 
                 auto& function = get_function(FunctionId { identifier.module, identifier.id });
+
+                // Hack because of print() using varargs which we don't support yet.
+                bool skip_typechecking_args = call->name == "print";
+
+                std::vector<CheckedExpression> arguments;
+                size_t c = 0;
+                for (auto const& arg : call->arguments) {
+                    if (skip_typechecking_args) {
+                        arguments.push_back(typecheck_expression(arg));
+                    }
+                    else {
+                        if (c >= function.parameters.size()) {
+                            error(fmt::format("Too many arguments for call to '{}'", function.name.encode()), call->name_range);
+                            break;
+                        }
+                        auto checked_arg = typecheck_expression(arg);
+                        auto expected_type = m_program.get_variable(function.parameters[c].second.var_id).type.type_id;
+                        if (!check_type_compatibility(TypeCompatibility::Assignment, expected_type, checked_arg.type.type_id, {})) {
+                            // TODO: better range
+                            error(fmt::format("Cannot convert '{}' to '{}' for function argument",
+                                      m_program.type_name(checked_arg.type.type_id).encode(), m_program.type_name(expected_type).encode()),
+                                call->name_range);
+                        }
+                        arguments.push_back(std::move(checked_arg));
+                    }
+                    c++;
+                }
+
                 return CheckedExpression {
                     .type = { .type_id = function.return_type, .is_mut = false },
                     .expression = CheckedExpression::Call {
