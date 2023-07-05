@@ -287,6 +287,8 @@ private:
     Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
     Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
     Util::ParseErrorOr<std::unique_ptr<ParsedCall>> parse_call_arguments(Util::UString id);
+
+    virtual std::string token_type_to_string(TokenType type) const override;
 };
 
 }

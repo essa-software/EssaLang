@@ -1,3 +1,3 @@
-[1;31mError:[m Expected token of type 34, got '.'
+[1;31mError:[m Expected ';', got '.'
    1 | import sys[31m.[mstderr; //[as stderr];
-                 ^ [31mExpected token of type 34, got '.'[m
+                 ^ [31mExpected ';', got '.'[m

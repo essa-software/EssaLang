@@ -1,5 +1,7 @@
 #pragma once
 
+#include <EssaUtil/Config.hpp>
+#include <EssaUtil/Enum.hpp>
 #include <EssaUtil/GenericParser.hpp>
 namespace ESL {
 
@@ -11,62 +13,72 @@ namespace ESL {
 //    to reuse.
 // 2. Keep this list alphabetically, with the blocks separated.
 //     - The same about handlers in lex()
-enum class TokenType {
-    // Keywords
-    KeywordBool,
-    KeywordElse,
-    KeywordExtern,
-    KeywordFor,
-    KeywordFunc,
-    KeywordIf,
-    KeywordImport,
-    KeywordLet,
-    KeywordMut,
-    KeywordOf,
-    KeywordReturn,
-    KeywordString,
-    KeywordStruct,
-    KeywordU32,
-    KeywordVoid,
+#define TOKENS(E)                                                      \
+    /* Keywords */                                                     \
+    E(KeywordBool, "bool")                                             \
+    E(KeywordElse, "else")                                             \
+    E(KeywordExtern, "extern")                                         \
+    E(KeywordFor, "for")                                               \
+    E(KeywordFunc, "func")                                             \
+    E(KeywordIf, "if")                                                 \
+    E(KeywordImport, "import")                                         \
+    E(KeywordLet, "let")                                               \
+    E(KeywordMut, "mut")                                               \
+    E(KeywordOf, "of")                                                 \
+    E(KeywordReturn, "return")                                         \
+    E(KeywordString, "string")                                         \
+    E(KeywordStruct, "struct")                                         \
+    E(KeywordU32, "u32")                                               \
+    E(KeywordVoid, "void")                                             \
+    /* Operators */                                                    \
+    E(Asterisk, "*")                                                   \
+    E(AsteriskEqual, "*=")                                             \
+    E(BraceOpen, "[")                                                  \
+    E(BraceClose, "]")                                                 \
+    E(Colon, ":")                                                      \
+    E(Comma, ",")                                                      \
+    E(CurlyOpen, "{")                                                  \
+    E(CurlyClose, "}")                                                 \
+    E(Dot, ".")                                                        \
+    E(DotDot, "..")                                                    \
+    E(EqualEqual, "==")                                                \
+    E(EqualSign, "=")                                                  \
+    E(Minus, "-")                                                      \
+    E(MinusEqual, "-=")                                                \
+    E(ParenOpen, "(")                                                  \
+    E(ParenClose, ")")                                                 \
+    E(PercentSign, "%")                                                \
+    E(PercentEqual, "%=")                                              \
+    E(Plus, "+")                                                       \
+    E(PlusEqual, "+=")                                                 \
+    E(Semicolon, ";")                                                  \
+    E(Slash, "/")                                                      \
+    E(SlashEqual, "/=")                                                \
+    /* Misc */                                                         \
+    E(Comment, "Comment")                                              \
+    E(Identifier, "Identifier")                                        \
+    E(Number, "Number")                                                \
+    E(StringLiteral, "StringLiteral")                                  \
+    /* End of file, added at the end. Makes overflowing                \
+       the token list much harder. */                                  \
+    E(Eof, "<EOF>")                                                    \
+    /* Everything else. Probably will be rejected at parsing stage. */ \
+    E(Garbage, "Garbage")
 
-    // Operators based on special characters
-    Asterisk,      // *
-    AsteriskEqual, // *=
-    BraceOpen,     // [
-    BraceClose,    // ]
-    Colon,         // :
-    Comma,         // ,
-    CurlyOpen,     // {
-    CurlyClose,    // }
-    Dot,           // .
-    DotDot,        // ..
-    EqualEqual,    // ==
-    EqualSign,     // =
-    Minus,         // -
-    MinusEqual,    // -=
-    ParenOpen,     // (
-    ParenClose,    // )
-    PercentSign,   // %
-    PercentEqual,  // %=
-    Plus,          // +
-    PlusEqual,     // +=
-    Semicolon,     // ;
-    Slash,         // /
-    SlashEqual,    // /=
+ESSA_ENUM(TokenType, TOKENS);
 
-    // Miscellaneous
-    Comment,
-    Identifier,
-    Number,
-    StringLiteral,
+#define _TO_STRING(Name, String) \
+    case Enum::Name:             \
+        return String;
 
-    // End of file, added at the end. Makes overflowing the token
-    // list much harder.
-    Eof,
-
-    // Everything else. Probably will be rejected at parsing stage.
-    Garbage
-};
+inline std::string_view token_to_string(TokenType tt) {
+    using Enum = TokenType;
+    switch (tt) {
+        TOKENS(_TO_STRING);
+    default:
+        ESSA_UNREACHABLE;
+    }
+}
 
 using Token = Util::Token<TokenType>;
 

@@ -699,4 +699,9 @@ Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Uti
     TRY(expect(TokenType::ParenClose));
     return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments), .name_range {} });
 }
+
+std::string Parser::token_type_to_string(TokenType type) const {
+    return fmt::format("'{}'", ESL::token_to_string(type));
+}
+
 }
