@@ -156,6 +156,8 @@ struct ParsedBinaryExpression {
         IsLessEq,
         IsGreater,
         IsGreaterEq,
+        LogicalAnd,
+        LogicalOr,
         Assign,
         AssignAdd,
         AssignSubtract,
@@ -180,6 +182,11 @@ struct ParsedBinaryExpression {
             || operator_ == Operator::IsLessEq
             || operator_ == Operator::IsGreater
             || operator_ == Operator::IsGreaterEq;
+    }
+
+    bool is_logical() const {
+        return operator_ == Operator::LogicalAnd
+            || operator_ == Operator::LogicalOr;
     }
 
     bool is_assignment() const {

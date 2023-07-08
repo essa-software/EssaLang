@@ -362,6 +362,12 @@ Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::Chec
     case Parser::ParsedBinaryExpression::Operator::IsGreaterEq:
         TRY(m_writer.write(">="));
         break;
+    case Parser::ParsedBinaryExpression::Operator::LogicalAnd:
+        TRY(m_writer.write("&&"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::LogicalOr:
+        TRY(m_writer.write("||"));
+        break;
     case Parser::ParsedBinaryExpression::Operator::Assign:
         TRY(m_writer.write("="));
         break;

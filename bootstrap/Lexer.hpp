@@ -36,6 +36,7 @@ namespace ESL {
     E(KeywordVoid, "void")                                             \
     E(KeywordWhile, "while")                                           \
     /* Operators */                                                    \
+    E(AmpersandAmpersand, "&&")                                        \
     E(Asterisk, "*")                                                   \
     E(AsteriskEqual, "*=")                                             \
     E(BraceClose, "]")                                                 \
@@ -59,6 +60,7 @@ namespace ESL {
     E(ParenOpen, "(")                                                  \
     E(PercentEqual, "%=")                                              \
     E(PercentSign, "%")                                                \
+    E(PipePipe, "||")                                                  \
     E(Plus, "+")                                                       \
     E(PlusEqual, "+=")                                                 \
     E(Semicolon, ";")                                                  \

@@ -1,0 +1,15 @@
+func foo(): bool {
+    print("foo ");
+    return false;
+}
+func bar(): bool {
+    print("bar ");
+    return true;
+}
+
+func main() {
+    // Only foo should run.
+    print("{} ", foo() && bar());
+    // Only bar should run.
+    print("{}", bar() || foo());
+}

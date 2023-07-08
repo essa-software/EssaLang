@@ -626,6 +626,16 @@ CheckedExpression Typechecker::typecheck_binary_expression(Parser::ParsedBinaryE
         return { .type = { .type_id = m_program.bool_type_id, .is_mut = false }, .expression = std::move(checked_expression) };
     }
 
+    if (expression.is_logical()) {
+        auto const lhs = checked_expression.lhs->type.type_id;
+        auto const rhs = checked_expression.rhs->type.type_id;
+        if (lhs != m_program.bool_type_id || rhs != m_program.bool_type_id) {
+            // FIXME: better range? maybe point at specific operand that was non bool
+            error("Operands of logical operator must be bools", expression.operator_range);
+        }
+        return { .type = { .type_id = m_program.bool_type_id, .is_mut = false }, .expression = std::move(checked_expression) };
+    }
+
     if (expression.is_comparison()) {
         if (!check_type_compatibility(TypeCompatibility::Comparison, checked_expression.lhs->type.type_id, checked_expression.rhs->type.type_id, expression.operator_range))
             return CheckedExpression::invalid(m_program);

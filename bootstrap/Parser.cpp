@@ -159,6 +159,10 @@ std::string ParsedBinaryExpression::operator_to_string(Operator op) {
         return ">";
     case Operator::IsGreaterEq:
         return ">=";
+    case Operator::LogicalAnd:
+        return "&&";
+    case Operator::LogicalOr:
+        return "||";
     case Operator::Assign:
         return "=";
     case Operator::AssignAdd:
@@ -491,11 +495,12 @@ Util::ParseErrorOr<ParsedReturnStatement> Parser::parse_return_statement() {
 }
 
 namespace Precedence {
-constexpr int Range = 20;
-constexpr int Multiplicative = 15;
-constexpr int Additive = 10;
-constexpr int Comparison = 7;
-constexpr int Assignment = 5;
+constexpr int Range = 300;
+constexpr int Multiplicative = 250;
+constexpr int Additive = 200;
+constexpr int Comparison = 150;
+constexpr int Logical = 100;
+constexpr int Assignment = 50;
 }
 
 Util::ParseErrorOr<ParsedIfStatement> Parser::parse_if_statement() {
@@ -580,6 +585,9 @@ static int precedence(ParsedBinaryExpression::Operator op) {
     case ParsedBinaryExpression::Operator::IsGreater:
     case ParsedBinaryExpression::Operator::IsGreaterEq:
         return Precedence::Comparison;
+    case ParsedBinaryExpression::Operator::LogicalAnd:
+    case ParsedBinaryExpression::Operator::LogicalOr:
+        return Precedence::Logical;
     case ParsedBinaryExpression::Operator::Assign:
     case ParsedBinaryExpression::Operator::AssignAdd:
     case ParsedBinaryExpression::Operator::AssignSubtract:
@@ -604,6 +612,10 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::Divide;
     case TokenType::PercentSign:
         return ParsedBinaryExpression::Operator::Modulo;
+    case TokenType::Plus:
+        return ParsedBinaryExpression::Operator::Add;
+    case TokenType::Minus:
+        return ParsedBinaryExpression::Operator::Subtract;
     case TokenType::EqualEqual:
         return ParsedBinaryExpression::Operator::IsEqual;
     case TokenType::ExclEqual:
@@ -616,10 +628,10 @@ static ParsedBinaryExpression::Operator token_to_binary_operator(TokenType token
         return ParsedBinaryExpression::Operator::IsGreater;
     case TokenType::GreaterEqual:
         return ParsedBinaryExpression::Operator::IsGreaterEq;
-    case TokenType::Plus:
-        return ParsedBinaryExpression::Operator::Add;
-    case TokenType::Minus:
-        return ParsedBinaryExpression::Operator::Subtract;
+    case TokenType::AmpersandAmpersand:
+        return ParsedBinaryExpression::Operator::LogicalAnd;
+    case TokenType::PipePipe:
+        return ParsedBinaryExpression::Operator::LogicalOr;
     case TokenType::EqualSign:
         return ParsedBinaryExpression::Operator::Assign;
     case TokenType::PlusEqual:

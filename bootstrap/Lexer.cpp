@@ -141,6 +141,14 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 }
                 operator_type = TokenType::Asterisk;
                 break;
+            case '&':
+                if (TRY(peek()) == '&') {
+                    TRY(consume());
+                    value += '&';
+                    operator_type = TokenType::AmpersandAmpersand;
+                    break;
+                }
+                break;
             case '[':
                 operator_type = TokenType::BraceOpen;
                 break;
@@ -228,6 +236,14 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                     break;
                 }
                 operator_type = TokenType::PercentSign;
+                break;
+            case '|':
+                if (TRY(peek()) == '|') {
+                    TRY(consume());
+                    value += '|';
+                    operator_type = TokenType::PipePipe;
+                    break;
+                }
                 break;
             case '+':
                 if (TRY(peek()) == '=') {
