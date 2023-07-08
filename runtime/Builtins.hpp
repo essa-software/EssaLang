@@ -58,24 +58,23 @@ struct EmptyArray {
     operator T() const { return T(); }
 };
 
-template<class Container>
-Container::value_type const& safe_array_access(Container const& container, size_t idx) {
+template<class T>
+concept Container = requires(T t) { std::begin(t); };
+
+template<Container T>
+decltype(auto) safe_array_access(T const& container, size_t idx) {
     auto size = std::size(container);
     if (idx >= size) {
         panic("Array out of bounds access: {} >= {}", idx, size);
     }
-    // FIXME: Technically this is still not safe, because ptr may
-    //        overflow. But this is really an edge case...
     return container[idx];
 }
-template<class Container>
-Container::value_type& safe_array_access_mut(Container& container, size_t idx) {
+template<Container T>
+decltype(auto) safe_array_access_mut(T& container, size_t idx) {
     auto size = std::size(container);
     if (idx >= size) {
         panic("Array out of bounds access: {} >= {}", idx, size);
     }
-    // FIXME: Technically this is still not safe, because ptr may
-    //        overflow. But this is really an edge case...
     return container[idx];
 }
 

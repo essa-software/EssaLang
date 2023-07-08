@@ -20,7 +20,7 @@ Util::UString StructType::name(CheckedProgram const& program) const {
 }
 
 std::optional<TypeId> PrimitiveType::iterable_type(CheckedProgram const& program) const {
-    return type == PrimitiveType::Range ? std::optional(program.u32_type_id) : std::nullopt;
+    return type == PrimitiveType::Range || type == PrimitiveType::String ? std::optional(program.u32_type_id) : std::nullopt;
 }
 
 std::optional<TypeId> ArrayType::iterable_type(CheckedProgram const&) const {
@@ -482,18 +482,32 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     return CheckedExpression::invalid(m_program);
                 }
                 auto array_type = m_program.get_type(array.type.type_id);
-                if (!std::holds_alternative<ArrayType>(array_type.type)) {
-                    // TODO: Better range
-                    error("Indexed expression is not an array", expr->range);
-                    return CheckedExpression::invalid(m_program);
+                if (std::holds_alternative<ArrayType>(array_type.type)) {
+                    auto type = std::get<ArrayType>(array_type.type);
+                    return CheckedExpression {
+                        .type = QualifiedType { .type_id = type.inner, .is_mut = array.type.is_mut },
+                        .expression = CheckedExpression::ArrayIndex {
+                            .array = std::make_unique<CheckedExpression>(std::move(array)),
+                            .index = std::make_unique<CheckedExpression>(std::move(index)),
+                        },
+                    };
                 }
-                return CheckedExpression {
-                    .type = QualifiedType { .type_id = std::get<ArrayType>(array_type.type).inner, .is_mut = array.type.is_mut },
-                    .expression = CheckedExpression::ArrayIndex {
-                        .array = std::make_unique<CheckedExpression>(std::move(array)),
-                        .index = std::make_unique<CheckedExpression>(std::move(index)),
-                    },
-                };
+                if (std::holds_alternative<PrimitiveType>(array_type.type)) {
+                    auto primitive = std::get<PrimitiveType>(array_type.type);
+                    if (primitive.type == PrimitiveType::String) {
+                        return CheckedExpression {
+                            .type = QualifiedType { .type_id = m_program.u32_type_id, .is_mut = array.type.is_mut },
+                            .expression = CheckedExpression::ArrayIndex {
+                                .array = std::make_unique<CheckedExpression>(std::move(array)),
+                                .index = std::make_unique<CheckedExpression>(std::move(index)),
+                            },
+                        };
+                    }
+                }
+                // TODO: Better range
+                error(fmt::format("Not found operator[] for '{}'", array_type.name(m_program).encode()),
+                    expr->range);
+                return CheckedExpression::invalid(m_program);
             },
             [&](std::unique_ptr<Parser::ParsedMemberAccess> const& access) {
                 auto object = typecheck_expression(access->object);
