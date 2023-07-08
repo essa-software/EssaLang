@@ -20,6 +20,7 @@ namespace ESL {
     E(KeywordContinue, "continue")                                     \
     E(KeywordElse, "else")                                             \
     E(KeywordExtern, "extern")                                         \
+    E(KeywordFalse, "false")                                           \
     E(KeywordFor, "for")                                               \
     E(KeywordFunc, "func")                                             \
     E(KeywordIf, "if")                                                 \
@@ -30,6 +31,7 @@ namespace ESL {
     E(KeywordReturn, "return")                                         \
     E(KeywordString, "string")                                         \
     E(KeywordStruct, "struct")                                         \
+    E(KeywordTrue, "true")                                             \
     E(KeywordU32, "u32")                                               \
     E(KeywordVoid, "void")                                             \
     E(KeywordWhile, "while")                                           \

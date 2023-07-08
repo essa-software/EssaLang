@@ -164,6 +164,9 @@ struct CheckedExpression {
     struct StringLiteral {
         Util::UString value;
     };
+    struct BoolLiteral {
+        bool value;
+    };
     // FIXME: This should not be separate. Make this working with type inference + generics ??
     struct EmptyInlineArray { };
     struct InlineArray {
@@ -177,6 +180,7 @@ struct CheckedExpression {
         MemberAccess,
         UnsignedIntegerLiteral,
         StringLiteral,
+        BoolLiteral,
         EmptyInlineArray,
         InlineArray,
         ResolvedIdentifier,

@@ -428,6 +428,12 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     .expression = CheckedExpression::StringLiteral { .value = string_literal->value },
                 };
             },
+            [&](std::unique_ptr<Parser::ParsedBoolLiteral> const& bool_literal) {
+                return CheckedExpression {
+                    .type = { .type_id = m_program.bool_type_id, .is_mut = false },
+                    .expression = CheckedExpression::BoolLiteral { .value = bool_literal->value },
+                };
+            },
             [&](std::unique_ptr<Parser::ParsedInlineArray> const& array) {
                 if (array->elements.empty()) {
                     return CheckedExpression {

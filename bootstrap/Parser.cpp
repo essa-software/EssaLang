@@ -97,6 +97,11 @@ void ParsedStringLiteral::print(size_t depth) const {
     fmt::print("\"{}\"", value.encode());
 }
 
+void ParsedBoolLiteral::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{}", value);
+}
+
 void ParsedInlineArray::print(size_t depth) const {
     indent(depth);
     fmt::print("[...TODO...]");
@@ -734,6 +739,14 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
             return Util::ParseError { "Char literal must be a single Unicode codepoint", token->range() };
         }
         return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = token->value().at(0) }) };
+    }
+    if (token->type() == TokenType::KeywordTrue) {
+        get();
+        return ParsedExpression { .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = true }) };
+    }
+    if (token->type() == TokenType::KeywordFalse) {
+        get();
+        return ParsedExpression { .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = false }) };
     }
     if (token->type() == TokenType::Identifier) {
         token = get();

@@ -270,6 +270,10 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
                 m_writer.writeff("Util::UString{{\"{}\"}}", expr.value.encode());
                 return {};
             },
+            [&](Typechecker::CheckedExpression::BoolLiteral const& expr) -> Util::OsErrorOr<void> {
+                m_writer.writeff("{}", expr.value);
+                return {};
+            },
             [&](Typechecker::CheckedExpression::EmptyInlineArray const&) -> Util::OsErrorOr<void> {
                 TRY(m_writer.write("___Esl::EmptyArray{}"));
                 return {};

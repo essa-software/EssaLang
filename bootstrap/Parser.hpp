@@ -89,6 +89,12 @@ struct ParsedStringLiteral {
     void print(size_t depth) const;
 };
 
+struct ParsedBoolLiteral {
+    bool value;
+
+    void print(size_t depth) const;
+};
+
 struct ParsedIdentifier {
     Util::UString id;
 
@@ -108,6 +114,7 @@ struct ParsedExpression {
     std::variant<
         std::unique_ptr<ParsedIntegerLiteral>,
         std::unique_ptr<ParsedStringLiteral>,
+        std::unique_ptr<ParsedBoolLiteral>,
         std::unique_ptr<ParsedInlineArray>,
         std::unique_ptr<ParsedIdentifier>,
         std::unique_ptr<ParsedBinaryExpression>,

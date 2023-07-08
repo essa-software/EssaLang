@@ -1,0 +1,9 @@
+func main() {
+    print("{} {} ", true, false);
+    if (true) {
+        print("YAY");
+    }
+    if (false) {
+        print("NOT YAY");
+    }
+}

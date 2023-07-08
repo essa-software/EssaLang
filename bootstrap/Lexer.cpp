@@ -33,6 +33,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             else if (string == "extern") {
                 tokens.push_back(create_token(TokenType::KeywordExtern, "extern", start));
             }
+            else if (string == "false") {
+                tokens.push_back(create_token(TokenType::KeywordFalse, "false", start));
+            }
             else if (string == "for") {
                 tokens.push_back(create_token(TokenType::KeywordFor, "for", start));
             }
@@ -62,6 +65,9 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             }
             else if (string == "struct") {
                 tokens.push_back(create_token(TokenType::KeywordStruct, "struct", start));
+            }
+            else if (string == "true") {
+                tokens.push_back(create_token(TokenType::KeywordTrue, "true", start));
             }
             else if (string == "u32") {
                 tokens.push_back(create_token(TokenType::KeywordU32, "u32", start));
