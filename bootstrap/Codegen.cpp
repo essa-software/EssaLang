@@ -15,12 +15,21 @@ Util::OsErrorOr<void> CodeGenerator::codegen() {
     }
     for (auto const& mod : m_program.modules()) {
         for (auto const& function : mod->functions()) {
+            if (!function->body) {
+                TRY(m_writer.write("// EXTERN: "));
+                TRY(codegen_function_declaration(*function));
+                TRY(m_writer.write("\n"));
+                continue;
+            }
             TRY(codegen_function_declaration(*function));
             TRY(m_writer.write(";\n"));
         }
     }
     for (auto const& mod : m_program.modules()) {
         for (auto const& function : mod->functions()) {
+            if (!function->body) {
+                continue;
+            }
             TRY(codegen_function(*function));
         }
     }
@@ -72,17 +81,13 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function_declaration(Typechecker::C
 
 Util::OsErrorOr<void> CodeGenerator::codegen_function(Typechecker::CheckedFunction const& function) {
     TRY(codegen_function_declaration(function));
-    if (function.body) {
-        m_writer.writeff(" {{\n");
-        TRY(codegen_block(*function.body));
-        if (function.name == "main") {
-            m_writer.writeff("\nreturn 0;\n");
-        }
-        m_writer.writeff("}}\n\n");
+    assert(function.body);
+    m_writer.writeff(" {{\n");
+    TRY(codegen_block(*function.body));
+    if (function.name == "main") {
+        m_writer.writeff("\nreturn 0;\n");
     }
-    else {
-        m_writer.writeff(";\n\n");
-    }
+    m_writer.writeff("}}\n\n");
     return {};
 }
 
