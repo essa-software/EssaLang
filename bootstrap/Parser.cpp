@@ -692,6 +692,11 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
 
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     auto token = peek();
+    if (token->type() == TokenType::ParenOpen) {
+        auto expr = TRY(parse_expression(0));
+        TRY(expect(TokenType::ParenClose));
+        return expr;
+    }
     if (token->type() == TokenType::Number) {
         token = get();
         return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral {
