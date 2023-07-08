@@ -701,6 +701,13 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
         token = get();
         return ParsedExpression { .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }) };
     }
+    if (token->type() == TokenType::CharLiteral) {
+        token = get();
+        if (token->value().size() != 1) {
+            return Util::ParseError { "Char literal must be a single Unicode codepoint", token->range() };
+        }
+        return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = token->value().at(0) }) };
+    }
     if (token->type() == TokenType::Identifier) {
         token = get();
         Util::UString id { token->value() };

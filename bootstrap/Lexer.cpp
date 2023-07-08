@@ -78,6 +78,7 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             tokens.push_back(create_token(TokenType::Number, number, start));
         }
         else if (*current == '"') {
+            // TODO: Handle escaping
             TRY(consume());
             auto string = TRY(consume_while([](uint8_t c) {
                 return c != '"';
@@ -86,6 +87,17 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
                 fmt::print("TODO: Handle unclosed string literal\n");
             }
             tokens.push_back(create_token(TokenType::StringLiteral, string, start));
+        }
+        else if (*current == '\'') {
+            // TODO: Handle escaping
+            TRY(consume());
+            auto string = TRY(consume_while([](uint8_t c) {
+                return c != '\'';
+            }));
+            if (!TRY(consume())) {
+                fmt::print("TODO: Handle unclosed char literal\n");
+            }
+            tokens.push_back(create_token(TokenType::CharLiteral, string, start));
         }
         else if (*current == '/') {
             // Comments

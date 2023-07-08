@@ -65,6 +65,7 @@ namespace ESL {
     E(Identifier, "Identifier")                                        \
     E(Number, "Number")                                                \
     E(StringLiteral, "StringLiteral")                                  \
+    E(CharLiteral, "CharLiteral")                                      \
     /* End of file, added at the end. Makes overflowing                \
        the token list much harder. */                                  \
     E(Eof, "<EOF>")                                                    \
