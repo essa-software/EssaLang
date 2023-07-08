@@ -42,7 +42,8 @@ public:
     UString(wchar_t ch)
         : UString(static_cast<uint32_t>(ch)) { }
 
-    enum class Encoding { ASCII, Utf8 };
+    enum class Encoding { ASCII,
+        Utf8 };
 
     UString(std::span<uint8_t const>, Encoding = Encoding::Utf8, uint32_t replacement = 0xfffd);
     UString(std::string_view, Encoding = Encoding::Utf8, uint32_t replacement = 0xfffd);
@@ -55,7 +56,8 @@ public:
     UString(char const (&string)[S], Encoding encoding = Encoding::Utf8, uint32_t replacement = 0xfffd)
         : UString({ string, S - 1 }, encoding, replacement) { }
 
-    template<class... Args> static UString format(fmt::format_string<Args...> fmtstr, Args&&... args) {
+    template<class... Args>
+    static UString format(fmt::format_string<Args...> fmtstr, Args&&... args) {
         return Util::UString(fmt::format(fmtstr, std::forward<Args>(args)...));
     }
 
@@ -63,6 +65,8 @@ public:
     [[nodiscard]] Buffer encode_buffer(Encoding = Encoding::Utf8) const;
 
     [[nodiscard]] uint32_t at(size_t) const;
+    [[nodiscard]] uint32_t operator[](size_t idx) const { return at(idx); }
+    [[nodiscard]] uint32_t& operator[](size_t idx) { return m_storage[idx]; }
     [[nodiscard]] size_t size() const { return m_size; }
     [[nodiscard]] bool is_empty() const { return m_size == 0; }
 
@@ -86,7 +90,8 @@ public:
 
     [[nodiscard]] size_t indent() const;
 
-    template<class Callback> void for_each_split(UString const& splitter, Callback&& callback) const {
+    template<class Callback>
+    void for_each_split(UString const& splitter, Callback&& callback) const {
         size_t index = 0;
         while (true) {
             auto next = find(splitter, index);
@@ -102,15 +107,18 @@ public:
         }
     }
 
-    template<class Callback> void for_each_line(Callback&& callback) const { for_each_split("\n", std::forward<Callback>(callback)); }
+    template<class Callback>
+    void for_each_line(Callback&& callback) const { for_each_split("\n", std::forward<Callback>(callback)); }
 
     std::strong_ordering operator<=>(UString const& other) const;
     bool operator==(UString const& other) const;
 
     friend std::ostream& operator<<(std::ostream& out, UString const& str) { return out << str.encode(); }
 
-    template<std::integral I> OsErrorOr<I> parse(int base = 10) const;
-    template<std::floating_point I> OsErrorOr<I> parse() const;
+    template<std::integral I>
+    OsErrorOr<I> parse(int base = 10) const;
+    template<std::floating_point I>
+    OsErrorOr<I> parse() const;
 
 private:
     friend UString operator+(UString const& lhs, UString const& rhs);
@@ -122,9 +130,11 @@ private:
     size_t m_size {};
 };
 
-template<typename T> UString to_ustring(const T& to_convert) { return UString { std::to_string(to_convert) }; }
+template<typename T>
+UString to_ustring(const T& to_convert) { return UString { std::to_string(to_convert) }; }
 
 // For some reason, there is no std::stou for that. :(
-template<> OsErrorOr<unsigned int> UString::parse<unsigned int>(int base) const = delete;
+template<>
+OsErrorOr<unsigned int> UString::parse<unsigned int>(int base) const = delete;
 
 }
