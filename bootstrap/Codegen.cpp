@@ -1,4 +1,6 @@
 #include "Codegen.hpp"
+
+#include "Parser.hpp"
 #include "Typechecker.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/Error.hpp>
@@ -163,6 +165,11 @@ Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedState
             },
             [&](Typechecker::CheckedExpression const& expr) -> Util::OsErrorOr<void> {
                 TRY(codegen_expression(expr));
+                TRY(m_writer.write(";\n"));
+                return {};
+            },
+            [&](Typechecker::CheckedBreakOrContinueStatement const& stmt) -> Util::OsErrorOr<void> {
+                TRY(m_writer.write(Util::UString(stmt.type == Parser::ParsedBreakOrContinueStatement::Type::Break ? "break" : "continue")));
                 TRY(m_writer.write(";\n"));
                 return {};
             },

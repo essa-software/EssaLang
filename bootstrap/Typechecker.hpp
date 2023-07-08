@@ -207,6 +207,10 @@ struct CheckedParameter {
     VarId var_id;
 };
 
+struct CheckedBreakOrContinueStatement {
+    Parser::ParsedBreakOrContinueStatement::Type type;
+};
+
 struct CheckedReturnStatement {
     std::optional<CheckedExpression> expression;
 };
@@ -240,6 +244,7 @@ struct CheckedStatement {
     std::variant<
         CheckedVariableDeclaration,
         CheckedExpression,
+        CheckedBreakOrContinueStatement,
         CheckedReturnStatement,
         CheckedIfStatement,
         CheckedForStatement,
@@ -518,6 +523,7 @@ private:
     Module* m_current_checked_module = nullptr;
     CheckedFunction* m_current_function = nullptr;
     ScopeId m_current_scope {};
+    bool m_is_in_loop = false;
 };
 
 }

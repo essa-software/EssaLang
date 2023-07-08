@@ -226,9 +226,20 @@ struct ParsedIfStatement;
 struct ParsedForStatement;
 struct ParsedWhileStatement;
 
+struct ParsedBreakOrContinueStatement {
+    enum class Type {
+        Break,
+        Continue
+    } type;
+    Util::SourceRange range;
+
+    void print(size_t depth) const;
+};
+
 using ParsedStatement = std::variant<
     ParsedVariableDeclaration,
     ParsedReturnStatement,
+    ParsedBreakOrContinueStatement,
     ParsedExpression,
     ParsedIfStatement,
     ParsedForStatement,

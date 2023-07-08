@@ -21,6 +21,12 @@ Util::OsErrorOr<std::vector<Token>> Lexer::lex() {
             if (string == "bool") {
                 tokens.push_back(create_token(TokenType::KeywordBool, "bool", start));
             }
+            else if (string == "break") {
+                tokens.push_back(create_token(TokenType::KeywordBreak, "break", start));
+            }
+            else if (string == "continue") {
+                tokens.push_back(create_token(TokenType::KeywordContinue, "continue", start));
+            }
             else if (string == "else") {
                 tokens.push_back(create_token(TokenType::KeywordElse, "else", start));
             }

@@ -1,5 +1,6 @@
 #include "Typechecker.hpp"
 
+#include "EssaUtil/TemporaryChange.hpp"
 #include "Parser.hpp"
 #include "bootstrap/Esl.hpp"
 #include <EssaUtil/Config.hpp>
@@ -301,6 +302,16 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     },
                 };
             },
+            [&](Parser::ParsedBreakOrContinueStatement const& value) -> CheckedStatement {
+                if (!m_is_in_loop) {
+                    error(fmt::format("{} may occur only in a loop",
+                              value.type == Parser::ParsedBreakOrContinueStatement::Type::Break ? "break" : "continue"),
+                        value.range);
+                }
+                return CheckedStatement {
+                    .statement = CheckedBreakOrContinueStatement { .type = value.type }
+                };
+            },
             [&](Parser::ParsedIfStatement const& value) -> CheckedStatement {
                 auto condition = typecheck_expression(value.condition);
                 // TODO: range
@@ -330,6 +341,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                     .initializer = {},
                 });
                 m_program.get_scope(m_current_scope).variables.insert({ value.variable, variable });
+                Util::TemporaryChange change { m_is_in_loop, true };
                 auto block = typecheck_block(*value.block);
                 return CheckedStatement {
                     .statement = CheckedForStatement {
@@ -345,6 +357,7 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                 if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type.type_id, {})) {
                     error("While statement's condition must be a bool", {});
                 }
+                Util::TemporaryChange change { m_is_in_loop, true };
                 auto block = typecheck_block(*value.block);
                 return CheckedStatement {
                     .statement = CheckedWhileStatement {

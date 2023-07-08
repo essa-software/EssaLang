@@ -16,6 +16,8 @@ namespace ESL {
 #define TOKENS(E)                                                      \
     /* Keywords */                                                     \
     E(KeywordBool, "bool")                                             \
+    E(KeywordBreak, "break")                                           \
+    E(KeywordContinue, "continue")                                     \
     E(KeywordElse, "else")                                             \
     E(KeywordExtern, "extern")                                         \
     E(KeywordFor, "for")                                               \

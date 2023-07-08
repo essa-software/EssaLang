@@ -181,6 +181,11 @@ void ParsedReturnStatement::print(size_t depth) const {
     fmt::print(";");
 }
 
+void ParsedBreakOrContinueStatement::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{};", type == Type::Break ? "break" : "continue");
+}
+
 void ParsedIfStatement::print(size_t depth) const {
     indent(depth);
     fmt::print("if (");
@@ -275,6 +280,22 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
     }
     if (token->type() == TokenType::KeywordReturn) {
         return TRY(parse_return_statement());
+    }
+    if (token->type() == TokenType::KeywordBreak) {
+        get();
+        TRY(expect(TokenType::Semicolon));
+        return ParsedBreakOrContinueStatement {
+            .type = ParsedBreakOrContinueStatement::Type::Break,
+            .range = this->range(this->offset() - 1, 1),
+        };
+    }
+    if (token->type() == TokenType::KeywordContinue) {
+        get();
+        TRY(expect(TokenType::Semicolon));
+        return ParsedBreakOrContinueStatement {
+            .type = ParsedBreakOrContinueStatement::Type::Continue,
+            .range = this->range(this->offset() - 1, 1),
+        };
     }
     if (token->type() == TokenType::KeywordIf) {
         return TRY(parse_if_statement());
@@ -693,6 +714,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     auto token = peek();
     if (token->type() == TokenType::ParenOpen) {
+        get(); // '('
         auto expr = TRY(parse_expression(0));
         TRY(expect(TokenType::ParenClose));
         return expr;
