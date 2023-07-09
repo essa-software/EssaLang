@@ -388,8 +388,12 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
             TRY(expect(TokenType::Colon));
             auto type = TRY(parse_type());
             declaration.parameters.push_back(ParsedParameter { .type = std::move(type), .name = Util::UString { name.value() } });
-            if (!next_token_is(TokenType::Comma))
+            if (!next_token_is(TokenType::Comma)) {
                 break;
+            }
+            else {
+                get(); // ','
+            }
         }
         TRY(expect(TokenType::ParenClose));
     }
