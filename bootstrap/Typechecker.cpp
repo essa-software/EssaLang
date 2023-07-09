@@ -803,7 +803,7 @@ void CheckedProgram::print() const {
                 fmt::print("    <NULL>\n");
                 continue;
             }
-            fmt::print("    func {}(...) -> {}\n", func->name.encode(), get_type(func->return_type).name(*this).encode());
+            fmt::print("    func {}(...) -> {}\n", func->name.encode(), type_name(func->return_type).encode());
             if (!func->body) {
                 fmt::print("        <EXTERN>\n");
                 continue;
