@@ -66,13 +66,15 @@ Util::OsErrorOr<void> CodeGenerator::codegen_struct(Typechecker::CheckedStruct c
 }
 
 Util::OsErrorOr<void> CodeGenerator::codegen_function_declaration(Typechecker::CheckedFunction const& function) {
+    // FIXME: Handle mangling of methods so that they don't
+    //        clash with global functions.
     TRY(codegen_type(m_program.get_type(function.return_type)));
     m_writer.writeff(" {}(", function.name == "main" ? "___esl_main" : function.name.encode());
     for (size_t s = 0; s < function.parameters.size(); s++) {
         auto const& param = function.parameters[s];
         auto const& var = m_program.get_variable(param.second.var_id);
         TRY(codegen_qualified_type(var.type));
-        m_writer.writeff(" {}", var.name.encode());
+        m_writer.writeff(" {}", var.name == "this" ? "this_" : var.name.encode());
         if (s != function.parameters.size() - 1) {
             TRY(m_writer.write(", "));
         }
@@ -297,9 +299,11 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
             },
             [&](Typechecker::ResolvedIdentifier const& expr) -> Util::OsErrorOr<void> {
                 switch (expr.type) {
-                case Typechecker::ResolvedIdentifier::Type::Variable:
-                    m_writer.writeff("{}", m_program.get_variable(Typechecker::VarId { expr.module, expr.id }).name.encode());
+                case Typechecker::ResolvedIdentifier::Type::Variable: {
+                    auto name = m_program.get_variable(Typechecker::VarId { expr.module, expr.id }).name.encode();
+                    m_writer.writeff("{}", name == "this" ? "this_" : std::move(name));
                     break;
+                }
                 case Typechecker::ResolvedIdentifier::Type::Function:
                     m_writer.writeff("{}", m_program.get_function(Typechecker::FunctionId { expr.module, expr.id })->name.encode());
                     break;

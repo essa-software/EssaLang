@@ -1,4 +1,5 @@
 #include "Parser.hpp"
+#include "EssaUtil/TemporaryChange.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ErrorMappers.hpp>
 #include <EssaUtil/GenericParser.hpp>
@@ -374,20 +375,49 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         TRY(expect(TokenType::KeywordFunc));
     }
 
-    ParsedFunctionDeclaration declaration;
-    declaration.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
-    declaration.name_range = range(offset() - 1, 1);
+    ParsedFunctionDeclaration declaration {
+        .name = Util::UString { TRY(expect(TokenType::Identifier)).value() },
+        .return_type = {},
+        .parameters = {},
+        .body = {},
+        .name_range = range(offset() - 1, 1),
+    };
 
     TRY(expect(TokenType::ParenOpen));
     if (next_token_is(TokenType::ParenClose)) {
         get();
     }
     else {
+        bool has_this_parameter = false;
         while (true) {
-            auto name = TRY(expect(TokenType::Identifier));
-            TRY(expect(TokenType::Colon));
-            auto type = TRY(parse_type());
-            declaration.parameters.push_back(ParsedParameter { .type = std::move(type), .name = Util::UString { name.value() } });
+            // 'this' | (name ':' type) ','
+            if (peek()->type() == TokenType::KeywordThis) {
+                get();
+                if (!m_currently_parsed_struct_name) {
+                    return error_in_already_read("'this' may be a parameter only for methods");
+                }
+                if (has_this_parameter) {
+                    return error_in_already_read("This declaration already has a 'this' parameter");
+                }
+                if (!declaration.parameters.empty()) {
+                    return error_in_already_read("'this' must be the first parameter");
+                }
+                declaration.parameters.push_back(
+                    ParsedParameter {
+                        .type = ParsedType {
+                            .type = ParsedUnqualifiedType { .name = *m_currently_parsed_struct_name },
+                            .range = {},
+                        },
+                        .name = Util::UString { "this" },
+                    });
+                has_this_parameter = true;
+            }
+            else {
+                auto name = TRY(expect(TokenType::Identifier));
+                TRY(expect(TokenType::Colon));
+                auto type = TRY(parse_type());
+                declaration.parameters.push_back(ParsedParameter { .type = std::move(type), .name = Util::UString { name.value() } });
+            }
             if (!next_token_is(TokenType::Comma)) {
                 break;
             }
@@ -415,12 +445,17 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
 }
 
 Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
-    // 'struct' name '{' fields... '}'
+    // 'struct' name '{' (field | method)... '}'
 
     get(); // "struct"
     auto name = TRY(expect(TokenType::Identifier));
 
+    // FIXME: Maybe make TemporaryChange work with anything that is assignable
+    //        to the variable
+    Util::TemporaryChange change { m_currently_parsed_struct_name, std::optional(name.value()) };
+
     std::vector<ParsedStructDeclaration::Field> fields;
+    std::vector<ParsedFunctionDeclaration> methods;
 
     TRY(expect(TokenType::CurlyOpen));
 
@@ -428,13 +463,20 @@ Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
         if (next_token_is(TokenType::CurlyClose)) {
             break;
         }
-        // name ':' type ';'
-        auto name = TRY(expect(TokenType::Identifier));
-        TRY(expect(TokenType::Colon));
-        auto type = TRY(parse_type());
-        TRY(expect(TokenType::Semicolon));
 
-        fields.push_back(ParsedStructDeclaration::Field { .name = name.value(), .type = std::move(type) });
+        if (peek()->type() == TokenType::KeywordFunc) {
+            // method
+            auto method = TRY(parse_function_declaration());
+            methods.push_back(std::move(method));
+        }
+        else {
+            // field: name ':' type ';'
+            auto name = TRY(expect(TokenType::Identifier));
+            TRY(expect(TokenType::Colon));
+            auto type = TRY(parse_type());
+            TRY(expect(TokenType::Semicolon));
+            fields.push_back(ParsedStructDeclaration::Field { .name = name.value(), .type = std::move(type) });
+        }
     }
 
     // Note: We won't exit loop unless we get '}', so this shouldn't fail
@@ -443,6 +485,7 @@ Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
     return ParsedStructDeclaration {
         name.value(),
         std::move(fields),
+        std::move(methods),
     };
 }
 
@@ -779,6 +822,15 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     if (token->type() == TokenType::KeywordFalse) {
         get();
         return ParsedExpression { .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = false }) };
+    }
+    if (token->type() == TokenType::KeywordThis) {
+        get();
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier {
+                .id = "this",
+                .range = range(offset() - 1, 1),
+            }),
+        };
     }
     if (token->type() == TokenType::Identifier) {
         token = get();

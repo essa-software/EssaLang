@@ -42,6 +42,16 @@ std::optional<Ref<CheckedStruct::Field const>> CheckedStruct::find_field(Util::U
     return std::nullopt;
 }
 
+std::optional<Ref<CheckedStruct::Method const>> CheckedStruct::find_method(Util::UString const& name) const {
+    // TODO: Optimize it
+    for (auto const& method : methods) {
+        if (method.name == name) {
+            return method;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<Ref<Module>> Typechecker::load_module(Util::UString const& name) {
     // fmt::print("load_module({})\n", name.encode());
 
@@ -138,21 +148,29 @@ void Typechecker::typecheck_module(Module& module, Parser::ParsedModule const& p
         module.type_to_id.insert({ struct_.name, type_id });
     }
 
-    // 3. Add all functions so that they can be referenced
+    // 3. Add all functions so that they can be resolved by name.
+    //    This doesn't check any parameters / return values yet.
     for (auto const& func : parsed_module.function_declarations) {
         auto function_id = module.add_function();
+        module.add_parsed_function_declaration(function_id.id(), func);
         module.function_to_id.insert({ func.name, function_id });
     }
 
     // 4. Typecheck functions (first pass)
-    for (auto& func : module.function_to_id) {
-        get_function(func.second);
+    {
+        auto& funcs = m_current_checked_module->functions();
+        for (size_t id = 0; id < funcs.size(); id++) {
+            get_function(FunctionId { module.id(), id });
+        }
     }
 
     // 5. Typecheck function bodies.
-    for (auto& func : m_current_checked_module->function_to_id) {
-        auto& checked_function = *m_program.get_function(func.second);
-        typecheck_function_body(checked_function, parsed_module.function_declarations[func.second.id()]);
+    {
+        size_t id = 0;
+        for (auto& func : m_current_checked_module->functions()) {
+            typecheck_function_body(*func, module.get_parsed_function_declaration(id));
+            id++;
+        }
     }
 }
 
@@ -185,6 +203,7 @@ CheckedProgram const& Typechecker::typecheck(std::string root_path) {
 
 CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration const& struct_) {
     std::vector<CheckedStruct::Field> fields;
+    std::vector<CheckedStruct::Method> methods;
 
     for (auto const& field : struct_.fields) {
         auto type_id = resolve_type(field.type);
@@ -196,9 +215,20 @@ CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration cons
             .type = type_id,
         });
     }
+
+    for (auto const& method : struct_.methods) {
+        auto function_id = m_current_checked_module->add_function();
+        m_current_checked_module->add_parsed_function_declaration(function_id.id(), method);
+        methods.push_back(CheckedStruct::Method {
+            .name = method.name,
+            .function = function_id,
+        });
+    }
+
     return CheckedStruct {
         .name = struct_.name,
         .fields = std::move(fields),
+        .methods = std::move(methods),
     };
 }
 
@@ -240,7 +270,6 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     };
     SCOPED_SCOPE(checked_function.argument_scope_id);
 
-    std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
     for (auto const& param : function.parameters) {
         checked_function.parameters.push_back(std::make_pair(param.name, typecheck_parameter(param)));
     }
@@ -552,11 +581,19 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto& struct_ = m_program.get_struct(std::get<StructType>(type.type).id);
                 auto field = struct_->find_field(access->member);
                 if (!field) {
-                    // FIXME: range
-                    error(fmt::format("No such field '{}' in struct '{}'", access->member.encode(), type.name(m_program).encode()), {});
-                    return CheckedExpression::invalid(m_program);
+                    auto method = struct_->find_method(access->member);
+                    if (!method) {
+                        // FIXME: range
+                        error(fmt::format("No such field or method '{}' in struct '{}'", access->member.encode(), type.name(m_program).encode()), {});
+                        return CheckedExpression::invalid(m_program);
+                    }
+                    auto function_type = FunctionType { .function = method->get().function };
+                    auto type_id = m_current_checked_module->get_or_add_type(Type { .type = function_type });
+                    return CheckedExpression {
+                        .type = QualifiedType { .type_id = type_id, .is_mut = false },
+                        .expression = CheckedExpression::MemberAccess { .object = std::make_unique<CheckedExpression>(std::move(object)), .member = access->member },
+                    };
                 }
-
                 return CheckedExpression {
                     .type = QualifiedType { .type_id = field->get().type, .is_mut = object.type.is_mut },
                     .expression = CheckedExpression::MemberAccess { .object = std::make_unique<CheckedExpression>(std::move(object)), .member = access->member },
@@ -572,11 +609,21 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto& function_type = std::get<FunctionType>(callable_type.type);
                 auto& function = get_function(function_type.function);
 
+                bool is_method_call = std::holds_alternative<CheckedExpression::MemberAccess>(callable.expression);
+
                 // Hack because of print() using varargs which we don't support yet.
-                bool skip_typechecking_args = function.name == "print";
+                bool skip_typechecking_args = !is_method_call && function.name == "print";
 
                 std::vector<CheckedExpression> arguments;
+
                 size_t c = 0;
+                if (is_method_call) {
+                    // The first expected argument type is an object, add it
+                    // here and skip in the loop below.
+                    c++;
+                    arguments.push_back(std::move(*std::get<CheckedExpression::MemberAccess>(callable.expression).object));
+                }
+
                 for (auto const& arg : call->arguments) {
                     if (skip_typechecking_args) {
                         arguments.push_back(typecheck_expression(arg));
@@ -733,11 +780,10 @@ ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util
 }
 
 CheckedFunction const& Typechecker::get_function(FunctionId id) {
-    // Use the fact that indices in parsed functions
-    // correspond to indices in checked functions
     auto& function_ref = m_program.get_function(id);
     if (!function_ref) {
-        function_ref = std::make_unique<CheckedFunction>(typecheck_function(m_parsed_files[id.module()]->module.function_declarations[id.id()]));
+        auto& module = m_program.module(id.module());
+        function_ref = std::make_unique<CheckedFunction>(typecheck_function(module.get_parsed_function_declaration(id.id())));
     }
     return *function_ref;
 }
@@ -797,6 +843,17 @@ void CheckedProgram::print() const {
             fmt::print("{}, ", imp.get().path);
         }
         fmt::print("\n");
+        fmt::print("Structs:\n");
+        for (auto const& struct_ : mod.structs()) {
+            fmt::print("struct {} {{\n", struct_->name.encode());
+            for (auto const& field : struct_->fields) {
+                fmt::print("    {}: {}\n", field.name.encode(), type_name(field.type).encode());
+            }
+            for (auto const& method : struct_->methods) {
+                fmt::print("    func {}(...)\n", method.name.encode());
+            }
+            fmt::print("}}\n");
+        }
         fmt::print("Functions:\n");
         for (auto const& func : mod.functions()) {
             if (!func) {

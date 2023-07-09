@@ -278,7 +278,14 @@ struct CheckedStruct {
     };
     std::vector<Field> fields;
 
+    struct Method {
+        Util::UString name;
+        FunctionId function;
+    };
+    std::vector<Method> methods;
+
     std::optional<Ref<Field const>> find_field(Util::UString const&) const;
+    std::optional<Ref<Method const>> find_method(Util::UString const&) const;
 };
 
 struct CheckedFunction {
@@ -299,6 +306,8 @@ struct Module {
         , m_scopes {}
         , m_global_scope((m_scopes.emplace_back(), m_scopes[0])) { }
 
+    size_t id() const { return m_id; }
+
     auto const& structs() const { return m_structs; }
     auto const& functions() const { return m_functions; }
 
@@ -309,6 +318,16 @@ struct Module {
     std::unique_ptr<CheckedFunction>& get_function(size_t id) {
         assert(id < m_functions.size());
         return m_functions[id];
+    }
+
+    void add_parsed_function_declaration(size_t id, Parser::ParsedFunctionDeclaration const& decl) {
+        m_id_to_parsed_function_decl.insert({ id, &decl });
+    }
+
+    Parser::ParsedFunctionDeclaration const& get_parsed_function_declaration(size_t id) const {
+        auto it = m_id_to_parsed_function_decl.find(id);
+        assert(it != m_id_to_parsed_function_decl.end());
+        return *it->second;
     }
 
     std::unique_ptr<CheckedStruct> const& get_struct(size_t id) const {
@@ -397,6 +416,7 @@ private:
     std::vector<Scope> m_scopes;
     std::vector<CheckedVariable> m_variables;
     std::vector<Ref<Module>> m_imported_modules;
+    std::map<size_t, Parser::ParsedFunctionDeclaration const*> m_id_to_parsed_function_decl;
 
     Scope& m_global_scope;
 };

@@ -31,6 +31,7 @@ namespace ESL {
     E(KeywordReturn, "return")                                         \
     E(KeywordString, "string")                                         \
     E(KeywordStruct, "struct")                                         \
+    E(KeywordThis, "this")                                             \
     E(KeywordTrue, "true")                                             \
     E(KeywordU32, "u32")                                               \
     E(KeywordVoid, "void")                                             \

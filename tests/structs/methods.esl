@@ -1,0 +1,13 @@
+struct Foo {
+    field: u32;
+
+    func bar(this, a: u32) {
+        print("Hello from foo.bar()! a={} field={}", a, this.field);
+    }
+}
+
+func main() {
+    mut foo: Foo = [];
+    foo.field = 2137;
+    foo.bar(52);
+}

@@ -66,12 +66,14 @@ struct ParsedStructDeclaration {
     ParsedStructDeclaration& operator=(ParsedStructDeclaration&&) noexcept = default;
 
     // WTF WHY IS THIS NEEDED ?????
-    ParsedStructDeclaration(Util::UString _name, std::vector<Field> _fields)
+    ParsedStructDeclaration(Util::UString _name, std::vector<Field> _fields, std::vector<ParsedFunctionDeclaration> _methods)
         : name(std::move(_name))
-        , fields(std::move(_fields)) { }
+        , fields(std::move(_fields))
+        , methods(std::move(_methods)) { }
 
     Util::UString name;
     std::vector<Field> fields;
+    std::vector<ParsedFunctionDeclaration> methods;
 };
 
 struct ParsedImport {
@@ -333,6 +335,9 @@ private:
     Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
 
     virtual std::string token_type_to_string(TokenType type) const override;
+
+    // This is used for methods to know that they are methods in a given struct
+    std::optional<Util::UString> m_currently_parsed_struct_name;
 };
 
 }
