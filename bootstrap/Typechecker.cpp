@@ -16,6 +16,10 @@ Util::UString ArrayType::name(CheckedProgram const& program) const {
     return Util::UString::format("[{}]{}", size, program.get_type(inner).name(program).encode());
 }
 
+Util::UString FunctionType::name(CheckedProgram const& program) const {
+    return Util::UString::format("<func {}>", program.get_function(function)->name.encode());
+}
+
 Util::UString StructType::name(CheckedProgram const& program) const {
     return program.get_struct(id)->name;
 }
@@ -476,19 +480,27 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             },
             [&](std::unique_ptr<Parser::ParsedIdentifier> const& identifier) {
                 auto resolved_id = resolve_identifier(identifier->id, identifier->range);
-                if (resolved_id.type == ResolvedIdentifier::Type::Invalid) {
+                switch (resolved_id.type) {
+                case ResolvedIdentifier::Type::Variable:
+                    return CheckedExpression {
+                        .type = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type,
+                        .expression = std::move(resolved_id),
+                    };
+                case ResolvedIdentifier::Type::Function: {
+                    auto func_type = m_current_checked_module->get_or_add_type(Type {
+                        .type = FunctionType {
+                            .function = FunctionId { resolved_id.module, resolved_id.id },
+                        },
+                    });
+                    return CheckedExpression {
+                        .type = QualifiedType { .type_id = func_type, .is_mut = false },
+                        .expression = std::move(resolved_id),
+                    };
+                }
+                case ResolvedIdentifier::Type::Invalid:
                     return CheckedExpression::invalid(m_program);
                 }
-                if (resolved_id.type != ResolvedIdentifier::Type::Variable) {
-                    error(fmt::format("Identifier '{}' must refer to a variable", identifier->id.encode()), identifier->range);
-                    return CheckedExpression::invalid(m_program);
-                }
-                assert(resolved_id.type == ResolvedIdentifier::Type::Variable);
-                // fmt::print("VAR {} {}.{}\n", identifier->id.encode(), resolved_id.module, resolved_id.id);
-                return CheckedExpression {
-                    .type = m_program.get_variable(VarId { resolved_id.module, resolved_id.id }).type,
-                    .expression = std::move(resolved_id),
-                };
+                ESSA_UNREACHABLE;
             },
             [&](std::unique_ptr<Parser::ParsedBinaryExpression> const& expr) -> CheckedExpression {
                 return typecheck_binary_expression(*expr);
@@ -551,16 +563,17 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 };
             },
             [&](std::unique_ptr<Parser::ParsedCall> const& call) {
-                auto identifier = resolve_identifier(call->name, call->name_range);
-                if (identifier.type != ResolvedIdentifier::Type::Function) {
-                    error(fmt::format("'{}' is not callable", call->name.encode()), call->name_range);
+                auto callable = typecheck_expression(call->callable);
+                auto callable_type = m_program.get_type(callable.type.type_id);
+                if (!std::holds_alternative<FunctionType>(callable_type.type)) {
+                    error("Expression is not callable", call->callable_range);
                     return CheckedExpression::invalid(m_program);
                 }
-
-                auto& function = get_function(FunctionId { identifier.module, identifier.id });
+                auto& function_type = std::get<FunctionType>(callable_type.type);
+                auto& function = get_function(function_type.function);
 
                 // Hack because of print() using varargs which we don't support yet.
-                bool skip_typechecking_args = call->name == "print";
+                bool skip_typechecking_args = function.name == "print";
 
                 std::vector<CheckedExpression> arguments;
                 size_t c = 0;
@@ -570,7 +583,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     }
                     else {
                         if (c >= function.parameters.size()) {
-                            error(fmt::format("Too many arguments for call to '{}'", function.name.encode()), call->name_range);
+                            error(fmt::format("Too many arguments for call to '{}'", function.name.encode()), call->callable_range);
                             break;
                         }
                         auto checked_arg = typecheck_expression(arg);
@@ -579,7 +592,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                             // TODO: better range
                             error(fmt::format("Cannot convert '{}' to '{}' for function argument",
                                       m_program.type_name(checked_arg.type.type_id).encode(), m_program.type_name(expected_type).encode()),
-                                call->name_range);
+                                call->callable_range);
                         }
                         arguments.push_back(std::move(checked_arg));
                     }
@@ -589,7 +602,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 return CheckedExpression {
                     .type = { .type_id = function.return_type, .is_mut = false },
                     .expression = CheckedExpression::Call {
-                        .function_id = FunctionId { identifier.module, identifier.id },
+                        .function_id = function_type.function,
                         .arguments = std::move(arguments),
                     },
                 };

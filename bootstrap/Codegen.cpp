@@ -131,6 +131,10 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
                 m_writer.writeff(", {}>", array.size);
                 return {};
             },
+            [&](Typechecker::FunctionType const& function) -> Util::OsErrorOr<void> {
+                m_writer.writeff("/* {} */", function.name(m_program).encode());
+                return {};
+            },
             [&](Typechecker::StructType const& struct_) -> Util::OsErrorOr<void> {
                 // Struct type is codegen'd first
                 m_writer.writeff("{}", struct_.name(m_program).encode());

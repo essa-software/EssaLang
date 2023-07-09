@@ -1,0 +1,3 @@
+func main()  {
+    test()[0].help[0]();
+}

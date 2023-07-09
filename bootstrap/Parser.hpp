@@ -134,10 +134,10 @@ struct ParsedInlineArray {
 };
 
 struct ParsedCall {
-    Util::UString name; // FIXME: This should be an expression
+    ParsedExpression callable;
     std::vector<ParsedExpression> arguments;
 
-    Util::SourceRange name_range;
+    Util::SourceRange callable_range;
 
     void print(size_t depth) const;
 };
@@ -331,7 +331,6 @@ private:
     Util::ParseErrorOr<ParsedExpression> parse_primary_expression();
     Util::ParseErrorOr<ParsedExpression> parse_operand(ParsedExpression lhs, int min_precedence);
     Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
-    Util::ParseErrorOr<std::unique_ptr<ParsedCall>> parse_call_arguments(Util::UString id);
 
     virtual std::string token_type_to_string(TokenType type) const override;
 };

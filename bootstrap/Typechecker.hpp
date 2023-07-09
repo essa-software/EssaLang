@@ -87,6 +87,14 @@ struct ArrayType {
     bool operator==(ArrayType const&) const = default;
 };
 
+struct FunctionType {
+    Util::UString name(CheckedProgram const&) const;
+    std::optional<TypeId> iterable_type(CheckedProgram const&) const { return {}; }
+    bool operator==(FunctionType const&) const = default;
+
+    FunctionId function;
+};
+
 struct StructType {
     Util::UString name(CheckedProgram const&) const;
     std::optional<TypeId> iterable_type(CheckedProgram const&) const { return {}; }
@@ -108,6 +116,7 @@ struct Type {
     std::variant<
         Nc,
         ArrayType,
+        FunctionType,
         PrimitiveType,
         StructType>
         type;

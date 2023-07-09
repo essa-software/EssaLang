@@ -114,7 +114,8 @@ void ParsedIdentifier::print(size_t depth) const {
 
 void ParsedCall::print(size_t depth) const {
     indent(depth);
-    fmt::print("{}(", name.encode());
+    callable.print(depth);
+    fmt::print("(");
     for (size_t s = 0; s < arguments.size(); s++) {
         arguments[s].print(0);
         if (s != arguments.size() - 1) {
@@ -695,6 +696,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
 }
 
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression() {
+    auto expr_start = this->offset();
     auto expr = TRY(parse_primary_expression());
 
     while (true) {
@@ -708,6 +710,20 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                     .array = std::move(expr),
                     .index = std::move(index),
                     .range = this->range(start, this->offset() - start),
+                }),
+            };
+        }
+        else if (peek()->type() == TokenType::ParenOpen) {
+            auto callable_end = this->offset();
+            // '(' expr-list ')'
+            get(); // '('
+            auto expr_list = TRY(parse_expression_list(TokenType::ParenClose));
+            TRY(expect(TokenType::ParenClose)); // ')'
+            expr = ParsedExpression {
+                .expression = std::make_unique<ParsedCall>(ParsedCall {
+                    .callable = std::move(expr),
+                    .arguments = std::move(expr_list),
+                    .callable_range = this->range(expr_start, callable_end - expr_start),
                 }),
             };
         }
@@ -762,18 +778,11 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     }
     if (token->type() == TokenType::Identifier) {
         token = get();
-        Util::UString id { token->value() };
-        if (next_token_is(TokenType::ParenOpen)) {
-            auto name_range = range(offset() - 1, 1);
-            auto call = TRY(parse_call_arguments(std::move(id)));
-            call->name_range = name_range;
-            return ParsedExpression { .expression = std::move(call) };
-        }
         return ParsedExpression {
             .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier {
-                .id = std::move(id),
+                .id = token->value(),
                 .range = range(offset() - 1, 1),
-            })
+            }),
         };
     }
     if (token->type() == TokenType::BraceOpen) {
@@ -800,13 +809,6 @@ Util::ParseErrorOr<std::vector<ParsedExpression>> Parser::parse_expression_list(
         get();
     }
     return expressions;
-}
-
-Util::ParseErrorOr<std::unique_ptr<ParsedCall>> Parser::parse_call_arguments(Util::UString id) {
-    get(); // (
-    std::vector<ParsedExpression> arguments = TRY(parse_expression_list(TokenType::ParenClose));
-    TRY(expect(TokenType::ParenClose));
-    return std::make_unique<ParsedCall>(ParsedCall { .name = std::move(id), .arguments = std::move(arguments), .name_range {} });
 }
 
 std::string Parser::token_type_to_string(TokenType type) const {
