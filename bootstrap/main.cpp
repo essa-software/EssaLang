@@ -49,7 +49,8 @@ Util::OsErrorOr<void> run_process(std::vector<std::string> const& args, bool out
 }
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
-    std::filesystem::path base_path = std::filesystem::absolute(file_name).lexically_normal().parent_path();
+    auto file_path = std::filesystem::absolute(file_name).lexically_normal();
+    auto dir_path = file_path.parent_path();
 
     auto parsed_entry_point = ESL::parse_file(file_name);
     if (parsed_entry_point.is_error_of_type<Util::ParseError>()) {
@@ -57,7 +58,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
-                .file_name = std::filesystem::path(file_name).lexically_relative(base_path),
+                .file_name = file_path.lexically_relative(dir_path),
                 .message = Util::UString { error.message },
                 .start_offset = error.location.start.offset,
                 .end_offset = error.location.end.offset,
@@ -75,7 +76,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(error.file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
-                .file_name = std::filesystem::path(error.file_name).lexically_relative(base_path),
+                .file_name = file_path.lexically_relative(dir_path),
                 .message = Util::UString { error.message },
                 .start_offset = error.range.start.offset,
                 .end_offset = error.range.end.offset,
