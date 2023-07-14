@@ -49,8 +49,8 @@ struct ParsedFunctionDeclaration {
     std::vector<ParsedParameter> parameters;
     std::unique_ptr<ParsedBlock> body; // null for extern functions
     bool has_this_parameter;
-    Util::SourceRange this_param_range;
 
+    Util::SourceRange this_param_range;
     Util::SourceRange name_range;
 
     void print() const;
@@ -102,8 +102,6 @@ struct ParsedBoolLiteral {
 struct ParsedIdentifier {
     Util::UString id;
 
-    Util::SourceRange range;
-
     void print(size_t depth) const;
 };
 
@@ -114,7 +112,6 @@ struct ParsedMemberAccess;
 struct ParsedCall;
 
 struct ParsedExpression {
-    // Workaround for C++ needing class declarations before usage
     std::variant<
         std::unique_ptr<ParsedIntegerLiteral>,
         std::unique_ptr<ParsedStringLiteral>,
@@ -127,12 +124,13 @@ struct ParsedExpression {
         std::unique_ptr<ParsedCall>>
         expression;
 
+    Util::SourceRange range;
+
     void print(size_t depth) const;
 };
 
 struct ParsedInlineArray {
     std::vector<ParsedExpression> elements;
-    Util::SourceRange range;
 
     void print(size_t depth) const;
 };
@@ -140,8 +138,6 @@ struct ParsedInlineArray {
 struct ParsedCall {
     ParsedExpression callable;
     std::vector<ParsedExpression> arguments;
-
-    Util::SourceRange callable_range;
 
     void print(size_t depth) const;
 };
@@ -208,8 +204,6 @@ struct ParsedBinaryExpression {
 struct ParsedArrayIndex {
     ParsedExpression array;
     ParsedExpression index;
-
-    Util::SourceRange range;
 
     void print(size_t depth) const;
 };

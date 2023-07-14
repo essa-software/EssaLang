@@ -332,11 +332,10 @@ Util::ParseErrorOr<ParsedArrayType> Parser::parse_array_type() {
 }
 
 Util::ParseErrorOr<ParsedInlineArray> Parser::parse_inline_array() {
-    auto start = this->offset();
     get(); // [
     auto elements = TRY(parse_expression_list(TokenType::BraceClose));
     TRY(expect(TokenType::BraceClose)); // ]
-    return ParsedInlineArray { .elements = std::move(elements), .range = this->range(start, this->offset() - start) };
+    return ParsedInlineArray { .elements = std::move(elements) };
 }
 
 Util::ParseErrorOr<ParsedType> Parser::parse_type() {
@@ -344,7 +343,7 @@ Util::ParseErrorOr<ParsedType> Parser::parse_type() {
 
     if (token->type() == Token::Type::BraceOpen) {
         auto start = this->offset();
-        return ParsedType { .type = TRY(parse_array_type()), .range = this->range(start, this->offset() - start) };
+        return ParsedType { .type = TRY(parse_array_type()), .range = this->range_starting_from(start) };
     }
 
     get();
@@ -706,6 +705,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
         auto next_operator = token_to_binary_operator(peek()->type());
         auto next_precedence = precedence(next_operator);
         if (current_precedence >= next_precedence) {
+            Util::SourceRange range { lhs.range.start, rhs.range.end };
             lhs = ParsedExpression {
                 .expression = std::make_unique<ParsedBinaryExpression>(ParsedBinaryExpression {
                     .lhs = std::move(lhs),
@@ -713,9 +713,11 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
                     .rhs = std::move(rhs),
                     .operator_range = operator_range,
                 }),
+                .range = range,
             };
         }
         else {
+            Util::SourceRange range { lhs.range.start, rhs.range.end };
             lhs = ParsedExpression {
                 .expression = std::make_unique<ParsedBinaryExpression>(ParsedBinaryExpression {
                     .lhs = std::move(lhs),
@@ -723,6 +725,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_operand(ParsedExpression lhs,
                     .rhs = TRY(parse_operand(std::move(rhs), current_precedence)),
                     .operator_range = operator_range,
                 }),
+                .range = range,
             };
         }
     }
@@ -734,7 +737,6 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
 
     while (true) {
         if (peek()->type() == TokenType::BraceOpen) {
-            auto start = this->offset();
             get();
             auto index = TRY(parse_expression(0));
             TRY(expect(TokenType::BraceClose));
@@ -742,12 +744,11 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                 .expression = std::make_unique<ParsedArrayIndex>(ParsedArrayIndex {
                     .array = std::move(expr),
                     .index = std::move(index),
-                    .range = range_starting_from(start),
                 }),
+                .range = range_starting_from(expr_start),
             };
         }
         else if (peek()->type() == TokenType::ParenOpen) {
-            auto callable_end = this->offset();
             // '(' expr-list ')'
             get(); // '('
             auto expr_list = TRY(parse_expression_list(TokenType::ParenClose));
@@ -756,8 +757,8 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                 .expression = std::make_unique<ParsedCall>(ParsedCall {
                     .callable = std::move(expr),
                     .arguments = std::move(expr_list),
-                    .callable_range = range_from_to(expr_start, callable_end),
                 }),
+                .range = range_starting_from(expr_start),
             };
         }
         else if (peek()->type() == TokenType::Dot) {
@@ -768,6 +769,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                     .object = std::move(expr),
                     .member = name.value(),
                 }),
+                .range = range_starting_from(expr_start),
             };
         }
         else {
@@ -778,6 +780,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
 }
 
 Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
+    auto start = offset();
     auto token = peek();
     if (token->type() == TokenType::ParenOpen) {
         get(); // '('
@@ -787,35 +790,51 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
     }
     if (token->type() == TokenType::Number) {
         token = get();
-        return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral {
-                                      .value = TRY(token->value().parse<int64_t>().map_error(Util::OsToParseError { token->range() })) }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral {
+                .value = TRY(token->value().parse<int64_t>().map_error(Util::OsToParseError { token->range() })),
+            }),
+            .range = range_for_last(1),
+        };
     }
     if (token->type() == TokenType::StringLiteral) {
         token = get();
-        return ParsedExpression { .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedStringLiteral>(ParsedStringLiteral { .value = Util::UString { token->value() } }),
+            .range = range_for_last(1),
+        };
     }
     if (token->type() == TokenType::CharLiteral) {
         token = get();
         if (token->value().size() != 1) {
             return Util::ParseError { "Char literal must be a single Unicode codepoint", token->range() };
         }
-        return ParsedExpression { .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = token->value().at(0) }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedIntegerLiteral>(ParsedIntegerLiteral { .value = token->value().at(0) }),
+            .range = range_for_last(1),
+        };
     }
     if (token->type() == TokenType::KeywordTrue) {
         get();
-        return ParsedExpression { .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = true }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = true }),
+            .range = range_for_last(1),
+        };
     }
     if (token->type() == TokenType::KeywordFalse) {
         get();
-        return ParsedExpression { .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = false }) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedBoolLiteral>(ParsedBoolLiteral { .value = false }),
+            .range = range_for_last(1),
+        };
     }
     if (token->type() == TokenType::KeywordThis) {
         get();
         return ParsedExpression {
             .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier {
                 .id = "this",
-                .range = range(offset() - 1, 1),
             }),
+            .range = range_for_last(1),
         };
     }
     if (token->type() == TokenType::Identifier) {
@@ -823,12 +842,15 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_expression() {
         return ParsedExpression {
             .expression = std::make_unique<ParsedIdentifier>(ParsedIdentifier {
                 .id = token->value(),
-                .range = range(offset() - 1, 1),
             }),
+            .range = range_for_last(1),
         };
     }
     if (token->type() == TokenType::BraceOpen) {
-        return ParsedExpression { .expression = std::make_unique<ParsedInlineArray>(TRY(parse_inline_array())) };
+        return ParsedExpression {
+            .expression = std::make_unique<ParsedInlineArray>(TRY(parse_inline_array())),
+            .range = range_starting_from(start),
+        };
     }
     return expected("expression", *token);
 }

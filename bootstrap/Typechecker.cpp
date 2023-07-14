@@ -505,7 +505,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                         element_type = checked_expr.type.type_id;
                     }
                     else if (*element_type != checked_expr.type.type_id) {
-                        error("All elements of an inline array must have the same type", array->range);
+                        error("All elements of an inline array must have the same type", expression.range);
                         return CheckedExpression::invalid(m_program);
                     }
                     elements.push_back(std::move(checked_expr));
@@ -528,7 +528,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 };
             },
             [&](std::unique_ptr<Parser::ParsedIdentifier> const& identifier) {
-                auto resolved_id = resolve_identifier(identifier->id, identifier->range);
+                auto resolved_id = resolve_identifier(identifier->id, expression.range);
                 switch (resolved_id.type) {
                 case ResolvedIdentifier::Type::Variable:
                     return CheckedExpression {
@@ -558,7 +558,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto array = typecheck_expression(expr->array);
                 auto index = typecheck_expression(expr->index);
                 if (index.type.type_id != m_program.u32_type_id) {
-                    error("Array index must be an unsigned integer", expr->range);
+                    error("Array index must be an unsigned integer", expr->index.range);
                     return CheckedExpression::invalid(m_program);
                 }
                 auto array_type = m_program.get_type(array.type.type_id);
@@ -586,7 +586,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 }
                 // TODO: Better range
                 error(fmt::format("Not found operator[] for '{}'", array_type.name(m_program).encode()),
-                    expr->range);
+                    { expr->array.range.end, expression.range.end });
                 return CheckedExpression::invalid(m_program);
             },
             [&](std::unique_ptr<Parser::ParsedMemberAccess> const& access) {
@@ -623,7 +623,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto callable = typecheck_expression(call->callable);
                 auto callable_type = m_program.get_type(callable.type.type_id);
                 if (!std::holds_alternative<FunctionType>(callable_type.type)) {
-                    error("Expression is not callable", call->callable_range);
+                    error("Expression is not callable", call->callable.range);
                     return CheckedExpression::invalid(m_program);
                 }
                 auto& function_type = std::get<FunctionType>(callable_type.type);
@@ -650,16 +650,15 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     }
                     else {
                         if (c >= function.parameters.size()) {
-                            error(fmt::format("Too many arguments for call to '{}'", function.name.encode()), call->callable_range);
+                            error(fmt::format("Too many arguments for call to '{}'", function.name.encode()), call->callable.range);
                             break;
                         }
                         auto checked_arg = typecheck_expression(arg);
                         auto expected_type = m_program.get_variable(function.parameters[c].second.var_id).type.type_id;
                         if (!check_type_compatibility(TypeCompatibility::Assignment, expected_type, checked_arg.type.type_id, {})) {
-                            // TODO: better range
                             error(fmt::format("Cannot convert '{}' to '{}' for function argument",
                                       m_program.type_name(checked_arg.type.type_id).encode(), m_program.type_name(expected_type).encode()),
-                                call->callable_range);
+                                arg.range);
                         }
                         arguments.push_back(std::move(checked_arg));
                     }
