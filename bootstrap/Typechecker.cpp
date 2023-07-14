@@ -366,9 +366,8 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
             },
             [&](Parser::ParsedIfStatement const& value) -> CheckedStatement {
                 auto condition = typecheck_expression(value.condition);
-                // TODO: range
                 if (!check_type_compatibility(TypeCompatibility::Comparison, m_program.bool_type_id, condition.type.type_id, {})) {
-                    error("If statement's condition must be a bool", {});
+                    error("If statement's condition must be a bool", value.condition.range);
                 }
                 return CheckedStatement {
                     .statement = CheckedIfStatement {
@@ -592,7 +591,6 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto object = typecheck_expression(access->object);
                 auto& type = m_program.get_type(object.type.type_id);
                 if (!std::holds_alternative<StructType>(type.type)) {
-                    // FIXME: range
                     error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), {});
                     return CheckedExpression::invalid(m_program);
                 }
