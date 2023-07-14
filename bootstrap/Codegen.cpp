@@ -326,81 +326,99 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
 Util::OsErrorOr<void> CodeGenerator::codegen_binary_expression(Typechecker::CheckedExpression::BinaryExpression const& expression) {
     TRY(m_writer.write("("));
 
-    if (expression.operator_ == Parser::ParsedBinaryExpression::Operator::Range) {
+    auto codegen_checked = [&](std::string_view name) -> Util::OsErrorOr<void> {
+        m_writer.writeff("___Esl::checked_{}(", name);
+        TRY(codegen_expression(*expression.lhs));
+        TRY(m_writer.write(","));
+        TRY(codegen_expression(*expression.rhs));
+        TRY(m_writer.write(")"));
+        return {};
+    };
+
+    switch (expression.operator_) {
+    case Parser::ParsedBinaryExpression::Operator::Multiply:
+        TRY(codegen_checked("mul"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Divide:
+        TRY(codegen_checked("div"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Modulo:
+        TRY(codegen_checked("mod"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Add:
+        TRY(codegen_checked("add"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Subtract:
+        TRY(codegen_checked("sub"));
+        break;
+    case Parser::ParsedBinaryExpression::Operator::Range:
         TRY(m_writer.write("___Esl::Range{"));
         TRY(codegen_expression(*expression.lhs));
         TRY(m_writer.write(","));
         TRY(codegen_expression(*expression.rhs));
-        TRY(m_writer.write("})"));
-        return {};
+        TRY(m_writer.write("}"));
+        break;
+    default: {
+        TRY(codegen_expression(*expression.lhs));
+        switch (expression.operator_) {
+        case Parser::ParsedBinaryExpression::Operator::Range:
+        case Parser::ParsedBinaryExpression::Operator::Multiply:
+        case Parser::ParsedBinaryExpression::Operator::Divide:
+        case Parser::ParsedBinaryExpression::Operator::Modulo:
+        case Parser::ParsedBinaryExpression::Operator::Add:
+        case Parser::ParsedBinaryExpression::Operator::Subtract:
+            ESSA_UNREACHABLE;
+        case Parser::ParsedBinaryExpression::Operator::IsEqual:
+            TRY(m_writer.write("=="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::IsNotEqual:
+            TRY(m_writer.write("!="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::IsLess:
+            TRY(m_writer.write("<"));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::IsLessEq:
+            TRY(m_writer.write("<="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::IsGreater:
+            TRY(m_writer.write(">"));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::IsGreaterEq:
+            TRY(m_writer.write(">="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::LogicalAnd:
+            TRY(m_writer.write("&&"));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::LogicalOr:
+            TRY(m_writer.write("||"));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::Assign:
+            TRY(m_writer.write("="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::AssignAdd:
+            TRY(m_writer.write("+="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::AssignSubtract:
+            TRY(m_writer.write("-="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::AssignMultiply:
+            TRY(m_writer.write("*="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::AssignDivide:
+            TRY(m_writer.write("/="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::AssignModulo:
+            TRY(m_writer.write("%="));
+            break;
+        case Parser::ParsedBinaryExpression::Operator::Invalid:
+            ESSA_UNREACHABLE;
+        }
+        TRY(codegen_expression(*expression.rhs));
+    }
     }
 
-    TRY(codegen_expression(*expression.lhs));
-    switch (expression.operator_) {
-    case Parser::ParsedBinaryExpression::Operator::Range:
-        ESSA_UNREACHABLE;
-    case Parser::ParsedBinaryExpression::Operator::Multiply:
-        TRY(m_writer.write("*"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Divide:
-        TRY(m_writer.write("/"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Modulo:
-        TRY(m_writer.write("%"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Add:
-        TRY(m_writer.write("+"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Subtract:
-        TRY(m_writer.write("-"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsEqual:
-        TRY(m_writer.write("=="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsNotEqual:
-        TRY(m_writer.write("!="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsLess:
-        TRY(m_writer.write("<"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsLessEq:
-        TRY(m_writer.write("<="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsGreater:
-        TRY(m_writer.write(">"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::IsGreaterEq:
-        TRY(m_writer.write(">="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::LogicalAnd:
-        TRY(m_writer.write("&&"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::LogicalOr:
-        TRY(m_writer.write("||"));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Assign:
-        TRY(m_writer.write("="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::AssignAdd:
-        TRY(m_writer.write("+="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::AssignSubtract:
-        TRY(m_writer.write("-="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::AssignMultiply:
-        TRY(m_writer.write("*="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::AssignDivide:
-        TRY(m_writer.write("/="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::AssignModulo:
-        TRY(m_writer.write("%="));
-        break;
-    case Parser::ParsedBinaryExpression::Operator::Invalid:
-        ESSA_UNREACHABLE;
-    }
-    TRY(codegen_expression(*expression.rhs));
     TRY(m_writer.write(")"));
     return {};
 }
+
 }

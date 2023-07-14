@@ -10,7 +10,7 @@ Util::UString input();
 inline uint32_t str_size(Util::UString const& s) { return s.size(); }
 
 template<class... Args>
-inline void panic(fmt::format_string<Args...>&& fmtstr, Args&&... args) {
+[[noreturn]] inline void panic(fmt::format_string<Args...>&& fmtstr, Args&&... args) {
     fmt::print(stderr, "\e[31;1mPanic:\e[m ");
     fmt::print(stderr, std::move(fmtstr), std::forward<Args>(args)...);
     fmt::print(stderr, "\n");
@@ -98,3 +98,5 @@ struct fmt::formatter<Util::UString> : public fmt::formatter<std::string_view> {
         return ctx.out();
     }
 };
+
+#include "Checked.hpp"
