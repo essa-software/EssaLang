@@ -146,25 +146,16 @@ void Typechecker::typecheck_module(Module& module, Parser::ParsedModule const& p
         auto struct_id = module.add_struct(typecheck_struct(struct_));
         auto type_id = module.add_type(Type { .type = StructType { .id = struct_id } });
         module.type_to_id.insert({ struct_.name, type_id });
+        typecheck_struct_methods(struct_id, struct_);
     }
 
-    // 3. Add all functions so that they can be resolved by name.
-    //    This doesn't check any parameters / return values yet.
+    // 3. Typecheck global function signatures
     for (auto const& func : parsed_module.function_declarations) {
-        auto function_id = module.add_function();
-        module.add_parsed_function_declaration(function_id.id(), func);
-        module.function_to_id.insert({ func.name, function_id });
+        auto func_id = add_function(func, {});
+        module.function_to_id.insert({ func.name, func_id });
     }
 
-    // 4. Typecheck functions (first pass)
-    {
-        auto& funcs = m_current_checked_module->functions();
-        for (size_t id = 0; id < funcs.size(); id++) {
-            get_function(FunctionId { module.id(), id });
-        }
-    }
-
-    // 5. Typecheck function bodies.
+    // 4. Typecheck function bodies
     {
         size_t id = 0;
         for (auto& func : m_current_checked_module->functions()) {
@@ -203,7 +194,6 @@ CheckedProgram const& Typechecker::typecheck(std::string root_path) {
 
 CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration const& struct_) {
     std::vector<CheckedStruct::Field> fields;
-    std::vector<CheckedStruct::Method> methods;
 
     for (auto const& field : struct_.fields) {
         auto type_id = resolve_type(field.type);
@@ -216,20 +206,22 @@ CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration cons
         });
     }
 
-    for (auto const& method : struct_.methods) {
-        auto function_id = m_current_checked_module->add_function();
-        m_current_checked_module->add_parsed_function_declaration(function_id.id(), method);
-        methods.push_back(CheckedStruct::Method {
+    return CheckedStruct {
+        .name = struct_.name,
+        .fields = std::move(fields),
+        .methods = {},
+    };
+}
+
+void Typechecker::typecheck_struct_methods(StructId struct_id, Parser::ParsedStructDeclaration const& parsed_struct) {
+    auto& struct_ = *m_program.get_struct(struct_id);
+    for (auto const& method : parsed_struct.methods) {
+        auto function_id = add_function(method, struct_id);
+        struct_.methods.push_back(CheckedStruct::Method {
             .name = method.name,
             .function = function_id,
         });
     }
-
-    return CheckedStruct {
-        .name = struct_.name,
-        .fields = std::move(fields),
-        .methods = std::move(methods),
-    };
 }
 
 CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaration const& function) {
@@ -785,7 +777,13 @@ CheckedFunction const& Typechecker::get_function(FunctionId id) {
         auto& module = m_program.module(id.module());
         function_ref = std::make_unique<CheckedFunction>(typecheck_function(module.get_parsed_function_declaration(id.id())));
     }
-    return *function_ref;
+    return *m_program.get_function(id);
+}
+
+FunctionId Typechecker::add_function(Parser::ParsedFunctionDeclaration const& parsed_function, std::optional<StructId> scope) {
+    auto func = typecheck_function(parsed_function);
+    func.declaration_scope = scope;
+    return m_current_checked_module->add_function(std::move(func), parsed_function);
 }
 
 TypeId Typechecker::resolve_type(Parser::ParsedType const& type) {

@@ -289,6 +289,7 @@ struct CheckedStruct {
 };
 
 struct CheckedFunction {
+    std::optional<StructId> declaration_scope;
     Util::UString name;
     std::vector<std::pair<Util::UString, CheckedParameter>> parameters;
     std::optional<CheckedBlock> body; // No body = extern function (or just not checked yet)
@@ -318,10 +319,6 @@ struct Module {
     std::unique_ptr<CheckedFunction>& get_function(size_t id) {
         assert(id < m_functions.size());
         return m_functions[id];
-    }
-
-    void add_parsed_function_declaration(size_t id, Parser::ParsedFunctionDeclaration const& decl) {
-        m_id_to_parsed_function_decl.insert({ id, &decl });
     }
 
     Parser::ParsedFunctionDeclaration const& get_parsed_function_declaration(size_t id) const {
@@ -366,11 +363,12 @@ struct Module {
         return m_variables[id];
     }
 
-    FunctionId add_function() {
-        m_functions.push_back({});
-        // fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
+    FunctionId add_function(CheckedFunction&& checked, Parser::ParsedFunctionDeclaration const& parsed) {
+        m_functions.push_back(std::make_unique<CheckedFunction>(std::move(checked)));
+        add_parsed_function_declaration(m_functions.size() - 1, parsed);
         return FunctionId { m_id, m_functions.size() - 1 };
     }
+
     StructId add_struct(CheckedStruct&& s) {
         m_structs.push_back(std::make_unique<CheckedStruct>(std::move(s)));
         // fmt::print("add_function {}:{}\n", m_id, m_functions.size() - 1);
@@ -408,6 +406,10 @@ struct Module {
     auto& imported_modules() const { return m_imported_modules; }
 
 private:
+    void add_parsed_function_declaration(size_t id, Parser::ParsedFunctionDeclaration const& decl) {
+        m_id_to_parsed_function_decl.insert({ id, &decl });
+    }
+
     size_t m_id {};
 
     std::vector<std::unique_ptr<CheckedStruct>> m_structs;
@@ -528,6 +530,7 @@ private:
     std::optional<Ref<Module>> load_module(Util::UString const& name);
     void typecheck_module(Module&, Parser::ParsedModule const& parsed_module);
     CheckedStruct typecheck_struct(Parser::ParsedStructDeclaration const&);
+    void typecheck_struct_methods(StructId, Parser::ParsedStructDeclaration const&);
     // First pass: only signature (return value & args)
     CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
     // Second pass: body
@@ -547,6 +550,7 @@ private:
     TypeId resolve_type(Parser::ParsedType const& type);
 
     CheckedFunction const& get_function(FunctionId id);
+    FunctionId add_function(Parser::ParsedFunctionDeclaration const&, std::optional<StructId>);
 
     std::vector<std::unique_ptr<Parser::ParsedFile>> m_parsed_files;
     std::map<std::filesystem::path, Module*> m_modules_by_path;
