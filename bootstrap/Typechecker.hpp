@@ -522,13 +522,14 @@ public:
     struct Error {
         std::string message;
         Util::SourceRange range;
+        std::string file_name;
     };
 
     std::vector<Error> errors() { return m_errors; }
 
 private:
     void error(std::string message, Util::SourceRange range) {
-        m_errors.push_back({ std::move(message), range });
+        m_errors.push_back({ std::move(message), range, m_current_checked_module->path });
     }
 
     std::optional<Ref<Module>> load_module(Util::UString const& name);

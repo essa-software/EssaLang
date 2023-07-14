@@ -106,7 +106,11 @@ std::optional<Ref<Module>> Typechecker::load_module(Util::UString const& name) {
         auto error = maybe_parsed_file.release_error_of_type<Util::ParseError>();
         // FIXME: range
         // fmt::print(stderr, "module loaded from {} err at {}\n", path.string(), error.location.start.offset);
-        this->error(fmt::format("Failed to parse module '{}': {}", name.encode(), error.message), error.location);
+        m_errors.push_back(Error {
+            .message = error.message,
+            .range = error.location,
+            .file_name = mod.path,
+        });
         return {};
     }
     else if (maybe_parsed_file.is_error_of_type<Util::OsError>()) {
@@ -143,7 +147,7 @@ void Typechecker::typecheck_module(Module& module, Parser::ParsedModule const& p
     for (auto const& import : parsed_module.imports) {
         auto mod = load_module(import.module);
         if (!mod) {
-            return;
+            continue;
         }
         module.add_imported_module(mod->get());
     }

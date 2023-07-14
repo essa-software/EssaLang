@@ -67,13 +67,15 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     }
     parsed_entry_point.value().print();
 
+    std::filesystem::path base_path = std::filesystem::absolute(file_name).lexically_normal().parent_path();
+
     ESL::Typechecker::Typechecker typechecker { parsed_entry_point.release_value() };
     auto const& program = typechecker.typecheck(file_name);
     for (auto const& error : typechecker.errors()) {
-        auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
+        auto stream_for_errors = TRY(Util::ReadableFileStream::open(error.file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
-                .file_name = file_name,
+                .file_name = std::filesystem::path(error.file_name).lexically_relative(base_path),
                 .message = Util::UString { error.message },
                 .start_offset = error.range.start.offset,
                 .end_offset = error.range.end.offset,
