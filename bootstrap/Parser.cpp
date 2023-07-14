@@ -381,7 +381,7 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         .parameters = {},
         .body = {},
         .has_this_parameter = false,
-        .name_range = range(offset() - 1, 1),
+        .name_range = range_for_last(1),
     };
 
     TRY(expect(TokenType::ParenOpen));
@@ -741,7 +741,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                 .expression = std::make_unique<ParsedArrayIndex>(ParsedArrayIndex {
                     .array = std::move(expr),
                     .index = std::move(index),
-                    .range = this->range(start, this->offset() - start),
+                    .range = range_starting_from(start),
                 }),
             };
         }
@@ -755,7 +755,7 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
                 .expression = std::make_unique<ParsedCall>(ParsedCall {
                     .callable = std::move(expr),
                     .arguments = std::move(expr_list),
-                    .callable_range = this->range(expr_start, callable_end - expr_start),
+                    .callable_range = range_from_to(expr_start, callable_end),
                 }),
             };
         }
