@@ -1,0 +1,6 @@
+[90merror_in_module.esl: [m[1;31mError:[m Invalid top-level declaration
+   1 | [31ms[m[31mo[m[31mm[m[31me[m garbage
+       ^^^^ [31mInvalid top-level declaration[m
+[90merror_in_module.esl: [m[1;31mError:[m Cannot assign to non-mutable expression
+   2 |     0 [31m=[m 0;
+             ^ [31mCannot assign to non-mutable expression[m
