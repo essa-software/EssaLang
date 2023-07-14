@@ -48,6 +48,7 @@ struct ParsedFunctionDeclaration {
     std::optional<ParsedType> return_type;
     std::vector<ParsedParameter> parameters;
     std::unique_ptr<ParsedBlock> body; // null for extern functions
+    bool has_this_parameter;
 
     Util::SourceRange name_range;
 
@@ -335,9 +336,6 @@ private:
     Util::ParseErrorOr<std::vector<ParsedExpression>> parse_expression_list(TokenType end_token);
 
     virtual std::string token_type_to_string(TokenType type) const override;
-
-    // This is used for methods to know that they are methods in a given struct
-    std::optional<Util::UString> m_currently_parsed_struct_name;
 };
 
 }

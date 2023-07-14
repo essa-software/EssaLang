@@ -380,6 +380,7 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         .return_type = {},
         .parameters = {},
         .body = {},
+        .has_this_parameter = false,
         .name_range = range(offset() - 1, 1),
     };
 
@@ -388,29 +389,17 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         get();
     }
     else {
-        bool has_this_parameter = false;
         while (true) {
             // 'this' | (name ':' type) ','
             if (peek()->type() == TokenType::KeywordThis) {
                 get();
-                if (!m_currently_parsed_struct_name) {
-                    return error_in_already_read("'this' may be a parameter only for methods");
-                }
-                if (has_this_parameter) {
+                if (declaration.has_this_parameter) {
                     return error_in_already_read("This declaration already has a 'this' parameter");
                 }
                 if (!declaration.parameters.empty()) {
                     return error_in_already_read("'this' must be the first parameter");
                 }
-                declaration.parameters.push_back(
-                    ParsedParameter {
-                        .type = ParsedType {
-                            .type = ParsedUnqualifiedType { .name = *m_currently_parsed_struct_name },
-                            .range = {},
-                        },
-                        .name = Util::UString { "this" },
-                    });
-                has_this_parameter = true;
+                declaration.has_this_parameter = true;
             }
             else {
                 auto name = TRY(expect(TokenType::Identifier));
@@ -449,10 +438,6 @@ Util::ParseErrorOr<ParsedStructDeclaration> Parser::parse_struct_declaration() {
 
     get(); // "struct"
     auto name = TRY(expect(TokenType::Identifier));
-
-    // FIXME: Maybe make TemporaryChange work with anything that is assignable
-    //        to the variable
-    Util::TemporaryChange change { m_currently_parsed_struct_name, std::optional(name.value()) };
 
     std::vector<ParsedStructDeclaration::Field> fields;
     std::vector<ParsedFunctionDeclaration> methods;

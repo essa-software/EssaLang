@@ -284,6 +284,8 @@ struct CheckedStruct {
     };
     std::vector<Method> methods;
 
+    TypeId type_id;
+
     std::optional<Ref<Field const>> find_field(Util::UString const&) const;
     std::optional<Ref<Method const>> find_method(Util::UString const&) const;
 };
@@ -531,8 +533,8 @@ private:
     void typecheck_module(Module&, Parser::ParsedModule const& parsed_module);
     CheckedStruct typecheck_struct(Parser::ParsedStructDeclaration const&);
     void typecheck_struct_methods(StructId, Parser::ParsedStructDeclaration const&);
-    // First pass: only signature (return value & args)
-    CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&);
+    // First pass: only signature (return value, args, decl scope)
+    CheckedFunction typecheck_function(Parser::ParsedFunctionDeclaration const&, std::optional<StructId> declaration_scope);
     // Second pass: body
     void typecheck_function_body(CheckedFunction&, Parser::ParsedFunctionDeclaration const&);
     CheckedStatement typecheck_statement(Parser::ParsedStatement const&);
@@ -549,7 +551,6 @@ private:
     ResolvedIdentifier resolve_identifier(Util::UString const& id, Util::SourceRange);
     TypeId resolve_type(Parser::ParsedType const& type);
 
-    CheckedFunction const& get_function(FunctionId id);
     FunctionId add_function(Parser::ParsedFunctionDeclaration const&, std::optional<StructId>);
 
     std::vector<std::unique_ptr<Parser::ParsedFile>> m_parsed_files;

@@ -210,6 +210,7 @@ CheckedStruct Typechecker::typecheck_struct(Parser::ParsedStructDeclaration cons
         .name = struct_.name,
         .fields = std::move(fields),
         .methods = {},
+        .type_id = TypeId(),
     };
 }
 
@@ -224,7 +225,7 @@ void Typechecker::typecheck_struct_methods(StructId struct_id, Parser::ParsedStr
     }
 }
 
-CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaration const& function) {
+CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaration const& function, std::optional<StructId> declaration_scope) {
     TypeId return_type = [&function, this]() {
         TypeId type_id { m_program.unknown_type_id };
         if (function.return_type) {
@@ -250,6 +251,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     }();
 
     CheckedFunction checked_function {
+        .declaration_scope = {},
         .name = function.name,
         .parameters = {},
         .body = {},
@@ -261,6 +263,23 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
         m_current_function = nullptr;
     };
     SCOPED_SCOPE(checked_function.argument_scope_id);
+
+    if (function.has_this_parameter) {
+        if (!declaration_scope) {
+            // FIXME: Better range
+            error("'this' may be a parameter only for methods", function.name_range);
+        }
+        else {
+            auto type_id = m_program.get_struct(*declaration_scope)->type_id;
+            auto var_id = m_current_checked_module->add_variable(CheckedVariable {
+                .name = "this",
+                .type = { .type_id = type_id, .is_mut = false },
+                .initializer = {},
+            });
+            m_program.get_scope(checked_function.argument_scope_id).variables.insert({ "this", var_id });
+            checked_function.parameters.push_back({ "this", CheckedParameter { .var_id = var_id } });
+        }
+    }
 
     for (auto const& param : function.parameters) {
         checked_function.parameters.push_back(std::make_pair(param.name, typecheck_parameter(param)));
@@ -599,7 +618,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                     return CheckedExpression::invalid(m_program);
                 }
                 auto& function_type = std::get<FunctionType>(callable_type.type);
-                auto& function = get_function(function_type.function);
+                auto& function = *m_program.get_function(function_type.function);
 
                 bool is_method_call = std::holds_alternative<CheckedExpression::MemberAccess>(callable.expression);
 
@@ -771,18 +790,8 @@ ResolvedIdentifier Typechecker::resolve_identifier(Util::UString const& id, Util
     return {};
 }
 
-CheckedFunction const& Typechecker::get_function(FunctionId id) {
-    auto& function_ref = m_program.get_function(id);
-    if (!function_ref) {
-        auto& module = m_program.module(id.module());
-        function_ref = std::make_unique<CheckedFunction>(typecheck_function(module.get_parsed_function_declaration(id.id())));
-    }
-    return *m_program.get_function(id);
-}
-
 FunctionId Typechecker::add_function(Parser::ParsedFunctionDeclaration const& parsed_function, std::optional<StructId> scope) {
-    auto func = typecheck_function(parsed_function);
-    func.declaration_scope = scope;
+    auto func = typecheck_function(parsed_function, scope);
     return m_current_checked_module->add_function(std::move(func), parsed_function);
 }
 
