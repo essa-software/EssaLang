@@ -1,0 +1,12 @@
+[90mlogical_not_bool.esl: [m[1;31mError:[m Left-hand-side of logical operator must be a bool
+   2 |     [31m1[m && 1;
+           ^ [31mLeft-hand-side of logical operator must be a bool[m
+[90mlogical_not_bool.esl: [m[1;31mError:[m Right-hand-side of logical operator must be a bool
+   2 |     1 && [31m1[m;
+                ^ [31mRight-hand-side of logical operator must be a bool[m
+[90mlogical_not_bool.esl: [m[1;31mError:[m Left-hand-side of logical operator must be a bool
+   3 |     [31m1[m || 1;
+           ^ [31mLeft-hand-side of logical operator must be a bool[m
+[90mlogical_not_bool.esl: [m[1;31mError:[m Right-hand-side of logical operator must be a bool
+   3 |     1 || [31m1[m;
+                ^ [31mRight-hand-side of logical operator must be a bool[m
