@@ -81,6 +81,8 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
         else:
             if ret != 0:
                 if err != expected_err:
+                    sys.stderr.buffer.write(err)
+                    sys.stderr.buffer.flush()
                     if len(out) > 0:
                         fail(test_path, "expected success but got compiler error")
                     else:
@@ -107,6 +109,8 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
         else:
             if ret != 0:
                 if err != expected_err:
+                    sys.stderr.buffer.write(err)
+                    sys.stderr.buffer.flush()
                     if len(out) > 0:
                         fail(test_path, "expected success but got runtime error")
                     else:
