@@ -591,7 +591,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto object = typecheck_expression(access->object);
                 auto& type = m_program.get_type(object.type.type_id);
                 if (!std::holds_alternative<StructType>(type.type)) {
-                    error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), {});
+                    error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), access->dot_range);
                     return CheckedExpression::invalid(m_program);
                 }
 
@@ -600,8 +600,7 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 if (!field) {
                     auto method = struct_->find_method(access->member);
                     if (!method) {
-                        // FIXME: range
-                        error(fmt::format("No such field or method '{}' in struct '{}'", access->member.encode(), type.name(m_program).encode()), {});
+                        error(fmt::format("No such field or method '{}' in struct '{}'", access->member.encode(), type.name(m_program).encode()), access->member_name_range);
                         return CheckedExpression::invalid(m_program);
                     }
                     auto function_type = FunctionType { .function = method->get().function };

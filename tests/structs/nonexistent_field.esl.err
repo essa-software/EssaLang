@@ -1,3 +1,3 @@
 [90mnonexistent_field.esl: [m[1;31mError:[m No such field or method 'mum' in struct 'Foo'
-   1 | [31m/[m/ error: No such field 'mum' in struct 'Foo'
-       ^ [31mNo such field or method 'mum' in struct 'Foo'[m
+   8 |     print("{}", foo.[31mm[m[31mu[m[31mm[m);
+                           ^^^ [31mNo such field or method 'mum' in struct 'Foo'[m

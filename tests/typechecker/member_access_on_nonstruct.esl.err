@@ -1,3 +1,3 @@
 [90mmember_access_on_nonstruct.esl: [m[1;31mError:[m Invalid member access on non-struct type 'u32'
-   1 | [31mf[munc main() {
-       ^ [31mInvalid member access on non-struct type 'u32'[m
+   2 |     print(0[31m.[mtest);
+                  ^ [31mInvalid member access on non-struct type 'u32'[m

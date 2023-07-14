@@ -212,6 +212,9 @@ struct ParsedMemberAccess {
     ParsedExpression object;
     Util::UString member;
 
+    Util::SourceRange dot_range;
+    Util::SourceRange member_name_range;
+
     void print(size_t depth) const;
 };
 

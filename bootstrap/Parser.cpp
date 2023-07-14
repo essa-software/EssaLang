@@ -386,6 +386,7 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
         .parameters = {},
         .body = {},
         .has_this_parameter = false,
+        .this_param_range = {},
         .name_range = range_for_last(1),
     };
 
@@ -774,12 +775,15 @@ Util::ParseErrorOr<ParsedExpression> Parser::parse_primary_or_postfix_expression
             };
         }
         else if (peek()->type() == TokenType::Dot) {
+            size_t dot_start = offset();
             get();
             auto name = TRY(expect(TokenType::Identifier));
             expr = ParsedExpression {
                 .expression = std::make_unique<ParsedMemberAccess>(ParsedMemberAccess {
                     .object = std::move(expr),
                     .member = name.value(),
+                    .dot_range = range(dot_start, 1),
+                    .member_name_range = name.range(),
                 }),
                 .range = range_starting_from(expr_start),
             };
