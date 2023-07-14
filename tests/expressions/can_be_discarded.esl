@@ -1,0 +1,15 @@
+func foo(): u32 {
+    return 0;
+}
+
+func main() {
+    mut a = 0;
+
+    // These should fail to compile
+    foo();
+    0 == 0;
+    1 + 1;
+    true && true;
+    // These should work
+    a = 5;
+}

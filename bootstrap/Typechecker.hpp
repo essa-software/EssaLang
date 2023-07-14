@@ -146,41 +146,53 @@ struct ResolvedIdentifier {
     Type type = Type::Invalid;
     size_t module;
     size_t id;
+
+    bool can_be_discarded(CheckedProgram const&) const { return false; }
 };
 
 struct CheckedExpression {
     struct Call {
         FunctionId function_id;
         std::vector<CheckedExpression> arguments;
+        bool can_be_discarded(CheckedProgram const&) const;
     };
     struct BinaryExpression {
         std::unique_ptr<CheckedExpression> lhs;
         Parser::ParsedBinaryExpression::Operator operator_;
         std::unique_ptr<CheckedExpression> rhs;
+        bool can_be_discarded(CheckedProgram const&) const;
     };
     struct ArrayIndex {
         std::unique_ptr<CheckedExpression> array;
         std::unique_ptr<CheckedExpression> index;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     struct MemberAccess {
         std::unique_ptr<CheckedExpression> object;
         Util::UString member;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     struct UnsignedIntegerLiteral {
         TypeId type_id;
         uint64_t value;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     struct StringLiteral {
         Util::UString value;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     struct BoolLiteral {
         bool value;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     // FIXME: This should not be separate. Make this working with type inference + generics ??
-    struct EmptyInlineArray { };
+    struct EmptyInlineArray {
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
+    };
     struct InlineArray {
         TypeId element_type_id;
         std::vector<CheckedExpression> elements;
+        bool can_be_discarded(CheckedProgram const&) const { return false; }
     };
     QualifiedType type;
     std::variant<Call,
@@ -197,6 +209,10 @@ struct CheckedExpression {
         expression;
 
     static CheckedExpression invalid(CheckedProgram const& program);
+    // Should we allow this expression to be at top level
+    // of the statement? that is, not assigned to anything
+    // etc.
+    bool can_be_discarded(CheckedProgram const&) const;
 };
 
 struct CheckedVariable {

@@ -1,0 +1,12 @@
+[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
+   9 |     [31mf[m[31mo[m[31mo[m[31m([m[31m)[m;
+           ^^^^^ [31mThis expression cannot be discarded[m
+[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
+  10 |     [31m0[m[31m [m[31m=[m[31m=[m[31m [m[31m0[m;
+           ^^^^^^ [31mThis expression cannot be discarded[m
+[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
+  11 |     [31m1[m[31m [m[31m+[m[31m [m[31m1[m;
+           ^^^^^ [31mThis expression cannot be discarded[m
+[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
+  12 |     [31mt[m[31mr[m[31mu[m[31me[m[31m [m[31m&[m[31m&[m[31m [m[31mt[m[31mr[m[31mu[m[31me[m;
+           ^^^^^^^^^^^^ [31mThis expression cannot be discarded[m

@@ -1,10 +1,10 @@
 #include "Typechecker.hpp"
 
-#include "EssaUtil/TemporaryChange.hpp"
+#include "Esl.hpp"
 #include "Parser.hpp"
-#include "bootstrap/Esl.hpp"
 #include <EssaUtil/Config.hpp>
 #include <EssaUtil/ScopeGuard.hpp>
+#include <EssaUtil/TemporaryChange.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/core.h>
@@ -423,7 +423,11 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
                 };
             },
             [&](Parser::ParsedExpression const& value) -> CheckedStatement {
-                return CheckedStatement { .statement = typecheck_expression(value) };
+                auto expr = typecheck_expression(value);
+                if (!expr.can_be_discarded(m_program)) {
+                    error("This expression cannot be discarded", value.range);
+                }
+                return CheckedStatement { .statement = std::move(expr) };
             },
         },
         stmt);
@@ -841,6 +845,39 @@ TypeId Typechecker::resolve_type(Parser::ParsedType const& type) {
 
 CheckedExpression CheckedExpression::invalid(CheckedProgram const& program) {
     return CheckedExpression { .type = { .type_id = program.unknown_type_id, .is_mut = false }, .expression = std::monostate {} };
+}
+
+bool CheckedExpression::Call::can_be_discarded(CheckedProgram const& program) const {
+    auto return_type = program.get_function(function_id)->return_type;
+    return return_type == program.void_type_id
+        || return_type == program.unknown_type_id;
+}
+
+bool CheckedExpression::BinaryExpression::can_be_discarded(CheckedProgram const&) const {
+    switch (operator_) {
+    case Parser::ParsedBinaryExpression::Operator::Assign:
+    case Parser::ParsedBinaryExpression::Operator::AssignAdd:
+    case Parser::ParsedBinaryExpression::Operator::AssignSubtract:
+    case Parser::ParsedBinaryExpression::Operator::AssignMultiply:
+    case Parser::ParsedBinaryExpression::Operator::AssignDivide:
+    case Parser::ParsedBinaryExpression::Operator::AssignModulo:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool CheckedExpression::can_be_discarded(CheckedProgram const& program) const {
+    return std::visit(
+        Util::Overloaded {
+            [](std::monostate const&) -> bool {
+                return true;
+            },
+            [&](auto const& expr) -> bool {
+                return expr.can_be_discarded(program);
+            },
+        },
+        expression);
 }
 
 void CheckedVariable::print(CheckedProgram const& program) const {
