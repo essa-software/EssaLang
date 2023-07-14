@@ -55,6 +55,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
+                .file_name = file_name,
                 .message = Util::UString { error.message },
                 .start_offset = error.location.start.offset,
                 .end_offset = error.location.end.offset,
@@ -72,6 +73,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
+                .file_name = file_name,
                 .message = Util::UString { error.message },
                 .start_offset = error.range.start.offset,
                 .end_offset = error.range.end.offset,
