@@ -5,6 +5,7 @@ import subprocess as sp
 import time
 import datetime as dt
 import argparse as ap
+from concurrent.futures import ThreadPoolExecutor
 
 parser = ap.ArgumentParser("run-tests")
 parser.add_argument(
@@ -17,7 +18,8 @@ TESTS_DIR = os.path.normpath(os.path.join(ROOT, "tests"))
 COMPILER_PATH = os.path.normpath(
     os.path.join(ROOT, "build", "bootstrap", "esl"))
 
-os.chdir(os.path.join(ROOT, "build"))
+BINARY_DIR = os.path.join(ROOT, "build")
+os.chdir(BINARY_DIR)
 
 
 def load_expectation(path: str):
@@ -50,8 +52,12 @@ def pass_(test_path, compiler_time):
 
 total_start_time = time.perf_counter_ns()
 
-for test_path in Path(TESTS_DIR).rglob("*.esl"):
+
+def run_test(test_path, env_dir_id):
     try:
+        env_dir = os.path.join(BINARY_DIR, str(env_dir_id))
+        os.makedirs(env_dir, exist_ok=True)
+
         # print(p)
         expected_out_path = os.path.join(TESTS_DIR, str(test_path) + ".out")
         expected_out = load_expectation(expected_out_path)
@@ -60,12 +66,13 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
         expected_err = load_expectation(expected_err_path)
 
         if len(expected_out) == 0 and len(expected_err) == 0:
-            continue
+            return
 
         start_time = time.perf_counter_ns()
 
         proc = sp.Popen([COMPILER_PATH, str(test_path)],
-                        stdout=sp.PIPE, stderr=sp.PIPE)
+                        stdout=sp.PIPE, stderr=sp.PIPE,
+                        cwd=env_dir)
         out, err = proc.communicate()
         ret = proc.returncode
         compiler_time = time.perf_counter_ns() - start_time
@@ -77,7 +84,7 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
                     f.write(err)
             if ret != 0:
                 print(f"compiler error: {test_path}")
-                continue
+                return
         else:
             if ret != 0:
                 if err != expected_err:
@@ -89,13 +96,13 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
                         fail(
                             test_path, "got different compile error message than expected")
                 pass_(test_path, compiler_time)
-                continue
+                return
             elif len(err) > 0:
                 fail(test_path, "expected compile error but got success")
-                continue
+                return
 
-        proc = sp.Popen([os.path.join(ROOT, "build", "build", "out")],
-                        stdout=sp.PIPE, stderr=sp.PIPE)
+        proc = sp.Popen([os.path.join(env_dir, "build", "out")],
+                        stdout=sp.PIPE, stderr=sp.PIPE, cwd=env_dir)
         out, err = proc.communicate()
         ret = proc.returncode
 
@@ -114,19 +121,25 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
                     if len(out) > 0:
                         fail(test_path, "expected success but got runtime error")
                     else:
-                        fail(test_path, "got different runtime error message than expected")
-                    continue
+                        fail(
+                            test_path, "got different runtime error message than expected")
+                    return
             elif len(out) > 0:
                 if out != expected_out:
                     fail(test_path, "got different output than expected")
-                    continue
+                    return
             elif len(err) > 0:
                 fail(test_path, "expected runtime error but got success")
-                continue
+                return
 
         pass_(test_path, compiler_time)
     except Exception as e:
         fail(test_path, str(e))
+
+
+with ThreadPoolExecutor() as pool:
+    for idx, test_path in enumerate(Path(TESTS_DIR).rglob("*.esl")):
+        pool.submit(run_test, test_path, idx)
 
 print(
     f"\n\033[32mPassed:\033[m {passed}, \033[31mFailed:\033[m {failed}, Took {(time.perf_counter_ns() - total_start_time)/1e9:.2f}s")
