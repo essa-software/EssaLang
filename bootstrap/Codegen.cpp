@@ -270,7 +270,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
                 return {};
             },
             [&](Typechecker::CheckedExpression::UnsignedIntegerLiteral const& expr) -> Util::OsErrorOr<void> {
-                m_writer.writeff("{}ull", expr.value);
+                m_writer.writeff("((uint32_t){})", expr.value);
                 return {};
             },
             [&](Typechecker::CheckedExpression::StringLiteral const& expr) -> Util::OsErrorOr<void> {
