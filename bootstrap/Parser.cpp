@@ -76,15 +76,21 @@ void indent(size_t depth) {
     }
 }
 
-void ParsedVariableDeclaration::print(size_t depth) const {
+void ParsedBinding::print(size_t depth) const {
     indent(depth);
-    fmt::print("{} {}", is_mut ? "mut" : "let", name.encode());
+    fmt::print("{}", name.encode());
     if (type) {
         fmt::print(": ");
         type->print();
     }
     fmt::print(" = ");
     initializer.print(0);
+}
+
+void ParsedVariableDeclaration::print(size_t depth) const {
+    indent(depth);
+    fmt::print("{} ", is_mut ? "mut" : "let");
+    binding.print(0);
     fmt::print(";");
 }
 
@@ -482,18 +488,16 @@ Util::ParseErrorOr<ParsedImport> Parser::parse_import() {
     return ParsedImport { .module = std::move(name) };
 }
 
-Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration() {
-    auto let_or_mut = get();
-    ParsedVariableDeclaration decl {
-        .is_mut = let_or_mut->type() == TokenType::KeywordMut ? true : false,
+Util::ParseErrorOr<ParsedBinding> Parser::parse_binding() {
+    ParsedBinding decl {
         .name = "",
         .type = {},
         .initializer = {},
-        .range = {},
+        .name_range = {},
     };
-    decl.range.start = range(offset(), 1).start;
 
     decl.name = Util::UString { TRY(expect(TokenType::Identifier)).value() };
+    decl.name_range = range_for_last(1);
 
     if (next_token_is(TokenType::Colon)) {
         get(); // :
@@ -505,8 +509,16 @@ Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration
     }
     get(); // =
     decl.initializer = TRY(parse_expression(0));
+    return decl;
+}
+
+Util::ParseErrorOr<ParsedVariableDeclaration> Parser::parse_variable_declaration() {
+    auto let_or_mut = get();
+    ParsedVariableDeclaration decl {
+        .binding = TRY(parse_binding()),
+        .is_mut = let_or_mut->type() == TokenType::KeywordMut ? true : false,
+    };
     TRY(expect(TokenType::Semicolon));
-    decl.range.end = range(offset() - 1, 1).end;
     return decl;
 }
 

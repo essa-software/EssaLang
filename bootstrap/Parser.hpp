@@ -215,13 +215,19 @@ struct ParsedMemberAccess {
     void print(size_t depth) const;
 };
 
-struct ParsedVariableDeclaration {
-    bool is_mut;
+struct ParsedBinding {
     Util::UString name;
     std::optional<ParsedType> type;
     ParsedExpression initializer;
 
-    Util::SourceRange range;
+    Util::SourceRange name_range;
+
+    void print(size_t depth) const;
+};
+
+struct ParsedVariableDeclaration {
+    ParsedBinding binding;
+    bool is_mut;
 
     void print(size_t depth) const;
 };
@@ -319,6 +325,7 @@ private:
     Util::ParseErrorOr<ParsedFunctionDeclaration> parse_function_declaration();
     Util::ParseErrorOr<ParsedStructDeclaration> parse_struct_declaration();
     Util::ParseErrorOr<ParsedImport> parse_import();
+    Util::ParseErrorOr<ParsedBinding> parse_binding();
     Util::ParseErrorOr<ParsedVariableDeclaration> parse_variable_declaration();
     Util::ParseErrorOr<ParsedReturnStatement> parse_return_statement();
     Util::ParseErrorOr<ParsedIfStatement> parse_if_statement();

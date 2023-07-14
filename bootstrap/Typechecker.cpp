@@ -312,32 +312,31 @@ CheckedStatement Typechecker::typecheck_statement(Parser::ParsedStatement const&
     return std::visit(
         Util::Overloaded {
             [&](Parser::ParsedVariableDeclaration const& value) -> CheckedStatement {
-                auto initializer = typecheck_expression(value.initializer);
+                auto initializer = typecheck_expression(value.binding.initializer);
 
                 auto type_id = m_program.unknown_type_id;
-                if (!value.type) {
+                if (!value.binding.type) {
                     type_id = initializer.type.type_id;
                 }
                 else {
-                    type_id = resolve_type(*value.type);
+                    type_id = resolve_type(*value.binding.type);
                 }
 
                 if (type_id == m_program.unknown_type_id) {
-                    fmt::print("{} ??\n", value.type.has_value());
-                    error(fmt::format("Invalid type '{}' in variable declaration", value.type ? value.type->to_string().encode() : "<not inferred>"), value.range);
+                    error(fmt::format("Invalid type '{}' in variable declaration", value.binding.type ? value.binding.type->to_string().encode() : "<not inferred>"), value.binding.type ? value.binding.type->range : value.binding.name_range);
                 }
 
                 CheckedVariable variable {
-                    .name = value.name,
+                    .name = value.binding.name,
                     .type = { .type_id = type_id, .is_mut = value.is_mut },
                     .initializer = std::move(initializer),
                 };
 
                 if (type_id != m_program.unknown_type_id) {
-                    check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type.type_id, value.range);
+                    check_type_compatibility(TypeCompatibility::Assignment, type_id, initializer.type.type_id, value.binding.initializer.range);
                 }
                 auto var_id = m_current_checked_module->add_variable(std::move(variable));
-                m_program.get_scope(m_current_scope).variables.insert({ value.name, var_id });
+                m_program.get_scope(m_current_scope).variables.insert({ value.binding.name, var_id });
                 return CheckedStatement {
                     .statement = CheckedVariableDeclaration { .var_id = var_id }
                 };
