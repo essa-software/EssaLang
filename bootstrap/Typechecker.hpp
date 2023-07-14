@@ -297,6 +297,8 @@ struct CheckedFunction {
     std::optional<CheckedBlock> body; // No body = extern function (or just not checked yet)
     TypeId return_type;
     ScopeId argument_scope_id;
+
+    Util::UString mangled_name(CheckedProgram const&) const;
 };
 
 struct Module {

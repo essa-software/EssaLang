@@ -1,0 +1,13 @@
+struct Foo {
+    func foo(this) { print("foo method\n"); }
+}
+
+func foo(this_: Foo) {
+    print("foo function\n");
+}
+
+func main() {
+    let bar: Foo = [];
+    bar.foo();
+    foo(bar);
+}

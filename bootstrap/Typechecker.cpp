@@ -52,6 +52,13 @@ std::optional<Ref<CheckedStruct::Method const>> CheckedStruct::find_method(Util:
     return std::nullopt;
 }
 
+Util::UString CheckedFunction::mangled_name(CheckedProgram const& program) const {
+    if (!declaration_scope) {
+        return name;
+    }
+    return Util::UString::format("___{}_{}", program.get_struct(*declaration_scope)->name.encode(), name.encode());
+}
+
 std::optional<Ref<Module>> Typechecker::load_module(Util::UString const& name) {
     // fmt::print("load_module({})\n", name.encode());
 
@@ -251,7 +258,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
     }();
 
     CheckedFunction checked_function {
-        .declaration_scope = {},
+        .declaration_scope = declaration_scope,
         .name = function.name,
         .parameters = {},
         .body = {},
@@ -867,7 +874,7 @@ void CheckedProgram::print() const {
                 fmt::print("    <NULL>\n");
                 continue;
             }
-            fmt::print("    func {}(...) -> {}\n", func->name.encode(), type_name(func->return_type).encode());
+            fmt::print("    func {}(...) -> {}\n", func->mangled_name(*this).encode(), type_name(func->return_type).encode());
             if (!func->body) {
                 fmt::print("        <EXTERN>\n");
                 continue;

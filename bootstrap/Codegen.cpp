@@ -66,10 +66,8 @@ Util::OsErrorOr<void> CodeGenerator::codegen_struct(Typechecker::CheckedStruct c
 }
 
 Util::OsErrorOr<void> CodeGenerator::codegen_function_declaration(Typechecker::CheckedFunction const& function) {
-    // FIXME: Handle mangling of methods so that they don't
-    //        clash with global functions.
     TRY(codegen_type(m_program.get_type(function.return_type)));
-    m_writer.writeff(" {}(", function.name == "main" ? "___esl_main" : function.name.encode());
+    m_writer.writeff(" {}(", function.name == "main" ? "___esl_main" : function.mangled_name(m_program).encode());
     for (size_t s = 0; s < function.parameters.size(); s++) {
         auto const& param = function.parameters[s];
         auto const& var = m_program.get_variable(param.second.var_id);
@@ -240,7 +238,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_expression(Typechecker::CheckedExpr
         Util::Overloaded {
             [&](Typechecker::CheckedExpression::Call const& call) -> Util::OsErrorOr<void> {
                 auto const& func = m_program.get_function(call.function_id);
-                m_writer.writeff("{}(", func->name.encode());
+                m_writer.writeff("{}(", func->mangled_name(m_program).encode());
                 for (size_t s = 0; s < call.arguments.size(); s++) {
                     if (func->name == "print" && s == 0 && call.arguments[s].type.type_id == m_program.string_type_id) {
                         m_writer.writeff("\"{}\"", std::get<Typechecker::CheckedExpression::StringLiteral>(call.arguments[s].expression).value.encode());
