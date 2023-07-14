@@ -73,7 +73,8 @@ Util::OsErrorOr<void> CodeGenerator::codegen_function_declaration(Typechecker::C
     for (size_t s = 0; s < function.parameters.size(); s++) {
         auto const& param = function.parameters[s];
         auto const& var = m_program.get_variable(param.second.var_id);
-        TRY(codegen_qualified_type(var.type));
+        bool is_this_param = param.first == "this";
+        TRY(codegen_qualified_type(var.type, is_this_param));
         m_writer.writeff(" {}", var.name == "this" ? "this_" : var.name.encode());
         if (s != function.parameters.size() - 1) {
             TRY(m_writer.write(", "));
@@ -147,10 +148,13 @@ Util::OsErrorOr<void> CodeGenerator::codegen_type(Typechecker::Type const& type)
     return {};
 }
 
-Util::OsErrorOr<void> CodeGenerator::codegen_qualified_type(Typechecker::QualifiedType const& type) {
+Util::OsErrorOr<void> CodeGenerator::codegen_qualified_type(Typechecker::QualifiedType const& type, bool reference) {
     TRY(codegen_type(m_program.get_type(type.type_id)));
     if (!type.is_mut) {
         TRY(m_writer.write(" const"));
+    }
+    if (reference) {
+        TRY(m_writer.write("&"));
     }
     return {};
 }
@@ -160,7 +164,7 @@ Util::OsErrorOr<void> CodeGenerator::codegen_statement(Typechecker::CheckedState
         Util::Overloaded {
             [&](Typechecker::CheckedVariableDeclaration const& decl) -> Util::OsErrorOr<void> {
                 auto const& var = m_program.get_variable(decl.var_id);
-                TRY(codegen_qualified_type(var.type));
+                TRY(codegen_qualified_type(var.type, false));
                 m_writer.writeff(" {}", var.name.encode());
                 if (var.initializer) {
                     m_writer.writeff(" = ");
