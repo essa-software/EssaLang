@@ -104,7 +104,6 @@ std::optional<Ref<Module>> Typechecker::load_module(Util::UString const& name) {
     auto maybe_parsed_file = parse_file(mod.path);
     if (maybe_parsed_file.is_error_of_type<Util::ParseError>()) {
         auto error = maybe_parsed_file.release_error_of_type<Util::ParseError>();
-        // FIXME: range
         // fmt::print(stderr, "module loaded from {} err at {}\n", path.string(), error.location.start.offset);
         m_errors.push_back(Error {
             .message = error.message,
@@ -277,8 +276,7 @@ CheckedFunction Typechecker::typecheck_function(Parser::ParsedFunctionDeclaratio
 
     if (function.has_this_parameter) {
         if (!declaration_scope) {
-            // FIXME: Better range
-            error("'this' may be a parameter only for methods", function.name_range);
+            error("'this' may be a parameter only for methods", function.this_param_range);
         }
         else {
             auto type_id = m_program.get_struct(*declaration_scope)->type_id;

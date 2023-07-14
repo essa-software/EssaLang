@@ -49,6 +49,7 @@ struct ParsedFunctionDeclaration {
     std::vector<ParsedParameter> parameters;
     std::unique_ptr<ParsedBlock> body; // null for extern functions
     bool has_this_parameter;
+    Util::SourceRange this_param_range;
 
     Util::SourceRange name_range;
 

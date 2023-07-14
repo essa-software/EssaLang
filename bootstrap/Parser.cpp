@@ -400,6 +400,7 @@ Util::ParseErrorOr<ParsedFunctionDeclaration> Parser::parse_function_declaration
                     return error_in_already_read("'this' must be the first parameter");
                 }
                 declaration.has_this_parameter = true;
+                declaration.this_param_range = range_for_last(1);
             }
             else {
                 auto name = TRY(expect(TokenType::Identifier));
