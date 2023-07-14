@@ -112,6 +112,10 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
                     else:
                         fail(test_path, "got different runtime error message than expected")
                     continue
+            elif len(out) > 0:
+                if out != expected_out:
+                    fail(test_path, "got different output than expected")
+                    continue
             elif len(err) > 0:
                 fail(test_path, "expected runtime error but got success")
                 continue
