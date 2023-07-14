@@ -4,6 +4,12 @@ from pathlib import Path
 import subprocess as sp
 import time
 import datetime as dt
+import argparse as ap
+
+parser = ap.ArgumentParser("run-tests")
+parser.add_argument(
+    "--update", help="update expectations with actual outputs", action="store_true")
+args = parser.parse_args()
 
 ROOT = os.path.dirname(__file__)
 
@@ -47,10 +53,11 @@ total_start_time = time.perf_counter_ns()
 for test_path in Path(TESTS_DIR).rglob("*.esl"):
     try:
         # print(p)
-        expected_out = load_expectation(
-            os.path.join(TESTS_DIR, str(test_path) + ".out"))
-        expected_err = load_expectation(
-            os.path.join(TESTS_DIR, str(test_path) + ".err"))
+        expected_out_path = os.path.join(TESTS_DIR, str(test_path) + ".out")
+        expected_out = load_expectation(expected_out_path)
+
+        expected_err_path = os.path.join(TESTS_DIR, str(test_path) + ".err")
+        expected_err = load_expectation(expected_err_path)
 
         if len(expected_out) == 0 and len(expected_err) == 0:
             continue
@@ -64,32 +71,50 @@ for test_path in Path(TESTS_DIR).rglob("*.esl"):
         compiler_time = time.perf_counter_ns() - start_time
         # print("out:", out, "err:", err, "ret:", ret)
 
-        if ret != 0:
-            if err != expected_err:
-                if len(out) > 0:
-                    fail(test_path, "expected success but got compiler error")
-                else:
-                    fail(test_path, "got different compile error message than expected")
+        if args.update:
+            if len(err) > 0:
+                with open(expected_err_path, "wb") as f:
+                    f.write(err)
+            if ret != 0:
+                print(f"compiler error: {test_path}")
                 continue
-        elif len(err) > 0:
-            fail(test_path, "expected compile error but got success")
-            continue
+        else:
+            if ret != 0:
+                if err != expected_err:
+                    if len(out) > 0:
+                        fail(test_path, "expected success but got compiler error")
+                    else:
+                        fail(
+                            test_path, "got different compile error message than expected")
+                pass_(test_path, compiler_time)
+                continue
+            elif len(err) > 0:
+                fail(test_path, "expected compile error but got success")
+                continue
 
         proc = sp.Popen([os.path.join(ROOT, "build", "build", "out")],
                         stdout=sp.PIPE, stderr=sp.PIPE)
         out, err = proc.communicate()
         ret = proc.returncode
 
-        if ret != 0:
-            if err != expected_err:
-                if len(out) > 0:
-                    fail(test_path, "expected success but got runtime error")
-                else:
-                    fail(test_path, "got different runtime error message than expected")
+        if args.update:
+            if len(err) > 0:
+                with open(expected_err_path, "wb") as f:
+                    f.write(err)
+            if len(out) > 0:
+                with open(expected_out_path, "wb") as f:
+                    f.write(out)
+        else:
+            if ret != 0:
+                if err != expected_err:
+                    if len(out) > 0:
+                        fail(test_path, "expected success but got runtime error")
+                    else:
+                        fail(test_path, "got different runtime error message than expected")
+                    continue
+            elif len(err) > 0:
+                fail(test_path, "expected runtime error but got success")
                 continue
-        elif len(err) > 0:
-            fail(test_path, "expected runtime error but got success")
-            continue
 
         pass_(test_path, compiler_time)
     except Exception as e:

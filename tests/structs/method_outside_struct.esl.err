@@ -1,3 +1,3 @@
-[1;31mError:[m 'this' may be a parameter only for methods
+[90mmethod_outside_struct.esl: [m[1;31mError:[m 'this' may be a parameter only for methods
    1 | func [31mb[m[31ma[m[31mr[m(this) { }
             ^^^ [31m'this' may be a parameter only for methods[m

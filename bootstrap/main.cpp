@@ -49,13 +49,15 @@ Util::OsErrorOr<void> run_process(std::vector<std::string> const& args, bool out
 }
 
 Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
+    std::filesystem::path base_path = std::filesystem::absolute(file_name).lexically_normal().parent_path();
+
     auto parsed_entry_point = ESL::parse_file(file_name);
     if (parsed_entry_point.is_error_of_type<Util::ParseError>()) {
         auto error = parsed_entry_point.release_error_of_type<Util::ParseError>();
         auto stream_for_errors = TRY(Util::ReadableFileStream::open(file_name));
         Util::display_error(stream_for_errors,
             Util::DisplayedError {
-                .file_name = file_name,
+                .file_name = std::filesystem::path(file_name).lexically_relative(base_path),
                 .message = Util::UString { error.message },
                 .start_offset = error.location.start.offset,
                 .end_offset = error.location.end.offset,
@@ -65,9 +67,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
     else if (parsed_entry_point.is_error_of_type<Util::OsError>()) {
         return parsed_entry_point.release_error_of_type<Util::OsError>();
     }
-    parsed_entry_point.value().print();
-
-    std::filesystem::path base_path = std::filesystem::absolute(file_name).lexically_normal().parent_path();
+    // parsed_entry_point.value().print();
 
     ESL::Typechecker::Typechecker typechecker { parsed_entry_point.release_value() };
     auto const& program = typechecker.typecheck(file_name);
@@ -81,7 +81,7 @@ Util::OsErrorOr<bool> run_esl(std::string const& file_name) {
                 .end_offset = error.range.end.offset,
             });
     }
-    program.print();
+    // program.print();
     if (!typechecker.errors().empty()) {
         return false;
     }
