@@ -1,0 +1,12 @@
+func print(array: []u32) {
+    for (let a of array) {
+        print("{},", a);
+    }
+}
+
+func main() {
+    let array = [1,2,3,4,5];
+    print(array[1..3]);
+}
+
+// pointer + size

@@ -12,6 +12,10 @@
 
 namespace ESL::Typechecker {
 
+Util::UString SliceType::name(CheckedProgram const& program) const {
+    return Util::UString::format("[]{}{}", elements_are_mut ? "mut " : "", program.get_type(inner).name(program).encode());
+}
+
 Util::UString ArrayType::name(CheckedProgram const& program) const {
     return Util::UString::format("[{}]{}", size, program.get_type(inner).name(program).encode());
 }
@@ -26,6 +30,10 @@ Util::UString StructType::name(CheckedProgram const& program) const {
 
 std::optional<TypeId> PrimitiveType::iterable_type(CheckedProgram const& program) const {
     return type == PrimitiveType::Range || type == PrimitiveType::String ? std::optional(program.u32_type_id) : std::nullopt;
+}
+
+std::optional<TypeId> SliceType::iterable_type(CheckedProgram const&) const {
+    return inner;
 }
 
 std::optional<TypeId> ArrayType::iterable_type(CheckedProgram const&) const {
@@ -559,36 +567,64 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
             [&](std::unique_ptr<Parser::ParsedArrayIndex> const& expr) -> CheckedExpression {
                 auto array = typecheck_expression(expr->array);
                 auto index = typecheck_expression(expr->index);
-                if (index.type.type_id != m_program.u32_type_id) {
-                    error("Array index must be an unsigned integer", expr->index.range);
-                    return CheckedExpression::invalid(m_program);
-                }
-                auto array_type = m_program.get_type(array.type.type_id);
-                if (std::holds_alternative<ArrayType>(array_type.type)) {
-                    auto type = std::get<ArrayType>(array_type.type);
-                    return CheckedExpression {
-                        .type = QualifiedType { .type_id = type.inner, .is_mut = array.type.is_mut },
-                        .expression = CheckedExpression::ArrayIndex {
-                            .array = std::make_unique<CheckedExpression>(std::move(array)),
-                            .index = std::make_unique<CheckedExpression>(std::move(index)),
-                        },
-                    };
-                }
-                if (std::holds_alternative<PrimitiveType>(array_type.type)) {
-                    auto primitive = std::get<PrimitiveType>(array_type.type);
-                    if (primitive.type == PrimitiveType::String) {
+
+                CheckedExpression::ArrayIndex array_expression {
+                    .array = std::make_unique<CheckedExpression>(std::move(array)),
+                    .index = std::make_unique<CheckedExpression>(std::move(index)),
+                };
+
+                if (index.type.type_id == m_program.u32_type_id) {
+                    auto array_type = m_program.get_type(array.type.type_id);
+                    if (std::holds_alternative<ArrayType>(array_type.type)) {
+                        auto type = std::get<ArrayType>(array_type.type);
                         return CheckedExpression {
-                            .type = QualifiedType { .type_id = m_program.u32_type_id, .is_mut = array.type.is_mut },
-                            .expression = CheckedExpression::ArrayIndex {
-                                .array = std::make_unique<CheckedExpression>(std::move(array)),
-                                .index = std::make_unique<CheckedExpression>(std::move(index)),
-                            },
+                            .type = QualifiedType { .type_id = type.inner, .is_mut = array.type.is_mut },
+                            .expression = std::move(array_expression),
                         };
                     }
+                    if (std::holds_alternative<PrimitiveType>(array_type.type)) {
+                        auto primitive = std::get<PrimitiveType>(array_type.type);
+                        if (primitive.type == PrimitiveType::String) {
+                            return CheckedExpression {
+                                .type = QualifiedType { .type_id = m_program.u32_type_id, .is_mut = array.type.is_mut },
+                                .expression = std::move(array_expression),
+                            };
+                        }
+                    }
+                    // TODO: Better range
+                    error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
+                        { expr->array.range.end, expression.range.end });
                 }
-                // TODO: Better range
-                error(fmt::format("Not found operator[] for '{}'", array_type.name(m_program).encode()),
-                    { expr->array.range.end, expression.range.end });
+                else if (index.type.type_id == m_program.range_type_id) {
+                    auto array_type = m_program.get_type(array.type.type_id);
+
+                    return std::visit(
+                        Util::Overloaded {
+                            [&](ArrayType const& type) -> CheckedExpression {
+                                auto slice = m_current_checked_module->get_or_add_type(Type {
+                                    .type = SliceType {
+                                        .inner = type.inner,
+                                        .elements_are_mut = array.type.is_mut,
+                                    },
+                                });
+                                return CheckedExpression {
+                                    .type = QualifiedType { .type_id = slice, .is_mut = array.type.is_mut },
+                                    .expression = std::move(array_expression),
+                                };
+                            },
+                            [&](auto const&) -> CheckedExpression {
+                                // TODO: Better range
+                                error(fmt::format("Not found operator[](range) for '{}'", array_type.name(m_program).encode()),
+                                    { expr->array.range.end, expression.range.end });
+                                return CheckedExpression::invalid(m_program);
+                            },
+                        },
+                        array_type.type);
+                }
+                else {
+                    error("Array index must be an unsigned integer or a range", expr->index.range);
+                    return CheckedExpression::invalid(m_program);
+                }
                 return CheckedExpression::invalid(m_program);
             },
             [&](std::unique_ptr<Parser::ParsedMemberAccess> const& access) {
@@ -830,14 +866,25 @@ TypeId Typechecker::resolve_type(Parser::ParsedType const& type) {
                 return custom_type->second;
             },
             [&](Parser::ParsedArrayType const& type) {
-                Type checked_type {
-                    .type = ArrayType {
-                        .inner = resolve_type(*type.type),
-                        .size = type.size,
-                    },
-                };
-                assert(m_current_checked_module);
-                return m_current_checked_module->get_or_add_type(checked_type);
+                if (type.size) {
+                    Type checked_type {
+                        .type = ArrayType {
+                            .inner = resolve_type(*type.type),
+                            .size = *type.size,
+                        },
+                    };
+                    assert(m_current_checked_module);
+                    return m_current_checked_module->get_or_add_type(checked_type);
+                }
+                else {
+                    Type checked_type {
+                        .type = SliceType {
+                            .inner = resolve_type(*type.type),
+                        }
+                    };
+                    assert(m_current_checked_module);
+                    return m_current_checked_module->get_or_add_type(checked_type);
+                }
             },
         },
         type.type);

@@ -4,15 +4,15 @@
 [90mnested_postfix.esl: [m[1;31mError:[m Expression is not callable
    2 |     [31mt[m[31me[m[31ms[m[31mt[m()[0].help[0]();
            ^^^^ [31mExpression is not callable[m
-[90mnested_postfix.esl: [m[1;31mError:[m Not found operator[] for 'unknown'
+[90mnested_postfix.esl: [m[1;31mError:[m Not found operator[](u32) for 'unknown'
    2 |     test()[31m[[m[31m0[m[31m][m.help[0]();
-                 ^^^ [31mNot found operator[] for 'unknown'[m
+                 ^^^ [31mNot found operator[](u32) for 'unknown'[m
 [90mnested_postfix.esl: [m[1;31mError:[m Invalid member access on non-struct type 'unknown'
    2 |     test()[0][31m.[mhelp[0]();
                     ^ [31mInvalid member access on non-struct type 'unknown'[m
-[90mnested_postfix.esl: [m[1;31mError:[m Not found operator[] for 'unknown'
+[90mnested_postfix.esl: [m[1;31mError:[m Not found operator[](u32) for 'unknown'
    2 |     test()[0].help[31m[[m[31m0[m[31m][m();
-                         ^^^ [31mNot found operator[] for 'unknown'[m
+                         ^^^ [31mNot found operator[](u32) for 'unknown'[m
 [90mnested_postfix.esl: [m[1;31mError:[m Expression is not callable
    2 |     [31mt[m[31me[m[31ms[m[31mt[m[31m([m[31m)[m[31m[[m[31m0[m[31m][m[31m.[m[31mh[m[31me[m[31ml[m[31mp[m[31m[[m[31m0[m[31m][m();
            ^^^^^^^^^^^^^^^^^ [31mExpression is not callable[m

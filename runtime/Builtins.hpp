@@ -41,6 +41,9 @@ public:
     auto begin() const { return RangeIterator { m_begin }; }
     auto end() const { return RangeIterator { m_end }; }
 
+    uint64_t min() const { return m_begin; }
+    uint64_t max() const { return m_end; }
+
 private:
     uint64_t m_begin;
     uint64_t m_end;
@@ -71,12 +74,34 @@ decltype(auto) safe_array_access(T const& container, size_t idx) {
     return container[idx];
 }
 template<Container T>
+decltype(auto) safe_array_access(T const& container, Range const& range) {
+    auto size = std::size(container);
+    if (range.min() >= size) {
+        panic("Array out of bounds access: range.min()={} >= {}", range.min(), size);
+    }
+    if (range.max() > size) {
+        panic("Array out of bounds access: range.max()={} > {}", range.max(), size);
+    }
+    return std::span(std::begin(container) + range.min(), std::begin(container) + range.max());
+}
+template<Container T>
 decltype(auto) safe_array_access_mut(T& container, size_t idx) {
     auto size = std::size(container);
     if (idx >= size) {
         panic("Array out of bounds access: {} >= {}", idx, size);
     }
     return container[idx];
+}
+template<Container T>
+decltype(auto) safe_array_access_mut(T& container, Range const& range) {
+    auto size = std::size(container);
+    if (range.min() >= size) {
+        panic("Array out of bounds access: range.min()={} >= {}", range.min(), size);
+    }
+    if (range.max() > size) {
+        panic("Array out of bounds access: range.max()={} > {}", range.max(), size);
+    }
+    return std::span(std::begin(container) + range.min(), std::begin(container) + range.max());
 }
 
 }

@@ -12,7 +12,7 @@ namespace ESL::Parser {
 struct ParsedType;
 
 struct ParsedArrayType {
-    size_t size; // TODO: This should be an expression
+    std::optional<size_t> size; // TODO: This should be an expression
     std::unique_ptr<ParsedType> type;
 };
 

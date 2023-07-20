@@ -49,7 +49,10 @@ Util::UString ParsedType::to_string() const {
         Util::Overloaded {
             [](ParsedUnqualifiedType const& t) { return t.name; },
             [](ParsedArrayType const& t) {
-                return Util::UString::format("[{}]", t.size);
+                if (t.size) {
+                    return Util::UString::format("[{}]", *t.size);
+                }
+                return Util::UString::format("[]");
             } },
         type);
 }
@@ -330,6 +333,10 @@ Util::ParseErrorOr<ParsedStatement> Parser::parse_statement() {
 
 Util::ParseErrorOr<ParsedArrayType> Parser::parse_array_type() {
     get(); // [
+    if (!next_token_is(TokenType::Number)) {
+        TRY(expect(TokenType::BraceClose)); // ]
+        return ParsedArrayType { .size = {}, .type = std::make_unique<ParsedType>(TRY(parse_type())) };
+    }
     auto size_token = TRY(expect(TokenType::Number));
     auto size = TRY(size_token.value().parse<size_t>().map_error(Util::OsToParseError(size_token.range())));
     TRY(expect(TokenType::BraceClose)); // ]

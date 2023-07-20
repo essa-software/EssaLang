@@ -95,6 +95,15 @@ struct FunctionType {
     FunctionId function;
 };
 
+struct SliceType {
+    TypeId inner;
+    bool elements_are_mut;
+
+    Util::UString name(CheckedProgram const&) const;
+    std::optional<TypeId> iterable_type(CheckedProgram const& program) const;
+    bool operator==(SliceType const&) const = default;
+};
+
 struct StructType {
     Util::UString name(CheckedProgram const&) const;
     std::optional<TypeId> iterable_type(CheckedProgram const&) const { return {}; }
@@ -118,6 +127,7 @@ struct Type {
         ArrayType,
         FunctionType,
         PrimitiveType,
+        SliceType,
         StructType>
         type;
 
