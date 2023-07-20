@@ -575,25 +575,34 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
 
                 if (index.type.type_id == m_program.u32_type_id) {
                     auto array_type = m_program.get_type(array.type.type_id);
-                    if (std::holds_alternative<ArrayType>(array_type.type)) {
-                        auto type = std::get<ArrayType>(array_type.type);
-                        return CheckedExpression {
-                            .type = QualifiedType { .type_id = type.inner, .is_mut = array.type.is_mut },
-                            .expression = std::move(array_expression),
-                        };
-                    }
-                    if (std::holds_alternative<PrimitiveType>(array_type.type)) {
-                        auto primitive = std::get<PrimitiveType>(array_type.type);
-                        if (primitive.type == PrimitiveType::String) {
-                            return CheckedExpression {
-                                .type = QualifiedType { .type_id = m_program.u32_type_id, .is_mut = array.type.is_mut },
-                                .expression = std::move(array_expression),
-                            };
-                        }
-                    }
-                    // TODO: Better range
-                    error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
-                        { expr->array.range.end, expression.range.end });
+                    return std::visit(
+                        Util::Overloaded {
+                            [&](ArrayType const& type) {
+                                return CheckedExpression {
+                                    .type = QualifiedType { .type_id = type.inner, .is_mut = array.type.is_mut },
+                                    .expression = std::move(array_expression),
+                                };
+                            },
+                            [&](PrimitiveType const& primitive) {
+                                if (primitive.type == PrimitiveType::String) {
+                                    return CheckedExpression {
+                                        .type = QualifiedType { .type_id = m_program.u32_type_id, .is_mut = array.type.is_mut },
+                                        .expression = std::move(array_expression),
+                                    };
+                                }
+                                // TODO: Better range
+                                error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
+                                    { expr->array.range.end, expression.range.end });
+                                return CheckedExpression::invalid(m_program);
+                            },
+                            [&](auto const&) {
+                                // TODO: Better range
+                                error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
+                                    { expr->array.range.end, expression.range.end });
+                                return CheckedExpression::invalid(m_program);
+                            },
+                        },
+                        array_type.type);
                 }
                 else if (index.type.type_id == m_program.range_type_id) {
                     auto array_type = m_program.get_type(array.type.type_id);
