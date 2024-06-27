@@ -3,18 +3,17 @@
 #include "Error.hpp"
 #include <compare>
 #include <cstdint>
+#include <fmt/format.h>
 #include <optional>
 #include <ostream>
 #include <span>
 #include <string>
-#include <type_traits>
-#include <vector>
 
 namespace Util {
 
 class Buffer;
 
-// A string that properly supports Unicode. It stores data as UTF-32
+// A string that "properly" supports Unicode. It stores data as UTF-32
 // internally, like SFML strings. This string is NOT null-terminated
 // (because why is should be, you have size and this is sufficient
 // in MODERN languages like C++ :^))
@@ -50,7 +49,9 @@ public:
     enum DecodingErrorTag { DecodingError };
     static ErrorOr<UString, DecodingErrorTag> decode(std::span<uint8_t const>, Encoding = Encoding::Utf8);
 
-    static auto decoding_error_to_os_error(UString::DecodingErrorTag) { return OsError { .error = 0, .function = "Decoding failed" }; }
+    static auto decoding_error_to_os_error(UString::DecodingErrorTag) {
+        return OsError { .error = 0, .function = "Decoding failed" };
+    }
 
     template<size_t S>
     UString(char const (&string)[S], Encoding encoding = Encoding::Utf8, uint32_t replacement = 0xfffd)
@@ -65,18 +66,28 @@ public:
     [[nodiscard]] Buffer encode_buffer(Encoding = Encoding::Utf8) const;
 
     [[nodiscard]] uint32_t at(size_t) const;
-    [[nodiscard]] uint32_t operator[](size_t idx) const { return at(idx); }
-    [[nodiscard]] uint32_t& operator[](size_t idx) { return m_storage[idx]; }
-    [[nodiscard]] size_t size() const { return m_size; }
-    [[nodiscard]] bool is_empty() const { return m_size == 0; }
+    [[nodiscard]] size_t size() const {
+        return m_size;
+    }
+    [[nodiscard]] bool is_empty() const {
+        return m_size == 0;
+    }
 
-    [[nodiscard]] auto begin() const { return span().begin(); }
-    [[nodiscard]] auto end() const { return span().end(); }
+    [[nodiscard]] auto begin() const {
+        return span().begin();
+    }
+    [[nodiscard]] auto end() const {
+        return span().end();
+    }
 
     // If you really want... there is a footgun for you.
-    [[nodiscard]] uint32_t const* storage() const { return m_storage; }
+    [[nodiscard]] uint32_t const* storage() const {
+        return m_storage;
+    }
 
-    [[nodiscard]] std::span<uint32_t const> span() const { return { m_storage, m_size }; }
+    [[nodiscard]] std::span<uint32_t const> span() const {
+        return { m_storage, m_size };
+    }
 
     // Substring from `start` to end of string
     [[nodiscard]] UString substring(size_t start) const;
@@ -86,7 +97,8 @@ public:
     [[nodiscard]] std::optional<size_t> find_one_of(std::initializer_list<uint32_t>, size_t start = 0) const;
     [[nodiscard]] UString erase(size_t start, size_t size = 1) const;
     [[nodiscard]] UString insert(UString other, size_t where) const;
-    [[nodiscard]] bool starts_with(UString other) const;
+    [[nodiscard]] bool starts_with(UString const& other) const;
+    [[nodiscard]] bool contains(UString const& other) const;
 
     [[nodiscard]] size_t indent() const;
 
@@ -108,12 +120,18 @@ public:
     }
 
     template<class Callback>
-    void for_each_line(Callback&& callback) const { for_each_split("\n", std::forward<Callback>(callback)); }
+    void for_each_line(Callback&& callback) const {
+        for_each_split("\n", std::forward<Callback>(callback));
+    }
 
     std::strong_ordering operator<=>(UString const& other) const;
+    bool operator<(UString const& other) const;
     bool operator==(UString const& other) const;
+    bool operator>(UString const& other) const;
 
-    friend std::ostream& operator<<(std::ostream& out, UString const& str) { return out << str.encode(); }
+    friend std::ostream& operator<<(std::ostream& out, UString const& str) {
+        return out << str.encode();
+    }
 
     template<std::integral I>
     OsErrorOr<I> parse(int base = 10) const;
@@ -131,7 +149,9 @@ private:
 };
 
 template<typename T>
-UString to_ustring(const T& to_convert) { return UString { std::to_string(to_convert) }; }
+UString to_ustring(T const& to_convert) {
+    return UString { std::to_string(to_convert) };
+}
 
 // For some reason, there is no std::stou for that. :(
 template<>
