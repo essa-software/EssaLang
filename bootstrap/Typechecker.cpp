@@ -7,7 +7,7 @@
 #include <EssaUtil/TemporaryChange.hpp>
 #include <cstdlib>
 #include <filesystem>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <variant>
 
 namespace ESL::Typechecker {
@@ -590,15 +590,19 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                                         .expression = std::move(array_expression),
                                     };
                                 }
-                                // TODO: Better range
-                                error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
-                                    { expr->array.range.end, expression.range.end });
+                                if (!(std::holds_alternative<PrimitiveType>(array_type.type) && std::get<PrimitiveType>(array_type.type).type == PrimitiveType::Unknown)) {
+                                    // TODO: Better range
+                                    error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
+                                        { expr->array.range.end, expression.range.end });
+                                }
                                 return CheckedExpression::invalid(m_program);
                             },
                             [&](auto const&) {
-                                // TODO: Better range
-                                error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
-                                    { expr->array.range.end, expression.range.end });
+                                if (!(std::holds_alternative<PrimitiveType>(array_type.type) && std::get<PrimitiveType>(array_type.type).type == PrimitiveType::Unknown)) {
+                                    // TODO: Better range
+                                    error(fmt::format("Not found operator[](u32) for '{}'", array_type.name(m_program).encode()),
+                                        { expr->array.range.end, expression.range.end });
+                                }
                                 return CheckedExpression::invalid(m_program);
                             },
                         },
@@ -622,9 +626,11 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                                 };
                             },
                             [&](auto const&) -> CheckedExpression {
-                                // TODO: Better range
-                                error(fmt::format("Not found operator[](range) for '{}'", array_type.name(m_program).encode()),
-                                    { expr->array.range.end, expression.range.end });
+                                if (!(std::holds_alternative<PrimitiveType>(array_type.type) && std::get<PrimitiveType>(array_type.type).type == PrimitiveType::Unknown)) {
+                                    // TODO: Better range
+                                    error(fmt::format("Not found operator[](range) for '{}'", array_type.name(m_program).encode()),
+                                        { expr->array.range.end, expression.range.end });
+                                }
                                 return CheckedExpression::invalid(m_program);
                             },
                         },
@@ -640,7 +646,9 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto object = typecheck_expression(access->object);
                 auto& type = m_program.get_type(object.type.type_id);
                 if (!std::holds_alternative<StructType>(type.type)) {
-                    error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), access->dot_range);
+                    if (!(std::holds_alternative<PrimitiveType>(type.type) && std::get<PrimitiveType>(type.type).type == PrimitiveType::Unknown)) {
+                        error(fmt::format("Invalid member access on non-struct type '{}'", type.name(m_program).encode()), access->dot_range);
+                    }
                     return CheckedExpression::invalid(m_program);
                 }
 
@@ -668,7 +676,9 @@ CheckedExpression Typechecker::typecheck_expression(Parser::ParsedExpression con
                 auto callable = typecheck_expression(call->callable);
                 auto callable_type = m_program.get_type(callable.type.type_id);
                 if (!std::holds_alternative<FunctionType>(callable_type.type)) {
-                    error("Expression is not callable", call->callable.range);
+                    if (!(std::holds_alternative<PrimitiveType>(callable_type.type) && std::get<PrimitiveType>(callable_type.type).type == PrimitiveType::Unknown)) {
+                        error("Expression is not callable", call->callable.range);
+                    }
                     return CheckedExpression::invalid(m_program);
                 }
                 auto& function_type = std::get<FunctionType>(callable_type.type);
