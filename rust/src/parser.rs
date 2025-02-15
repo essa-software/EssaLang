@@ -15,9 +15,16 @@ pub enum Expression {
     StringLiteral {
         value: String,
     },
+    Name(String),
 }
 
 pub enum Statement {
+    VarDecl {
+        mut_: bool,
+        type_: Type,
+        name: String,
+        init_value: Option<Expression>,
+    },
     Expression(Expression),
     Block(Vec<Statement>),
 }

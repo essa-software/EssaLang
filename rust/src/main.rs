@@ -14,17 +14,23 @@ fn run_file(path: &Path) {
         declarations: vec![parser::Declaration::FunctionImpl {
             name: "main".into(),
             return_type: parser::Type::Simple("u32".into()),
-            body: parser::Statement::Block(vec![parser::Statement::Expression(
-                parser::Expression::Call {
+            body: parser::Statement::Block(vec![
+                parser::Statement::VarDecl {
+                    mut_: false,
+                    name: "str".into(),
+                    type_: parser::Type::Simple("static_string".into()),
+                    init_value: Some(parser::Expression::StringLiteral {
+                        value: "Hello, world!\\n".into(),
+                    }),
+                },
+                parser::Statement::Expression(parser::Expression::Call {
                     function: "print".into(),
                     args: vec![parser::FunctionArg {
                         param: None,
-                        value: parser::Expression::StringLiteral {
-                            value: "Hello, world!\\n".into(),
-                        },
+                        value: parser::Expression::Name("str".into()),
                     }],
-                },
-            )]),
+                }),
+            ]),
         }],
     };
 

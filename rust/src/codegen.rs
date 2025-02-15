@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 use crate::sema;
 
@@ -6,6 +6,8 @@ pub struct CodeGen<'data> {
     out: &'data mut dyn Write,
     program: &'data sema::Program,
     tmp_var_counter: usize,
+    local_var_counter: usize,
+    variable_names: HashMap<sema::VarId, String>,
 }
 
 type IoResult<T> = std::result::Result<T, std::io::Error>;
@@ -110,7 +112,8 @@ impl<'data> CodeGen<'data> {
 
                 // Emit argument evaluation
                 let mut arg_tmps = Vec::new();
-                for arg in &func.params {
+                let scope = self.program.get_scope(func.params_scope);
+                for arg in &scope.vars {
                     let argval = arguments
                         .get(&arg)
                         .expect("argument list refers to non-existent param id");
@@ -155,6 +158,15 @@ impl<'data> CodeGen<'data> {
                 writeln!(self.out, "{} = \"{}\";", tmp_var, escape_c(value))?;
                 return Ok(Some(tmp_var));
             }
+            sema::Expression::VarRef { var_id, .. } => {
+                // in most cases we can just refer directly.
+                return Ok(Some(
+                    self.variable_names
+                        .get(&var_id.expect("invalid var ref"))
+                        .unwrap()
+                        .clone(),
+                ));
+            }
         }
     }
 
@@ -169,26 +181,49 @@ impl<'data> CodeGen<'data> {
                 }
                 writeln!(self.out, "}}")?;
             }
+            sema::Statement::VarDecl { var: var_id, init } => {
+                let var = self.program.get_var(*var_id);
+                let var_name = format!("{}{}", var.name, self.local_var_counter);
+                self.local_var_counter += 1;
+                self.variable_names.insert(*var_id, var_name.clone());
+                writeln!(self.out, "    /* var decl {} */", var.name)?;
+                write!(self.out, "    ")?;
+                self.emit_type(&var.type_)?;
+                writeln!(self.out, " {};", var_name)?;
+                // init
+                if let Some(init) = init {
+                    let tmp_var = self.emit_expression_eval(init)?;
+                    writeln!(self.out, "    {} = {};", var_name, tmp_var.unwrap())?;
+                }
+            }
         }
         Ok(())
     }
 
     fn emit_function_decl(&mut self, function: &sema::Function) -> IoResult<()> {
+        writeln!(
+            self.out,
+            "/* function {} (ID={}, params scope ID={})*/",
+            function.name,
+            function.id().0.mangle(),
+            function.params_scope.0.mangle()
+        )?;
         self.emit_type(&function.return_type)?;
 
         write!(self.out, " {}(", self.mangled_function_name(&function))?;
-        for (i, param) in function.params.iter().enumerate() {
+        let scope = self.program.get_scope(function.params_scope);
+        for (i, param) in scope.vars.iter().enumerate() {
             if i > 0 {
                 write!(self.out, ", ")?;
             }
 
             // TODO: handle different ways to pass arguments
-            let var = function.get_local_var(*param);
+            let var = self.program.get_var(*param);
             self.emit_type(&var.type_)?;
 
             write!(self.out, " {}", var.name)?;
         }
-        writeln!(self.out, ");")?;
+        writeln!(self.out, ");\n")?;
         Ok(())
     }
 
@@ -205,7 +240,7 @@ impl<'data> CodeGen<'data> {
     }
 
     fn emit_header(&mut self) -> IoResult<()> {
-        writeln!(self.out, "#include <esl_header.h>")?;
+        writeln!(self.out, "#include <esl_header.h>\n")?;
         Ok(())
     }
 
@@ -234,6 +269,8 @@ impl<'data> CodeGen<'data> {
         Self {
             out,
             program,
+            variable_names: HashMap::new(),
+            local_var_counter: 0,
             tmp_var_counter: 0,
         }
     }

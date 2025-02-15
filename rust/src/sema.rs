@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, collections::HashMap};
 
+use scopeguard::{guard, ScopeGuard};
+
 use crate::parser;
 
 //// IDs
@@ -19,11 +21,17 @@ impl Id {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionId(pub Id);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StructId(pub Id);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScopeId(pub Id);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VarId(pub Id);
 
 pub const PRELUDE_MODULE: ModuleId = ModuleId(0);
 pub const MAIN_MODULE: ModuleId = ModuleId(1);
@@ -98,18 +106,15 @@ impl Type {
 
 //// Function
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LocalVarId(pub usize);
-
-pub struct LocalVar {
-    id: Option<LocalVarId>,
+pub struct Var {
+    id: Option<VarId>,
     pub type_: Type,
     pub name: String,
 }
 
-impl LocalVar {
+impl Var {
     pub fn new(type_: Type, name: String) -> Self {
-        LocalVar {
+        Var {
             id: None,
             type_,
             name,
@@ -117,44 +122,60 @@ impl LocalVar {
     }
 }
 
+pub struct Scope {
+    id: Option<ScopeId>,
+    pub vars: Vec<VarId>,
+}
+
+impl Scope {
+    pub fn new() -> Self {
+        Scope {
+            id: None,
+            vars: vec![],
+        }
+    }
+
+    pub fn lookup_var(&self, name: &str, program: &Program) -> Option<VarId> {
+        // FIXME: Optimize
+        self.vars
+            .iter()
+            .find(|var_id| program.get_var(**var_id).name == name)
+            .copied()
+    }
+}
+
 pub struct Function {
     id: Option<FunctionId>,
     pub struct_: Option<StructId>,
     pub name: String,
-    pub params: Vec<LocalVarId>,
+    pub params_scope: ScopeId,
     pub body: Option<Statement>, // none = extern function
     pub return_type: Type,
-    pub local_vars: HashMap<LocalVarId, LocalVar>,
 }
 
 impl Function {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, program: &mut Program) -> Self {
+        // create params scope
+        let params_scope = program.add_scope(MAIN_MODULE, Scope::new());
+
         Function {
             id: None,
             struct_: None,
             name,
-            params: Vec::new(),
+            params_scope,
             body: None,
             return_type: Type::Primitive(Primitive::Void),
-            local_vars: HashMap::new(),
         }
     }
 
-    pub fn get_local_var(&self, id: LocalVarId) -> &LocalVar {
-        self.local_vars.get(&id).expect("Local var not found")
+    pub fn id(&self) -> FunctionId {
+        self.id.unwrap()
     }
 
-    pub fn add_local_var(&mut self, mut var: LocalVar) -> LocalVarId {
-        let id = LocalVarId(self.local_vars.len());
-        var.id = Some(id);
-        self.local_vars.insert(id, var);
-        id
-    }
-
-    pub fn add_param(&mut self, var: LocalVar) -> LocalVarId {
-        let id = self.add_local_var(var);
-        self.params.push(id);
-        id
+    pub fn add_param(&mut self, var: Var, program: &mut Program) {
+        let id = program.add_var(self.params_scope.0.module, var);
+        let scope = program.get_scope_mut(self.params_scope);
+        scope.vars.push(id);
     }
 
     pub fn with_struct(mut self, struct_: StructId) -> Function {
@@ -184,6 +205,10 @@ impl Function {
 pub enum Statement {
     Expression(Expression),
     Block(Vec<Statement>),
+    VarDecl {
+        var: VarId,
+        init: Option<Expression>,
+    },
 }
 
 //// Expressions
@@ -191,10 +216,14 @@ pub enum Statement {
 pub enum Expression {
     Call {
         function_id: Option<FunctionId>,
-        arguments: HashMap<LocalVarId, Expression>,
+        arguments: HashMap<VarId, Expression>,
     },
     StringLiteral {
         value: String,
+    },
+    VarRef {
+        type_: Type,
+        var_id: Option<VarId>,
     },
 }
 
@@ -205,6 +234,7 @@ impl Expression {
                 Some(program.get_function((*function_id)?).return_type.clone())
             }
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
+            Expression::VarRef { type_, .. } => Some(type_.clone()),
         }
     }
 }
@@ -221,6 +251,8 @@ pub struct Struct {
 pub struct Program {
     functions: HashMap<FunctionId, Function>,
     structs: HashMap<StructId, Struct>,
+    vars: HashMap<VarId, Var>,
+    scopes: HashMap<ScopeId, Scope>,
 }
 
 impl Program {
@@ -228,8 +260,12 @@ impl Program {
         Program {
             functions: HashMap::new(),
             structs: HashMap::new(),
+            vars: HashMap::new(),
+            scopes: HashMap::new(),
         }
     }
+
+    ////
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
         self.functions.values()
@@ -257,6 +293,8 @@ impl Program {
         id
     }
 
+    ////
+
     pub fn structs(&self) -> impl Iterator<Item = &Struct> {
         self.structs.values()
     }
@@ -274,6 +312,42 @@ impl Program {
         self.structs.insert(id, struct_);
         id
     }
+
+    ////
+
+    pub fn get_var(&self, id: VarId) -> &Var {
+        self.vars.get(&id).expect("Var not found")
+    }
+
+    pub fn add_var(&mut self, module: ModuleId, mut var: Var) -> VarId {
+        let id = VarId(Id {
+            module,
+            id: self.vars.len(),
+        });
+        var.id = Some(id);
+        self.vars.insert(id, var);
+        id
+    }
+
+    ////
+
+    pub fn get_scope(&self, id: ScopeId) -> &Scope {
+        self.scopes.get(&id).expect("Scope not found")
+    }
+
+    pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
+        self.scopes.get_mut(&id).expect("Scope not found")
+    }
+
+    pub fn add_scope(&mut self, module: ModuleId, mut scope: Scope) -> ScopeId {
+        let id = ScopeId(Id {
+            module,
+            id: self.scopes.len(),
+        });
+        scope.id = Some(id);
+        self.scopes.insert(id, scope);
+        id
+    }
 }
 
 ////////
@@ -283,8 +357,10 @@ pub struct TypeChecker<'data> {
     p_program: &'data parser::Program,
     program: Program,
 
+    // stage 1
     function_bodies_to_check: Vec<(&'data parser::Statement, FunctionId)>,
 
+    // stage 2
     errors: Vec<TypeCheckerError>,
 }
 
@@ -307,11 +383,11 @@ impl<'data> TypeChecker<'data> {
     fn add_prelude(&mut self) {
         // TODO: Parse this from file.
 
-        let mut print_func = Function::new("print".into());
-        print_func.add_param(LocalVar::new(
-            Type::Primitive(Primitive::StaticString),
-            "fmtstr".into(),
-        ));
+        let mut print_func = Function::new("print".into(), &mut self.program);
+        print_func.add_param(
+            Var::new(Type::Primitive(Primitive::StaticString), "fmtstr".into()),
+            &mut self.program,
+        );
         self.program.add_function(PRELUDE_MODULE, print_func);
     }
 
@@ -323,7 +399,7 @@ impl<'data> TypeChecker<'data> {
                 "string" => Type::Primitive(Primitive::String),
                 "static_string" => Type::Primitive(Primitive::StaticString),
                 "range" => Type::Primitive(Primitive::Range),
-                _ => todo!("custom types / structs"), // TODO: Probably struct.
+                _ => todo!("custom types / structs"),
             },
         }
     }
@@ -337,7 +413,8 @@ impl<'data> TypeChecker<'data> {
                     body,
                 } => {
                     let rt = self.typecheck_type(return_type);
-                    let function = Function::new(name.clone()).with_return_type(rt);
+                    let function =
+                        Function::new(name.clone(), &mut self.program).with_return_type(rt);
                     let id = self.program.add_function(MAIN_MODULE, function);
                     self.function_bodies_to_check.push((body, id));
                 }
@@ -345,74 +422,11 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    fn typecheck_expression(&mut self, expr: &parser::Expression) -> Expression {
-        match expr {
-            parser::Expression::Call {
-                function: name,
-                args: parsed_args,
-            } => {
-                let typechecked_args = parsed_args
-                    .iter()
-                    .map(|arg| self.typecheck_expression(&arg.value))
-                    .collect::<Vec<_>>();
-
-                let function = self.program.lookup_function(name);
-                if let Some(func) = function {
-                    let mut arguments = HashMap::new();
-                    // For now we just go in order.
-                    // TODO: handle kwargs.
-
-                    for (i, expr) in typechecked_args.into_iter().enumerate() {
-                        let param = *(if let Some(p) = func.params.get(i) {
-                            p
-                        } else {
-                            self.errors
-                                .push(TypeCheckerError("Too many arguments".into()));
-                            break;
-                        });
-                        arguments.insert(param, expr);
-                    }
-
-                    Expression::Call {
-                        function_id: Some(
-                            func.borrow().id.expect(
-                                "function not yet typechecked (this should be done in pass1)",
-                            ),
-                        ),
-                        arguments,
-                    }
-                } else {
-                    self.errors.push(TypeCheckerError(format!(
-                        "Function with name '{}' not found",
-                        name
-                    )));
-                    Expression::Call {
-                        function_id: None,
-                        arguments: HashMap::new(),
-                    }
-                }
-            }
-            parser::Expression::StringLiteral { value } => Expression::StringLiteral {
-                value: value.clone(),
-            },
-        }
-    }
-
-    fn typecheck_statement(&mut self, stmt: &parser::Statement) -> Statement {
-        match stmt {
-            parser::Statement::Expression(expr) => {
-                Statement::Expression(self.typecheck_expression(&expr))
-            }
-            parser::Statement::Block(stmts) => {
-                Statement::Block(stmts.iter().map(|s| self.typecheck_statement(s)).collect())
-            }
-        }
-    }
-
     fn typecheck_pass2_function_bodies(&mut self) {
         let btc = self.function_bodies_to_check.clone(); // Should be ok, this is just a bunch of pointers.
         for (parsed, id) in btc {
-            self.program.get_function_mut(id).body = Some(self.typecheck_statement(parsed));
+            let mut tc = TypeCheckerExecution::new(self, id);
+            tc.typecheck(parsed);
         }
     }
 
@@ -426,5 +440,187 @@ impl<'data> TypeChecker<'data> {
         self.typecheck_pass2_function_bodies();
 
         self.program
+    }
+}
+
+/// Typechecker in execution scopes (e.g functions)
+pub struct TypeCheckerExecution<'tc, 'data> {
+    tc: &'tc mut TypeChecker<'data>,
+
+    function: FunctionId,
+
+    scope_stack: Vec<ScopeId>,
+}
+
+impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
+    pub fn new(tc: &'tc mut TypeChecker<'data>, function: FunctionId) -> Self {
+        TypeCheckerExecution {
+            tc,
+            function,
+            scope_stack: vec![],
+        }
+    }
+
+    fn push_scope(&mut self) {
+        let scope = self.tc.program.add_scope(MAIN_MODULE, Scope::new());
+        self.scope_stack.push(scope);
+    }
+
+    fn pop_scope(&mut self) {
+        self.scope_stack.pop();
+    }
+
+    fn current_scope(&self) -> ScopeId {
+        *self.scope_stack.last().expect("no scope")
+    }
+
+    fn lookup_variable(&self, name: String) -> Option<&Var> {
+        for scope in self.scope_stack.iter().rev() {
+            let scope = self.tc.program.get_scope(*scope);
+            for var_id in &scope.vars {
+                let var = self.tc.program.get_var(*var_id);
+                if var.name == name {
+                    return Some(var);
+                }
+            }
+        }
+        None
+    }
+
+    fn typecheck_expression(&mut self, expr: &parser::Expression) -> Expression {
+        match expr {
+            parser::Expression::Call {
+                function: name,
+                args: parsed_args,
+            } => {
+                let typechecked_args = parsed_args
+                    .iter()
+                    .map(|arg| self.typecheck_expression(&arg.value))
+                    .collect::<Vec<_>>();
+
+                let function = self.tc.program.lookup_function(name);
+                if let Some(func) = function {
+                    let mut arguments = HashMap::new();
+                    // For now we just go in order.
+                    // TODO: handle kwargs.
+
+                    let params_scope = self.tc.program.get_scope(func.params_scope);
+                    for (i, expr) in typechecked_args.into_iter().enumerate() {
+                        let param = *(if let Some(p) = params_scope.vars.get(i) {
+                            p
+                        } else {
+                            self.tc
+                                .errors
+                                .push(TypeCheckerError("Too many arguments".into()));
+                            break;
+                        });
+                        // TODO: Check param type
+                        arguments.insert(param, expr);
+                    }
+
+                    Expression::Call {
+                        function_id: Some(
+                            func.borrow().id.expect(
+                                "function not yet typechecked (this should be done in pass1)",
+                            ),
+                        ),
+                        arguments,
+                    }
+                } else {
+                    self.tc.errors.push(TypeCheckerError(format!(
+                        "Function with name '{}' not found",
+                        name
+                    )));
+                    Expression::Call {
+                        function_id: None,
+                        arguments: HashMap::new(),
+                    }
+                }
+            }
+            parser::Expression::StringLiteral { value } => Expression::StringLiteral {
+                value: value.clone(),
+            },
+            parser::Expression::Name(name) => {
+                if let Some(var) = self.lookup_variable(name.clone()) {
+                    Expression::VarRef {
+                        type_: var.type_.clone(),
+                        var_id: Some(var.id.expect("var without id")),
+                    }
+                } else {
+                    self.tc.errors.push(TypeCheckerError(format!(
+                        "Variable with name '{}' not found",
+                        name
+                    )));
+                    Expression::VarRef {
+                        type_: Type::Primitive(Primitive::Void),
+                        var_id: None,
+                    }
+                }
+            }
+        }
+    }
+
+    fn typecheck_statement(&mut self, stmt: &parser::Statement) -> Statement {
+        match stmt {
+            parser::Statement::Expression(expr) => {
+                Statement::Expression(self.typecheck_expression(&expr))
+            }
+            parser::Statement::Block(stmts) => {
+                self.push_scope();
+                let b =
+                    Statement::Block(stmts.iter().map(|s| self.typecheck_statement(s)).collect());
+                self.pop_scope();
+                b
+            }
+            parser::Statement::VarDecl {
+                mut_,
+                type_,
+                name,
+                init_value,
+            } => {
+                let type_ = self.tc.typecheck_type(type_);
+                let var = Var::new(type_, name.clone());
+                let func_module = self
+                    .tc
+                    .program
+                    .get_function(self.function)
+                    .params_scope
+                    .0
+                    .module;
+                let var_id = self.tc.program.add_var(func_module, var);
+                eprintln!(
+                    "adding var id={:?} to scope id={:?}",
+                    var_id,
+                    self.current_scope()
+                );
+                // current scope stack
+                eprintln!("current scopes stack: {:?}", self.scope_stack);
+
+                self.tc
+                    .program
+                    .get_scope_mut(self.current_scope())
+                    .vars
+                    .push(var_id);
+
+                let init_value = init_value
+                    .as_ref()
+                    .map(|expr| self.typecheck_expression(expr));
+
+                Statement::VarDecl {
+                    var: var_id,
+                    init: init_value,
+                }
+            }
+        }
+    }
+
+    fn typecheck(&mut self, stmt: &parser::Statement) {
+        self.scope_stack
+            .push(self.tc.program.get_function(self.function).params_scope);
+
+        let stmt = self.typecheck_statement(stmt);
+        self.tc.program.get_function_mut(self.function).body = Some(stmt);
+
+        self.scope_stack.pop();
     }
 }
