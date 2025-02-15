@@ -11,9 +11,12 @@ pub enum TokenType {
     CurlyClose,
     CurlyOpen,
     Integer(u64),
+    KeywordFalse,
     KeywordFunc,
+    KeywordIf,
     KeywordLet,
     KeywordReturn,
+    KeywordTrue,
     Name(String),
     OpEquals,
     ParenClose,
@@ -160,7 +163,15 @@ impl<'a> TokenIterator<'a> {
             'f' => {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
+                    "false" => Some(self.token(TokenType::KeywordFalse, start)),
                     "func" => Some(self.token(TokenType::KeywordFunc, start)),
+                    _ => Some(self.name(kw.to_string(), start)),
+                }
+            }
+            'i' => {
+                let kw = self.read_while(|c| c.is_alphabetic());
+                match kw {
+                    "if" => Some(self.token(TokenType::KeywordIf, start)),
                     _ => Some(self.name(kw.to_string(), start)),
                 }
             }
@@ -175,6 +186,13 @@ impl<'a> TokenIterator<'a> {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
                     "return" => Some(self.token(TokenType::KeywordReturn, start)),
+                    _ => Some(self.name(kw.to_string(), start)),
+                }
+            }
+            't' => {
+                let kw = self.read_while(|c| c.is_alphabetic());
+                match kw {
+                    "true" => Some(self.token(TokenType::KeywordTrue, start)),
                     _ => Some(self.name(kw.to_string(), start)),
                 }
             }

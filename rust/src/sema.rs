@@ -215,6 +215,10 @@ pub enum Statement {
         init: Option<Expression>,
     },
     Return(Option<Expression>),
+    If {
+        condition: Expression,
+        then_block: Box<Statement>,
+    },
 }
 
 //// Expressions
@@ -223,6 +227,9 @@ pub enum Expression {
     Call {
         function_id: Option<FunctionId>,
         arguments: HashMap<VarId, Expression>,
+    },
+    BoolLiteral {
+        value: bool,
     },
     IntLiteral {
         value: u64,
@@ -242,7 +249,8 @@ impl Expression {
             Expression::Call { function_id, .. } => {
                 Some(program.get_function((*function_id)?).return_type.clone())
             }
-            Expression::IntLiteral { value } => Some(Type::Primitive(Primitive::U32)),
+            Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
+            Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
             Expression::VarRef { type_, .. } => Some(type_.clone()),
         }
@@ -506,80 +514,84 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         None
     }
 
+    fn typecheck_expr_call(
+        &mut self,
+        name: &String,
+        parsed_args: &Vec<parser::FunctionArg>,
+    ) -> Expression {
+        let typechecked_args = parsed_args
+            .iter()
+            .map(|arg| self.typecheck_expression(&arg.value))
+            .collect::<Vec<_>>();
+
+        let Some(function) = self.tc.program.lookup_function(name) else {
+            self.tc.errors.push(TypeCheckerError(format!(
+                "Function with name '{}' not found",
+                name
+            )));
+            return Expression::Call {
+                function_id: None,
+                arguments: HashMap::new(),
+            };
+        };
+        let mut arguments = HashMap::new();
+        // For now we just go in order.
+        // TODO: handle kwargs.
+
+        // FIXME: support varargs properly
+        if function.should_use_print_vararg_hack() {
+            let function_id = function.id.unwrap();
+
+            // just push one by one with increasing
+            // (nonsensical) var ids
+            for (i, expr) in typechecked_args.into_iter().enumerate() {
+                let var = Var::new(
+                    expr.type_(&self.tc.program).expect("no type"),
+                    format!("arg{}", i),
+                );
+                let var_id = VarId(Id {
+                    module: PRINT_VARARGS_HACK_MODULE,
+                    id: i,
+                });
+                self.tc.program.add_var(PRINT_VARARGS_HACK_MODULE, var);
+                arguments.insert(var_id, expr);
+            }
+
+            return Expression::Call {
+                function_id: Some(function_id),
+                arguments,
+            };
+        }
+
+        let params_scope = self.tc.program.get_scope(function.params_scope);
+        for (i, expr) in typechecked_args.into_iter().enumerate() {
+            let param = *(if let Some(p) = params_scope.vars.get(i) {
+                p
+            } else {
+                self.tc
+                    .errors
+                    .push(TypeCheckerError("Too many arguments".into()));
+                break;
+            });
+            // TODO: Check param type
+            arguments.insert(param, expr);
+        }
+
+        Expression::Call {
+            function_id: Some(
+                function
+                    .borrow()
+                    .id
+                    .expect("function not yet typechecked (this should be done in pass1)"),
+            ),
+            arguments,
+        }
+    }
+
     fn typecheck_expression(&mut self, expr: &parser::Expression) -> Expression {
         match expr {
-            parser::Expression::Call {
-                function: name,
-                args: parsed_args,
-            } => {
-                let typechecked_args = parsed_args
-                    .iter()
-                    .map(|arg| self.typecheck_expression(&arg.value))
-                    .collect::<Vec<_>>();
-
-                let Some(function) = self.tc.program.lookup_function(name) else {
-                    self.tc.errors.push(TypeCheckerError(format!(
-                        "Function with name '{}' not found",
-                        name
-                    )));
-                    return Expression::Call {
-                        function_id: None,
-                        arguments: HashMap::new(),
-                    };
-                };
-                let mut arguments = HashMap::new();
-                // For now we just go in order.
-                // TODO: handle kwargs.
-
-                // FIXME: support varargs properly
-                if function.should_use_print_vararg_hack() {
-                    let function_id = function.id.unwrap();
-
-                    // just push one by one with increasing
-                    // (nonsensical) var ids
-                    for (i, expr) in typechecked_args.into_iter().enumerate() {
-                        let var = Var::new(
-                            expr.type_(&self.tc.program).expect("no type"),
-                            format!("arg{}", i),
-                        );
-                        let var_id = VarId(Id {
-                            module: PRINT_VARARGS_HACK_MODULE,
-                            id: i,
-                        });
-                        self.tc.program.add_var(PRINT_VARARGS_HACK_MODULE, var);
-                        arguments.insert(var_id, expr);
-                    }
-
-                    return Expression::Call {
-                        function_id: Some(function_id),
-                        arguments,
-                    };
-                }
-
-                let params_scope = self.tc.program.get_scope(function.params_scope);
-                for (i, expr) in typechecked_args.into_iter().enumerate() {
-                    let param = *(if let Some(p) = params_scope.vars.get(i) {
-                        p
-                    } else {
-                        self.tc
-                            .errors
-                            .push(TypeCheckerError("Too many arguments".into()));
-                        break;
-                    });
-                    // TODO: Check param type
-                    arguments.insert(param, expr);
-                }
-
-                Expression::Call {
-                    function_id: Some(
-                        function
-                            .borrow()
-                            .id
-                            .expect("function not yet typechecked (this should be done in pass1)"),
-                    ),
-                    arguments,
-                }
-            }
+            parser::Expression::Call { function, args } => self.typecheck_expr_call(function, args),
+            parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 if *value > (u32::MAX as u64) {
                     self.tc.errors.push(TypeCheckerError(format!(
@@ -625,7 +637,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 b
             }
             parser::Statement::VarDecl {
-                mut_,
+                mut_: _, // TODO: handle mut
                 type_,
                 name,
                 init_value,
@@ -671,6 +683,25 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 // TODO: Check function return type
 
                 Statement::Return(expr)
+            }
+            parser::Statement::If {
+                condition,
+                then_block,
+            } => {
+                let condition = self.typecheck_expression(condition);
+                let condition_type = condition.type_(&self.tc.program);
+                let then_block = self.typecheck_statement(then_block);
+                if condition_type.is_some()
+                    && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
+                {
+                    self.tc
+                        .errors
+                        .push(TypeCheckerError("If condition must be of type bool".into()));
+                }
+                Statement::If {
+                    condition,
+                    then_block: Box::new(then_block),
+                }
             }
         }
     }

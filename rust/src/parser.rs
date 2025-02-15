@@ -24,6 +24,9 @@ pub enum Expression {
         function: String, // TODO: arbitrary expressions
         args: Vec<FunctionArg>,
     },
+    BoolLiteral {
+        value: bool,
+    },
     IntLiteral {
         value: u64,
     },
@@ -44,6 +47,11 @@ pub enum Statement {
     Expression(Expression),
     Return(Option<Expression>),
     Block(Vec<Statement>),
+    If {
+        condition: Expression,
+        then_block: Box<Statement>,
+        // TODO: else
+    },
 }
 
 #[derive(Debug)]
@@ -243,6 +251,14 @@ impl<'a> Parser<'a> {
                 let _ = self.iter.next();
                 Some(Expression::IntLiteral { value: text })
             }
+            lexer::TokenType::KeywordTrue => {
+                let _ = self.iter.next();
+                Some(Expression::BoolLiteral { value: true })
+            }
+            lexer::TokenType::KeywordFalse => {
+                let _ = self.iter.next();
+                Some(Expression::BoolLiteral { value: false })
+            }
             lexer::TokenType::StringLiteral(text) => {
                 let _ = self.iter.next();
                 Some(Expression::StringLiteral { value: text })
@@ -288,7 +304,32 @@ impl<'a> Parser<'a> {
         Some(Statement::Return(Some(expr)))
     }
 
-    // statement ::= var-decl | expression ';' | block | return-statement
+    // if-statement ::= "if" "(" expression ")" block [ "else" block ]
+    pub fn consume_if_statement(&mut self) -> Option<Statement> {
+        // "if"
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::KeywordIf))?;
+
+        // "("
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenOpen))?;
+
+        // expression
+        let condition = self.consume_expression()?;
+
+        // ")"
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose))?;
+
+        // block
+        let then_block = self.consume_block();
+
+        // TODO: else
+
+        Some(Statement::If {
+            condition,
+            then_block: Box::new(then_block),
+        })
+    }
+
+    // statement ::= var-decl | expression ';' | block | return-statement | if-statement
     pub fn consume_statement(&mut self) -> Option<Statement> {
         let next = self.iter.clone().next()?;
         // eprintln!("  next token in consume_statement: {:?}", next);
@@ -297,6 +338,7 @@ impl<'a> Parser<'a> {
             lexer::TokenType::CurlyClose => panic!("somebody didn't consume '}}'"),
             lexer::TokenType::KeywordLet => self.consume_var_decl(),
             lexer::TokenType::KeywordReturn => self.consume_return_statement(),
+            lexer::TokenType::KeywordIf => self.consume_if_statement(),
             _ => self.consume_expression_statement(),
         }
     }

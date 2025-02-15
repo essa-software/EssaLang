@@ -104,13 +104,14 @@ impl<'data> CodeGen<'data> {
             .expect("void expression used as print arg");
         let arg_var_name = format!("$$arg{}", self.tmp_var_counter);
         self.tmp_var_counter += 1;
-        write!(self.out, "    esl_format_args_data {arg_var_name};")?;
+        write!(self.out, "    esl_format_arg {arg_var_name};")?;
         write!(
             self.out,
             " {arg_var_name}.print = {};",
             match arg.type_(self.program) {
-                Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
+                Some(sema::Type::Primitive(sema::Primitive::Bool)) => "_esl_print_bool",
                 Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_u32",
+                Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
                 _ => todo!(),
             }
         )?;
@@ -136,23 +137,25 @@ impl<'data> CodeGen<'data> {
 
         // create esl_format_args
         let args_var_name = format!("$$args{}", self.tmp_var_counter);
-
-        writeln!(self.out, "    esl_format_args* {args_var_name} = 0;",)?;
         self.tmp_var_counter += 1;
 
+        writeln!(
+            self.out,
+            "    esl_format_arg {args_var_name}[{}];",
+            args_in_varid_order.len()
+        )?;
+
         // push all args in varid order
-        for (_, expr) in args_in_varid_order {
+        for (i, (_, expr)) in args_in_varid_order.iter().enumerate() {
             let arg_var_name = self.emit_format_arg_eval(expr)?;
-            writeln!(
-                self.out,
-                "    {args_var_name} = _esl_format_args_push({args_var_name}, {arg_var_name});"
-            )?;
+            writeln!(self.out, "    {args_var_name}[{i}] = {arg_var_name};")?;
         }
 
         // call print
         writeln!(
             self.out,
-            "    _esl_print({fmtstr_var_name}, {args_var_name});"
+            "    _esl_print({fmtstr_var_name}, {}, {args_var_name});",
+            args_in_varid_order.len(),
         )?;
 
         Ok(())
@@ -217,6 +220,12 @@ impl<'data> CodeGen<'data> {
                     }
                 }
             }
+            sema::Expression::BoolLiteral { value } => {
+                let tmp_var =
+                    self.emit_tmp_var(&sema::Type::Primitive(sema::Primitive::Bool), "bool")?;
+                writeln!(self.out, "{} = {};", tmp_var, value)?;
+                return Ok(Some(tmp_var));
+            }
             sema::Expression::IntLiteral { value } => {
                 let tmp_var =
                     self.emit_tmp_var(&sema::Type::Primitive(sema::Primitive::U32), "int")?;
@@ -279,6 +288,17 @@ impl<'data> CodeGen<'data> {
                 } else {
                     writeln!(self.out, "return;")?;
                 }
+            }
+            sema::Statement::If {
+                condition,
+                then_block,
+            } => {
+                let condition_tmp_var = self
+                    .emit_expression_eval(condition)?
+                    .expect("void expression in if condition");
+                writeln!(self.out, "    if ({condition_tmp_var}) {{")?;
+                self.emit_statement(&then_block)?;
+                writeln!(self.out, "    }}")?;
             }
         }
         Ok(())

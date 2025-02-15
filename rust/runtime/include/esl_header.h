@@ -38,21 +38,15 @@ void _esl_panic(const char* msg);
 
 /// print hack ///
 
-typedef struct _esl_format_args_data {
+typedef struct _esl_format_arg {
     void (*print)(void* data);
     void* data;
-} esl_format_args_data;
-typedef struct _esl_format_args {
-    esl_format_args_data node;
-    struct _esl_format_args* next;
-} esl_format_args;
+} esl_format_arg;
 
-esl_format_args* _esl_format_args_push(esl_format_args* end, esl_format_args_data data);
+void _esl_print(const char* fmtstr, size_t argc, esl_format_arg* argv);
 
-// this takes ownership of the list
-void _esl_print(const char* fmtstr, esl_format_args* args);
-
-void _esl_print_u32(void* data);
+void _esl_print_bool(void* data);
 void _esl_print_static_string(void* data);
+void _esl_print_u32(void* data);
 
 _END_DECLS
