@@ -98,6 +98,66 @@ impl<'data> CodeGen<'data> {
         Ok(name)
     }
 
+    fn emit_format_arg_eval(&mut self, arg: &sema::Expression) -> IoResult<String> {
+        let tmp_var = self
+            .emit_expression_eval(arg)?
+            .expect("void expression used as print arg");
+        let arg_var_name = format!("$$arg{}", self.tmp_var_counter);
+        self.tmp_var_counter += 1;
+        write!(self.out, "    esl_format_args_data {arg_var_name};")?;
+        write!(
+            self.out,
+            " {arg_var_name}.print = {};",
+            match arg.type_(self.program) {
+                Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
+                Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_u32",
+                _ => todo!(),
+            }
+        )?;
+        writeln!(self.out, " {arg_var_name}.data = &{};", tmp_var)?;
+        Ok(arg_var_name)
+    }
+
+    fn emit_print_call(&mut self, args: &HashMap<sema::VarId, sema::Expression>) -> IoResult<()> {
+        writeln!(self.out, "    /*print()*/")?;
+
+        if args.is_empty() {
+            return Ok(());
+        }
+
+        // setup args (varid order)
+        let mut args_in_varid_order = args.iter().collect::<Vec<_>>();
+        args_in_varid_order.sort_by_key(|(varid, _)| *varid);
+
+        // create fmtstr eval (first arg)
+        let fmtstr_var_name = self
+            .emit_expression_eval(args_in_varid_order.remove(0).1)?
+            .expect("void expression passed as format string");
+
+        // create esl_format_args
+        let args_var_name = format!("$$args{}", self.tmp_var_counter);
+
+        writeln!(self.out, "    esl_format_args* {args_var_name} = 0;",)?;
+        self.tmp_var_counter += 1;
+
+        // push all args in varid order
+        for (_, expr) in args_in_varid_order {
+            let arg_var_name = self.emit_format_arg_eval(expr)?;
+            writeln!(
+                self.out,
+                "    {args_var_name} = _esl_format_args_push({args_var_name}, {arg_var_name});"
+            )?;
+        }
+
+        // call print
+        writeln!(
+            self.out,
+            "    _esl_print({fmtstr_var_name}, {args_var_name});"
+        )?;
+
+        Ok(())
+    }
+
     // Emit ESL expression evaluation as C statements.
     // Returns local var name with result if applicable
     fn emit_expression_eval(&mut self, expr: &sema::Expression) -> IoResult<Option<String>> {
@@ -109,6 +169,11 @@ impl<'data> CodeGen<'data> {
                 let func = self
                     .program
                     .get_function(function_id.expect("invalid function id"));
+
+                if func.should_use_print_vararg_hack() {
+                    self.emit_print_call(arguments)?;
+                    return Ok(None);
+                }
 
                 // Emit argument evaluation
                 let mut arg_tmps = Vec::new();
@@ -152,9 +217,15 @@ impl<'data> CodeGen<'data> {
                     }
                 }
             }
+            sema::Expression::IntLiteral { value } => {
+                let tmp_var =
+                    self.emit_tmp_var(&sema::Type::Primitive(sema::Primitive::U32), "int")?;
+                writeln!(self.out, "{} = {};", tmp_var, value)?;
+                return Ok(Some(tmp_var));
+            }
             sema::Expression::StringLiteral { value } => {
                 let tmp_var = self
-                    .emit_tmp_var(&sema::Type::Primitive(sema::Primitive::StaticString), "lit")?;
+                    .emit_tmp_var(&sema::Type::Primitive(sema::Primitive::StaticString), "str")?;
                 writeln!(self.out, "{} = \"{}\";", tmp_var, escape_c(value))?;
                 return Ok(Some(tmp_var));
             }
@@ -196,6 +267,19 @@ impl<'data> CodeGen<'data> {
                     writeln!(self.out, "    {} = {};", var_name, tmp_var.unwrap())?;
                 }
             }
+            sema::Statement::Return(expression) => {
+                // TODO: handle return by first arg
+                if let Some(expr) = expression {
+                    let tmp_var = self.emit_expression_eval(expr)?;
+                    write!(
+                        self.out,
+                        "return {};",
+                        tmp_var.expect("void expression in return statement")
+                    )?;
+                } else {
+                    writeln!(self.out, "return;")?;
+                }
+            }
         }
         Ok(())
     }
@@ -235,6 +319,10 @@ impl<'data> CodeGen<'data> {
         // TODO: Params
         writeln!(self.out, ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;
+        // return, for main function
+        if function.name == "main" {
+            writeln!(self.out, "    return 0;")?;
+        }
         writeln!(self.out, "}}")?;
         Ok(())
     }

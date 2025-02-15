@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(esl-runtime)
 
 add_library(eslrt
-    src/std/io.cpp
+    src/esl_header.cpp
 )
 target_include_directories(eslrt PUBLIC include)
 

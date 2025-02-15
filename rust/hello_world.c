@@ -8,13 +8,10 @@ void print(esl_static_string fmtstr);
 
 esl_u32 $$esl_main() {
 {
-    /* var decl str */
-    esl_static_string str0;
     
 esl_static_string $$tmp1_lit;
-$$tmp1_lit = "Hello, world!\n";
-    str0 = $$tmp1_lit;
-print(str0);
+$$tmp1_lit = "Hello World!";
+print($$tmp1_lit);
 }
 }
 int main() {

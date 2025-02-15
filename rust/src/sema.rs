@@ -6,10 +6,10 @@ use crate::parser;
 
 //// IDs
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModuleId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id {
     module: ModuleId,
     id: usize,
@@ -30,11 +30,12 @@ pub struct StructId(pub Id);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(pub Id);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VarId(pub Id);
 
 pub const PRELUDE_MODULE: ModuleId = ModuleId(0);
 pub const MAIN_MODULE: ModuleId = ModuleId(1);
+pub const PRINT_VARARGS_HACK_MODULE: ModuleId = ModuleId(2137);
 
 #[derive(Clone)]
 pub enum Primitive {
@@ -198,6 +199,10 @@ impl Function {
     pub fn name(&self) -> String {
         self.name.clone()
     }
+
+    pub fn should_use_print_vararg_hack(&self) -> bool {
+        self.name == "print"
+    }
 }
 
 //// Statements
@@ -209,6 +214,7 @@ pub enum Statement {
         var: VarId,
         init: Option<Expression>,
     },
+    Return(Option<Expression>),
 }
 
 //// Expressions
@@ -217,6 +223,9 @@ pub enum Expression {
     Call {
         function_id: Option<FunctionId>,
         arguments: HashMap<VarId, Expression>,
+    },
+    IntLiteral {
+        value: u64,
     },
     StringLiteral {
         value: String,
@@ -233,6 +242,7 @@ impl Expression {
             Expression::Call { function_id, .. } => {
                 Some(program.get_function((*function_id)?).return_type.clone())
             }
+            Expression::IntLiteral { value } => Some(Type::Primitive(Primitive::U32)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
             Expression::VarRef { type_, .. } => Some(type_.clone()),
         }
@@ -351,6 +361,8 @@ impl Program {
 }
 
 ////////
+
+#[derive(Debug)]
 pub struct TypeCheckerError(pub String);
 
 pub struct TypeChecker<'data> {
@@ -376,8 +388,8 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    fn errors(&self) -> impl Iterator<Item = &TypeCheckerError> {
-        self.errors.iter()
+    pub fn errors(&self) -> &[TypeCheckerError] {
+        &self.errors
     }
 
     fn add_prelude(&mut self) {
@@ -412,7 +424,14 @@ impl<'data> TypeChecker<'data> {
                     return_type,
                     body,
                 } => {
-                    let rt = self.typecheck_type(return_type);
+                    let rt = return_type
+                        .as_ref()
+                        .map(|ty| self.typecheck_type(&ty))
+                        .unwrap_or(if name == "main" {
+                            Type::Primitive(Primitive::U32)
+                        } else {
+                            Type::Primitive(Primitive::Void)
+                        });
                     let function =
                         Function::new(name.clone(), &mut self.program).with_return_type(rt);
                     let id = self.program.add_function(MAIN_MODULE, function);
@@ -430,7 +449,7 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    pub fn typecheck(mut self) -> Program {
+    pub fn typecheck(mut self) -> (Program, Vec<TypeCheckerError>) {
         self.add_prelude();
 
         // pass 1: add function declarations
@@ -439,7 +458,7 @@ impl<'data> TypeChecker<'data> {
         // pass 2: typecheck function bodies
         self.typecheck_pass2_function_bodies();
 
-        self.program
+        (self.program, self.errors)
     }
 }
 
@@ -498,44 +517,77 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     .map(|arg| self.typecheck_expression(&arg.value))
                     .collect::<Vec<_>>();
 
-                let function = self.tc.program.lookup_function(name);
-                if let Some(func) = function {
-                    let mut arguments = HashMap::new();
-                    // For now we just go in order.
-                    // TODO: handle kwargs.
-
-                    let params_scope = self.tc.program.get_scope(func.params_scope);
-                    for (i, expr) in typechecked_args.into_iter().enumerate() {
-                        let param = *(if let Some(p) = params_scope.vars.get(i) {
-                            p
-                        } else {
-                            self.tc
-                                .errors
-                                .push(TypeCheckerError("Too many arguments".into()));
-                            break;
-                        });
-                        // TODO: Check param type
-                        arguments.insert(param, expr);
-                    }
-
-                    Expression::Call {
-                        function_id: Some(
-                            func.borrow().id.expect(
-                                "function not yet typechecked (this should be done in pass1)",
-                            ),
-                        ),
-                        arguments,
-                    }
-                } else {
+                let Some(function) = self.tc.program.lookup_function(name) else {
                     self.tc.errors.push(TypeCheckerError(format!(
                         "Function with name '{}' not found",
                         name
                     )));
-                    Expression::Call {
+                    return Expression::Call {
                         function_id: None,
                         arguments: HashMap::new(),
+                    };
+                };
+                let mut arguments = HashMap::new();
+                // For now we just go in order.
+                // TODO: handle kwargs.
+
+                // FIXME: support varargs properly
+                if function.should_use_print_vararg_hack() {
+                    let function_id = function.id.unwrap();
+
+                    // just push one by one with increasing
+                    // (nonsensical) var ids
+                    for (i, expr) in typechecked_args.into_iter().enumerate() {
+                        let var = Var::new(
+                            expr.type_(&self.tc.program).expect("no type"),
+                            format!("arg{}", i),
+                        );
+                        let var_id = VarId(Id {
+                            module: PRINT_VARARGS_HACK_MODULE,
+                            id: i,
+                        });
+                        self.tc.program.add_var(PRINT_VARARGS_HACK_MODULE, var);
+                        arguments.insert(var_id, expr);
                     }
+
+                    return Expression::Call {
+                        function_id: Some(function_id),
+                        arguments,
+                    };
                 }
+
+                let params_scope = self.tc.program.get_scope(function.params_scope);
+                for (i, expr) in typechecked_args.into_iter().enumerate() {
+                    let param = *(if let Some(p) = params_scope.vars.get(i) {
+                        p
+                    } else {
+                        self.tc
+                            .errors
+                            .push(TypeCheckerError("Too many arguments".into()));
+                        break;
+                    });
+                    // TODO: Check param type
+                    arguments.insert(param, expr);
+                }
+
+                Expression::Call {
+                    function_id: Some(
+                        function
+                            .borrow()
+                            .id
+                            .expect("function not yet typechecked (this should be done in pass1)"),
+                    ),
+                    arguments,
+                }
+            }
+            parser::Expression::IntLiteral { value } => {
+                if *value > (u32::MAX as u64) {
+                    self.tc.errors.push(TypeCheckerError(format!(
+                        "Integer literal {} is too large",
+                        value
+                    )));
+                }
+                Expression::IntLiteral { value: *value }
             }
             parser::Expression::StringLiteral { value } => Expression::StringLiteral {
                 value: value.clone(),
@@ -610,6 +662,15 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     var: var_id,
                     init: init_value,
                 }
+            }
+            parser::Statement::Return(expression) => {
+                let expr = expression
+                    .as_ref()
+                    .map(|expr| self.typecheck_expression(expr));
+
+                // TODO: Check function return type
+
+                Statement::Return(expr)
             }
         }
     }
