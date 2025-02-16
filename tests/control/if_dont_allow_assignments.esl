@@ -1,7 +1,7 @@
 // error: expected expression
 
 func main() {
-    let i = 2137;
+    mut i = 2137;
 
     if (i = 2137) {
         print("{}", 2137);

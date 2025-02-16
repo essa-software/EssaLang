@@ -139,14 +139,16 @@ pub struct Var {
     id: Option<VarId>,
     pub type_: Option<Type>,
     pub name: String,
+    pub mut_: bool,
 }
 
 impl Var {
-    pub fn new(type_: Option<Type>, name: String) -> Self {
+    pub fn new(type_: Option<Type>, name: String, mut_: bool) -> Self {
         Var {
             id: None,
             type_,
             name,
+            mut_,
         }
     }
 }
@@ -269,12 +271,19 @@ pub enum Expression {
     VarRef {
         type_: Option<Type>,
         var_id: Option<VarId>,
+        mut_: bool,
     },
     BinaryOp {
         op: parser::BinaryOp,
         left: Box<Expression>,
         right: Box<Expression>,
     },
+}
+
+enum ValueType {
+    LValue,      // can be read and write to directly
+    ConstLValue, // can be read directly but not write
+    RValue,      // needs to be evaluated
 }
 
 impl Expression {
@@ -303,6 +312,19 @@ impl Expression {
                 }
                 _ => None,
             },
+        }
+    }
+
+    pub fn value_type(&self) -> ValueType {
+        match self {
+            Expression::VarRef { mut_, .. } => {
+                if *mut_ {
+                    ValueType::LValue
+                } else {
+                    ValueType::ConstLValue
+                }
+            }
+            _ => ValueType::RValue,
         }
     }
 }
@@ -451,6 +473,7 @@ impl<'data> TypeChecker<'data> {
             Var::new(
                 Some(Type::Primitive(Primitive::StaticString)),
                 "fmtstr".into(),
+                false,
             ),
             &mut self.program,
         );
@@ -511,7 +534,10 @@ impl<'data> TypeChecker<'data> {
                     function.return_type = rt;
                     for param in params {
                         let type_ = self.typecheck_type(&param.type_);
-                        function.add_param(Var::new(type_, param.name.clone()), &mut self.program);
+                        function.add_param(
+                            Var::new(type_, param.name.clone(), false),
+                            &mut self.program,
+                        );
                     }
                     let id = self.program.add_function(MAIN_MODULE, function);
                     self.function_bodies_to_check.push((body, id));
@@ -629,7 +655,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     ));
                     continue;
                 };
-                let var = Var::new(Some(type_), format!("arg{}", i));
+                let var = Var::new(Some(type_), format!("arg{}", i), false);
                 let var_id = VarId(Id {
                     module: PRINT_VARARGS_HACK_MODULE,
                     id: i,
@@ -746,6 +772,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     Expression::VarRef {
                         type_: var.type_.clone(),
                         var_id: Some(var.id.expect("var without id")),
+                        mut_: var.mut_,
                     }
                 } else {
                     self.tc.errors.push(CompilationError::new(
@@ -755,6 +782,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     Expression::VarRef {
                         type_: None,
                         var_id: None,
+                        mut_: true, // avoid more errors if someone tries to write to this
                     }
                 }
             }
@@ -766,6 +794,24 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             } => {
                 let left = self.typecheck_expression(left);
                 let right = self.typecheck_expression(right);
+
+                if matches!(op.class(), BinOpClass::Assignment) {
+                    match left.value_type() {
+                        ValueType::LValue => {}
+                        ValueType::ConstLValue => {
+                            self.tc.errors.push(CompilationError::new(
+                                "Cannot assign to non-mutable value".into(),
+                                range.clone(),
+                            ));
+                        }
+                        ValueType::RValue => {
+                            self.tc.errors.push(CompilationError::new(
+                                "Cannot assign to rvalue".into(),
+                                range.clone(),
+                            ));
+                        }
+                    }
+                }
 
                 if let (Some(left_type), Some(right_type)) =
                     (left.type_(&self.tc.program), right.type_(&self.tc.program))
@@ -800,7 +846,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 b
             }
             parser::Statement::VarDecl {
-                mut_: _, // TODO: handle mut
+                mut_, // TODO: handle mut
                 type_,
                 name,
                 init_value,
@@ -817,7 +863,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     } else {
                         None
                     });
-                let var = Var::new(type_, name.clone());
+                let var = Var::new(type_, name.clone(), *mut_);
                 let func_module = self
                     .tc
                     .program
