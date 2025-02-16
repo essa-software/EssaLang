@@ -249,8 +249,6 @@ impl<'a> Parser<'a> {
             let statement = self.consume_statement();
             if let Some(statement) = statement {
                 statements.push(statement);
-            } else {
-                break;
             }
         }
 
