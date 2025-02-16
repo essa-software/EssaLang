@@ -300,8 +300,8 @@ impl<'a> TokenIterator<'a> {
                 }
             }
             // name
-            _ if c.is_alphabetic() => {
-                let name = self.read_while(|c| c.is_alphanumeric());
+            _ if c.is_alphabetic() || c == '_' => {
+                let name = self.read_while(|c| c.is_alphanumeric() || c == '_');
                 Some(self.name(name.to_string(), start))
             }
             // string literal
