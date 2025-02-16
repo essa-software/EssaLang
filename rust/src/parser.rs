@@ -18,10 +18,36 @@ pub struct FunctionArg {
     pub value: Expression,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BinaryOp {
+    CmpEquals, // ==
+}
+
+impl BinaryOp {
+    pub fn from_token_type(token_type: lexer::TokenType) -> Option<Self> {
+        match token_type {
+            lexer::TokenType::OpEqualsEquals => Some(Self::CmpEquals),
+            _ => None,
+        }
+    }
+
+    pub fn precedence(&self) -> u8 {
+        match self {
+            Self::CmpEquals => 1,
+        }
+    }
+
+    pub fn mangle(&self) -> &'static str {
+        match self {
+            Self::CmpEquals => "cmpeq",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Expression {
     Call {
-        function: String, // TODO: arbitrary expressions
+        function: Box<Expression>,
         args: Vec<FunctionArg>,
     },
     BoolLiteral {
@@ -33,6 +59,11 @@ pub enum Expression {
     StringLiteral {
         value: String,
     },
+    BinaryOp {
+        op: BinaryOp,
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
     Name(String),
 }
 
@@ -40,7 +71,7 @@ pub enum Expression {
 pub enum Statement {
     VarDecl {
         mut_: bool,
-        type_: Type,
+        type_: Option<Type>,
         name: String,
         init_value: Option<Expression>,
     },
@@ -121,7 +152,7 @@ impl<'a> Parser<'a> {
         self.expect_msg(predicate, "")
     }
 
-    // var-decl ::= "let" name ":" type "=" expression ";"
+    // var-decl ::= "let" name [":" type] "=" expression ";"
     pub fn consume_var_decl(&mut self) -> Option<Statement> {
         // "let"
         let _ = self.expect(|t| matches!(t, lexer::TokenType::KeywordLet));
@@ -129,11 +160,18 @@ impl<'a> Parser<'a> {
         // name
         let name = self.expect_msg(|t| matches!(t, lexer::TokenType::Name(_)), "variable name")?;
 
-        // ":"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::Colon));
+        // type (optional)
+        let type_ = self.iter.clone().next().and_then(|next| {
+            if matches!(next.type_, lexer::TokenType::Colon) {
+                // ":"
+                let _ = self.expect(|t| matches!(t, lexer::TokenType::Colon));
 
-        // type
-        let type_ = self.consume_type()?;
+                // type
+                Some(self.consume_type()?)
+            } else {
+                None
+            }
+        });
 
         // "="
         let _ = self.expect(|t| matches!(t, lexer::TokenType::OpEquals));
@@ -218,49 +256,14 @@ impl<'a> Parser<'a> {
         expressions
     }
 
-    pub fn consume_expression(&mut self) -> Option<Expression> {
-        let next = self.iter.clone().next()?;
+    pub fn consume_primary_expression(&mut self) -> Option<Expression> {
+        let next = self.iter.next()?;
         match next.type_ {
-            lexer::TokenType::Name(name) => {
-                // consume
-                let _ = self.iter.next();
-
-                // it might be also a function call
-                let next = self.iter.clone().next()?;
-                if let lexer::TokenType::ParenOpen = next.type_ {
-                    let _ = self.iter.next(); // consume "("
-                    let args = self.consume_comma_separated_expression_list(|t| {
-                        matches!(t, lexer::TokenType::ParenClose)
-                    });
-                    let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose));
-                    Some(Expression::Call {
-                        function: name,
-                        args: args
-                            .into_iter()
-                            .map(|arg| FunctionArg {
-                                param: None,
-                                value: arg,
-                            })
-                            .collect(),
-                    })
-                } else {
-                    Some(Expression::Name(name))
-                }
-            }
-            lexer::TokenType::Integer(text) => {
-                let _ = self.iter.next();
-                Some(Expression::IntLiteral { value: text })
-            }
-            lexer::TokenType::KeywordTrue => {
-                let _ = self.iter.next();
-                Some(Expression::BoolLiteral { value: true })
-            }
-            lexer::TokenType::KeywordFalse => {
-                let _ = self.iter.next();
-                Some(Expression::BoolLiteral { value: false })
-            }
+            lexer::TokenType::Name(name) => Some(Expression::Name(name)),
+            lexer::TokenType::Integer(text) => Some(Expression::IntLiteral { value: text }),
+            lexer::TokenType::KeywordTrue => Some(Expression::BoolLiteral { value: true }),
+            lexer::TokenType::KeywordFalse => Some(Expression::BoolLiteral { value: false }),
             lexer::TokenType::StringLiteral(text) => {
-                let _ = self.iter.next();
                 Some(Expression::StringLiteral { value: text })
             }
             _ => {
@@ -268,10 +271,90 @@ impl<'a> Parser<'a> {
                     message: "Expected expression".into(),
                     range: next.range.clone(),
                 });
-                let _ = self.iter.next(); //whatever
                 None
             }
         }
+    }
+
+    // [primary expression] [ some postfix operator ]*
+    pub fn consume_postfix_expression(&mut self) -> Option<Expression> {
+        let mut primary = self.consume_primary_expression()?;
+
+        loop {
+            let next = self.iter.clone().next()?;
+            match next.type_ {
+                lexer::TokenType::ParenOpen => {
+                    let _ = self.iter.next(); // consume "("
+                    let args = self.consume_comma_separated_expression_list(|t| {
+                        matches!(t, lexer::TokenType::ParenClose)
+                    });
+                    let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose));
+                    primary = Expression::Call {
+                        function: Box::new(primary),
+                        args: args
+                            .into_iter()
+                            .map(|arg| FunctionArg {
+                                param: None,
+                                value: arg,
+                            })
+                            .collect(),
+                    }
+                }
+                _ => return Some(primary),
+            }
+        }
+    }
+
+    // [Postfix Operator]* Postfix
+    pub fn consume_expression(&mut self) -> Option<Expression> {
+        // Read arguments and (binary) operators (first linearly)
+        let mut args: Vec<Expression> = vec![];
+        let mut ops: Vec<BinaryOp> = vec![];
+
+        // First expression
+        args.push(self.consume_postfix_expression()?);
+        loop {
+            // Operator
+            let next = self.iter.clone().next()?;
+            let op = BinaryOp::from_token_type(next.type_);
+            if let Some(op) = op {
+                let _ = self.iter.next();
+                ops.push(op);
+                args.push(self.consume_postfix_expression()?);
+            } else {
+                break;
+            }
+        }
+
+        assert_eq!(ops.len(), args.len() - 1);
+
+        // Then, iteratively build a tree of expression, selecting
+        // one with the highest precedence first
+        while !ops.is_empty() {
+            assert_eq!(ops.len(), args.len() - 1);
+
+            // get operator with max precedence
+            let (idx, op) = ops
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, op)| op.precedence())
+                .unwrap();
+
+            // build a new binary expression
+            let left = args.remove(idx);
+            let right = args.remove(idx);
+            let new_expr = Expression::BinaryOp {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+            args.insert(idx, new_expr);
+
+            // remove the operator
+            ops.remove(idx);
+        }
+
+        args.into_iter().next()
     }
 
     pub fn consume_expression_statement(&mut self) -> Option<Statement> {

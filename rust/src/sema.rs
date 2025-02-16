@@ -37,7 +37,7 @@ pub const PRELUDE_MODULE: ModuleId = ModuleId(0);
 pub const MAIN_MODULE: ModuleId = ModuleId(1);
 pub const PRINT_VARARGS_HACK_MODULE: ModuleId = ModuleId(2137);
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Primitive {
     Void,
     U32,
@@ -56,7 +56,7 @@ pub enum Primitive {
 
 //// Type
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Type {
     Primitive(Primitive),
     Array {
@@ -103,18 +103,45 @@ impl Type {
             Type::Struct { id } => program.structs[id].name.clone(),
         }
     }
+
+    pub fn mangle(&self, program: &Program) -> String {
+        match self {
+            Type::Primitive(Primitive::Void) => "void".into(),
+            Type::Primitive(Primitive::U32) => "u32".into(),
+            Type::Primitive(Primitive::Bool) => "bool".into(),
+            Type::Primitive(Primitive::String) => "string".into(),
+            Type::Primitive(Primitive::StaticString) => "static_string".into(),
+            Type::Primitive(Primitive::Range) => "range".into(),
+            Type::Primitive(Primitive::EmptyArray) => "empty_array".into(),
+            Type::Array { inner, size } => {
+                format!("array_{}_{}", size, inner.mangle(program))
+            }
+            Type::Function { function } => {
+                format!("func_{}", program.functions[function].borrow().name())
+            }
+            Type::Slice {
+                inner,
+                mut_elements,
+            } => format!(
+                "slice_{}_{}",
+                if *mut_elements { "mut" } else { "const" },
+                inner.mangle(program)
+            ),
+            Type::Struct { id } => format!("struct_{}", program.structs[id].name),
+        }
+    }
 }
 
 //// Function
 
 pub struct Var {
     id: Option<VarId>,
-    pub type_: Type,
+    pub type_: Option<Type>,
     pub name: String,
 }
 
 impl Var {
-    pub fn new(type_: Type, name: String) -> Self {
+    pub fn new(type_: Option<Type>, name: String) -> Self {
         Var {
             id: None,
             type_,
@@ -238,8 +265,13 @@ pub enum Expression {
         value: String,
     },
     VarRef {
-        type_: Type,
+        type_: Option<Type>,
         var_id: Option<VarId>,
+    },
+    BinaryOp {
+        op: parser::BinaryOp,
+        left: Box<Expression>,
+        right: Box<Expression>,
     },
 }
 
@@ -252,7 +284,10 @@ impl Expression {
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
-            Expression::VarRef { type_, .. } => Some(type_.clone()),
+            Expression::VarRef { type_, .. } => type_.clone(),
+            Expression::BinaryOp { op, left, right } => match op {
+                parser::BinaryOp::CmpEquals => Some(Type::Primitive(Primitive::Bool)),
+            },
         }
     }
 }
@@ -405,7 +440,10 @@ impl<'data> TypeChecker<'data> {
 
         let mut print_func = Function::new("print".into(), &mut self.program);
         print_func.add_param(
-            Var::new(Type::Primitive(Primitive::StaticString), "fmtstr".into()),
+            Var::new(
+                Some(Type::Primitive(Primitive::StaticString)),
+                "fmtstr".into(),
+            ),
             &mut self.program,
         );
         self.program.add_function(PRELUDE_MODULE, print_func);
@@ -545,10 +583,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             // just push one by one with increasing
             // (nonsensical) var ids
             for (i, expr) in typechecked_args.into_iter().enumerate() {
-                let var = Var::new(
-                    expr.type_(&self.tc.program).expect("no type"),
-                    format!("arg{}", i),
-                );
+                let Some(type_) = expr.type_(&self.tc.program) else {
+                    self.tc.errors.push(TypeCheckerError(format!(
+                        "Argument {} to print function has invalid type",
+                        i
+                    )));
+                    continue;
+                };
+                let var = Var::new(Some(type_), format!("arg{}", i));
                 let var_id = VarId(Id {
                     module: PRINT_VARARGS_HACK_MODULE,
                     id: i,
@@ -588,9 +630,32 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
+    fn check_operator_types(&mut self, op: parser::BinaryOp, left: Type, right: Type) {
+        match op {
+            parser::BinaryOp::CmpEquals => {
+                if left != right {
+                    self.tc.errors.push(TypeCheckerError(
+                        "Cannot compare values of different types".into(),
+                    ));
+                }
+            }
+        }
+    }
+
     fn typecheck_expression(&mut self, expr: &parser::Expression) -> Expression {
         match expr {
-            parser::Expression::Call { function, args } => self.typecheck_expr_call(function, args),
+            parser::Expression::Call { function, args } => match &**function {
+                parser::Expression::Name(name) => self.typecheck_expr_call(&name, args),
+                _ => {
+                    self.tc.errors.push(TypeCheckerError(
+                        "Only function names are supported for now".into(),
+                    ));
+                    Expression::Call {
+                        function_id: None,
+                        arguments: HashMap::new(),
+                    }
+                }
+            },
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 if *value > (u32::MAX as u64) {
@@ -616,9 +681,29 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         name
                     )));
                     Expression::VarRef {
-                        type_: Type::Primitive(Primitive::Void),
+                        type_: None,
                         var_id: None,
                     }
+                }
+            }
+            parser::Expression::BinaryOp { op, left, right } => {
+                let left = self.typecheck_expression(left);
+                let right = self.typecheck_expression(right);
+
+                if let (Some(left_type), Some(right_type)) =
+                    (left.type_(&self.tc.program), right.type_(&self.tc.program))
+                {
+                    self.check_operator_types(*op, left_type, right_type);
+                } else {
+                    self.tc
+                        .errors
+                        .push(TypeCheckerError("Invalid types for binary operator".into()));
+                }
+
+                Expression::BinaryOp {
+                    op: *op,
+                    left: Box::new(left),
+                    right: Box::new(right),
                 }
             }
         }
@@ -642,7 +727,17 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 name,
                 init_value,
             } => {
-                let type_ = self.tc.typecheck_type(type_);
+                let init_value = init_value
+                    .as_ref()
+                    .map(|expr| self.typecheck_expression(expr));
+
+                let type_: Option<Type> = type_.as_ref().map(|ty| self.tc.typecheck_type(&ty)).or(
+                    if let Some(init) = &init_value {
+                        init.type_(&self.tc.program)
+                    } else {
+                        None
+                    },
+                );
                 let var = Var::new(type_, name.clone());
                 let func_module = self
                     .tc
@@ -665,10 +760,6 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     .get_scope_mut(self.current_scope())
                     .vars
                     .push(var_id);
-
-                let init_value = init_value
-                    .as_ref()
-                    .map(|expr| self.typecheck_expression(expr));
 
                 Statement::VarDecl {
                     var: var_id,

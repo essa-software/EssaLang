@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Write};
 
-use crate::sema;
+use crate::{parser, sema};
 
 pub struct CodeGen<'data> {
     out: &'data mut dyn Write,
@@ -161,6 +161,34 @@ impl<'data> CodeGen<'data> {
         Ok(())
     }
 
+    fn emit_binary_op(
+        &mut self,
+        op: &parser::BinaryOp,
+        left: &sema::Expression,
+        right: &sema::Expression,
+    ) -> IoResult<String> {
+        let left_tmp = self
+            .emit_expression_eval(left)?
+            .expect("void expression in bin op lhs");
+        let right_tmp = self
+            .emit_expression_eval(right)?
+            .expect("void expression in bin op rhs");
+
+        let tmp_var = self.emit_tmp_var(&left.type_(self.program).unwrap(), "binop")?;
+
+        // select C overload
+        let left_type = left.type_(self.program).unwrap().mangle(self.program);
+        let right_type = right.type_(self.program).unwrap().mangle(self.program);
+        let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
+
+        writeln!(
+            self.out,
+            "    {} = {}({}, {});",
+            tmp_var, overload, left_tmp, right_tmp
+        )?;
+        return Ok(tmp_var);
+    }
+
     // Emit ESL expression evaluation as C statements.
     // Returns local var name with result if applicable
     fn emit_expression_eval(&mut self, expr: &sema::Expression) -> IoResult<Option<String>> {
@@ -247,6 +275,9 @@ impl<'data> CodeGen<'data> {
                         .clone(),
                 ));
             }
+            sema::Expression::BinaryOp { op, left, right } => {
+                Ok(Some(self.emit_binary_op(op, left, right)?))
+            }
         }
     }
 
@@ -268,7 +299,7 @@ impl<'data> CodeGen<'data> {
                 self.variable_names.insert(*var_id, var_name.clone());
                 writeln!(self.out, "    /* var decl {} */", var.name)?;
                 write!(self.out, "    ")?;
-                self.emit_type(&var.type_)?;
+                self.emit_type(&var.type_.as_ref().unwrap())?;
                 writeln!(self.out, " {};", var_name)?;
                 // init
                 if let Some(init) = init {
@@ -323,7 +354,7 @@ impl<'data> CodeGen<'data> {
 
             // TODO: handle different ways to pass arguments
             let var = self.program.get_var(*param);
-            self.emit_type(&var.type_)?;
+            self.emit_type(&var.type_.as_ref().unwrap())?;
 
             write!(self.out, " {}", var.name)?;
         }

@@ -18,7 +18,8 @@ pub enum TokenType {
     KeywordReturn,
     KeywordTrue,
     Name(String),
-    OpEquals,
+    OpEquals,       // =
+    OpEqualsEquals, // ==
     ParenClose,
     ParenOpen,
     Semicolon,
@@ -145,6 +146,10 @@ impl<'a> TokenIterator<'a> {
             }
             '=' => {
                 self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpEqualsEquals, start));
+                }
                 Some(self.token(TokenType::OpEquals, start))
             }
             '(' => {

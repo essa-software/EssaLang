@@ -28,7 +28,7 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
     let mut parser = parser::Parser::new(&source)?;
     let program = parser.parse();
 
-    eprintln!("{:?}", program);
+    eprintln!("{:#?}", program);
 
     // let program = parser::Program {
     //     declarations: vec![parser::Declaration::FunctionImpl {
