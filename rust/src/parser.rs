@@ -20,26 +20,56 @@ pub struct FunctionArg {
 
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
-    CmpEquals, // ==
+    CmpEquals,    // ==
+    CmpNotEquals, // !=
+    CmpLess,      // <
+    CmpLessEq,    // <=
+    CmpGreater,   // >
+    CmpGreaterEq, // >=
+}
+
+pub enum BinOpClass {
+    Comparison,
 }
 
 impl BinaryOp {
     pub fn from_token_type(token_type: lexer::TokenType) -> Option<Self> {
         match token_type {
             lexer::TokenType::OpEqualsEquals => Some(Self::CmpEquals),
+            lexer::TokenType::OpExlmEquals => Some(Self::CmpNotEquals),
+            lexer::TokenType::OpLess => Some(Self::CmpLess),
+            lexer::TokenType::OpLessEquals => Some(Self::CmpLessEq),
+            lexer::TokenType::OpGreater => Some(Self::CmpGreater),
+            lexer::TokenType::OpGreaterEquals => Some(Self::CmpGreaterEq),
             _ => None,
         }
     }
 
-    pub fn precedence(&self) -> u8 {
+    pub fn class(&self) -> BinOpClass {
         match self {
-            Self::CmpEquals => 1,
+            Self::CmpEquals
+            | Self::CmpNotEquals
+            | Self::CmpLess
+            | Self::CmpLessEq
+            | Self::CmpGreater
+            | Self::CmpGreaterEq => BinOpClass::Comparison,
+        }
+    }
+
+    pub fn precedence(&self) -> u8 {
+        match self.class() {
+            BinOpClass::Comparison => 1,
         }
     }
 
     pub fn mangle(&self) -> &'static str {
         match self {
             Self::CmpEquals => "cmpeq",
+            Self::CmpNotEquals => "cmpneq",
+            Self::CmpLess => "cmplt",
+            Self::CmpLessEq => "cmplte",
+            Self::CmpGreater => "cmpgt",
+            Self::CmpGreaterEq => "cmpgte",
         }
     }
 }
@@ -155,7 +185,13 @@ impl<'a> Parser<'a> {
     // var-decl ::= "let" name [":" type] "=" expression ";"
     pub fn consume_var_decl(&mut self) -> Option<Statement> {
         // "let"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::KeywordLet));
+        let let_or_mut = self.expect(|t| {
+            matches!(
+                t,
+                lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut
+            )
+        })?;
+        let is_mut = matches!(let_or_mut.type_, lexer::TokenType::KeywordMut);
 
         // name
         let name = self.expect_msg(|t| matches!(t, lexer::TokenType::Name(_)), "variable name")?;
@@ -183,7 +219,7 @@ impl<'a> Parser<'a> {
         let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon));
 
         Some(Statement::VarDecl {
-            mut_: false,
+            mut_: is_mut,
             name: name.slice_str(&self.input).unwrap().into(),
             type_,
             init_value: Some(init_value),

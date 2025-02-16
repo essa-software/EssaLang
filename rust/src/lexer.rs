@@ -15,11 +15,17 @@ pub enum TokenType {
     KeywordFunc,
     KeywordIf,
     KeywordLet,
+    KeywordMut,
     KeywordReturn,
     KeywordTrue,
     Name(String),
-    OpEquals,       // =
-    OpEqualsEquals, // ==
+    OpEquals,        // =
+    OpEqualsEquals,  // ==
+    OpExlmEquals,    // !=
+    OpLess,          // <
+    OpLessEquals,    // <=
+    OpGreater,       // >
+    OpGreaterEquals, // >=
     ParenClose,
     ParenOpen,
     Semicolon,
@@ -152,6 +158,30 @@ impl<'a> TokenIterator<'a> {
                 }
                 Some(self.token(TokenType::OpEquals, start))
             }
+            '!' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpExlmEquals, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
+            }
+            '>' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpGreaterEquals, start));
+                }
+                Some(self.token(TokenType::OpGreater, start))
+            }
+            '<' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpLessEquals, start));
+                }
+                Some(self.token(TokenType::OpLess, start))
+            }
             '(' => {
                 self.read_one();
                 Some(self.token(TokenType::ParenOpen, start))
@@ -184,6 +214,13 @@ impl<'a> TokenIterator<'a> {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
                     "let" => Some(self.token(TokenType::KeywordLet, start)),
+                    _ => Some(self.name(kw.to_string(), start)),
+                }
+            }
+            'm' => {
+                let kw = self.read_while(|c| c.is_alphabetic());
+                match kw {
+                    "mut" => Some(self.token(TokenType::KeywordMut, start)),
                     _ => Some(self.name(kw.to_string(), start)),
                 }
             }

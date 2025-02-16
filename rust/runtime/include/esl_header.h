@@ -49,4 +49,13 @@ void _esl_print_bool(void* data);
 void _esl_print_static_string(void* data);
 void _esl_print_u32(void* data);
 
+//// builtin operator overloads ////
+
+#define _esl_opcmpeq_u32_u32(a, b) (a == b)
+#define _esl_opcmpneq_u32_u32(a, b) (a != b)
+#define _esl_opcmplt_u32_u32(a, b) (a < b)
+#define _esl_opcmplte_u32_u32(a, b) (a <= b)
+#define _esl_opcmpgt_u32_u32(a, b) (a > b)
+#define _esl_opcmpgte_u32_u32(a, b) (a >= b)
+
 _END_DECLS

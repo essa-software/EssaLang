@@ -2,7 +2,7 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use scopeguard::{guard, ScopeGuard};
 
-use crate::parser;
+use crate::parser::{self, BinOpClass};
 
 //// IDs
 
@@ -286,7 +286,10 @@ impl Expression {
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
             Expression::VarRef { type_, .. } => type_.clone(),
             Expression::BinaryOp { op, left, right } => match op {
-                parser::BinaryOp::CmpEquals => Some(Type::Primitive(Primitive::Bool)),
+                _ if matches!(op.class(), BinOpClass::Comparison) => {
+                    Some(Type::Primitive(Primitive::Bool))
+                }
+                _ => None,
             },
         }
     }
@@ -631,13 +634,11 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
     }
 
     fn check_operator_types(&mut self, op: parser::BinaryOp, left: Type, right: Type) {
-        match op {
-            parser::BinaryOp::CmpEquals => {
-                if left != right {
-                    self.tc.errors.push(TypeCheckerError(
-                        "Cannot compare values of different types".into(),
-                    ));
-                }
+        if matches!(op.class(), BinOpClass::Comparison) {
+            if left != right {
+                self.tc.errors.push(TypeCheckerError(
+                    "Comparison operator with different types".into(),
+                ));
             }
         }
     }
