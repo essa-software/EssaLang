@@ -1,3 +1,1 @@
-[90mif_non_bool_condition.esl: [m[1;31mError:[m If statement's condition must be a bool
-   4 |     if ([31m1[m) {
-               ^ [31mIf statement's condition must be a bool[m
+CompilationError { message: "If condition must be of type bool", range: 73..74 }

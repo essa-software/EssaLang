@@ -1,3 +1,1 @@
-[90mif_dont_allow_assignments.esl: [m[1;31mError:[m Expected ')', got '='
-   6 |     if (i [31m=[m 2137) {
-                 ^ [31mExpected ')', got '='[m
+CompilationError { message: "If condition must be of type bool", range: 72..80 }

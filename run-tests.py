@@ -102,7 +102,7 @@ def run_test(test_path, env_dir_id):
 
         if ret != 0:
             if len(expected_compile_out) > 0:
-                if compile_err != expected_compile_out:
+                if compile_out != expected_compile_out:
                     # print(f"expected: {expected_compile_out}")
                     # print(f"got: {compile_out}")
                     fail(test_path, "got different compiler error than expected")
