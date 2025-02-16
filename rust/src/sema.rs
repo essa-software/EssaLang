@@ -1,8 +1,11 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, ops::Range};
 
 use scopeguard::{guard, ScopeGuard};
 
-use crate::parser::{self, BinOpClass};
+use crate::{
+    error::CompilationError,
+    parser::{self, BinOpClass},
+};
 
 //// IDs
 
@@ -408,9 +411,6 @@ impl Program {
 
 ////////
 
-#[derive(Debug)]
-pub struct TypeCheckerError(pub String);
-
 pub struct TypeChecker<'data> {
     p_program: &'data parser::Program,
     program: Program,
@@ -419,7 +419,7 @@ pub struct TypeChecker<'data> {
     function_bodies_to_check: Vec<(&'data parser::Statement, FunctionId)>,
 
     // stage 2
-    errors: Vec<TypeCheckerError>,
+    errors: Vec<CompilationError>,
 }
 
 impl<'data> TypeChecker<'data> {
@@ -432,10 +432,6 @@ impl<'data> TypeChecker<'data> {
 
             errors: vec![],
         }
-    }
-
-    pub fn errors(&self) -> &[TypeCheckerError] {
-        &self.errors
     }
 
     fn add_prelude(&mut self) {
@@ -498,7 +494,7 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    pub fn typecheck(mut self) -> (Program, Vec<TypeCheckerError>) {
+    pub fn typecheck(mut self) -> (Program, Vec<CompilationError>) {
         self.add_prelude();
 
         // pass 1: add function declarations
@@ -559,17 +555,23 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         &mut self,
         name: &String,
         parsed_args: &Vec<parser::FunctionArg>,
+        range: &Range<usize>,
     ) -> Expression {
         let typechecked_args = parsed_args
             .iter()
-            .map(|arg| self.typecheck_expression(&arg.value))
+            .map(|arg| {
+                (
+                    self.typecheck_expression(&arg.value),
+                    arg.value.range.clone(),
+                )
+            })
             .collect::<Vec<_>>();
 
         let Some(function) = self.tc.program.lookup_function(name) else {
-            self.tc.errors.push(TypeCheckerError(format!(
-                "Function with name '{}' not found",
-                name
-            )));
+            self.tc.errors.push(CompilationError::new(
+                format!("Function with name '{}' not found", name),
+                range.clone(),
+            ));
             return Expression::Call {
                 function_id: None,
                 arguments: HashMap::new(),
@@ -585,12 +587,12 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
 
             // just push one by one with increasing
             // (nonsensical) var ids
-            for (i, expr) in typechecked_args.into_iter().enumerate() {
+            for (i, (expr, range)) in typechecked_args.into_iter().enumerate() {
                 let Some(type_) = expr.type_(&self.tc.program) else {
-                    self.tc.errors.push(TypeCheckerError(format!(
-                        "Argument {} to print function has invalid type",
-                        i
-                    )));
+                    self.tc.errors.push(CompilationError::new(
+                        format!("Argument {} to print function has invalid type", i),
+                        range,
+                    ));
                     continue;
                 };
                 let var = Var::new(Some(type_), format!("arg{}", i));
@@ -609,13 +611,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
 
         let params_scope = self.tc.program.get_scope(function.params_scope);
-        for (i, expr) in typechecked_args.into_iter().enumerate() {
+        for (i, (expr, range)) in typechecked_args.into_iter().enumerate() {
             let param = *(if let Some(p) = params_scope.vars.get(i) {
                 p
             } else {
-                self.tc
-                    .errors
-                    .push(TypeCheckerError("Too many arguments".into()));
+                self.tc.errors.push(CompilationError::new(
+                    "Too many arguments".into(),
+                    range.clone(),
+                ));
                 break;
             });
             // TODO: Check param type
@@ -633,23 +636,37 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
-    fn check_operator_types(&mut self, op: parser::BinaryOp, left: Type, right: Type) {
+    fn check_operator_types(
+        &mut self,
+        op: parser::BinaryOp,
+        left: Type,
+        right: Type,
+        range: &Range<usize>,
+    ) {
         if matches!(op.class(), BinOpClass::Comparison) {
             if left != right {
-                self.tc.errors.push(TypeCheckerError(
+                self.tc.errors.push(CompilationError::new(
                     "Comparison operator with different types".into(),
+                    range.clone(),
                 ));
             }
         }
     }
 
-    fn typecheck_expression(&mut self, expr: &parser::Expression) -> Expression {
+    fn typecheck_expression(
+        &mut self,
+        parser::ExpressionNode {
+            expression: expr,
+            range,
+        }: &parser::ExpressionNode,
+    ) -> Expression {
         match expr {
-            parser::Expression::Call { function, args } => match &**function {
-                parser::Expression::Name(name) => self.typecheck_expr_call(&name, args),
+            parser::Expression::Call { function, args } => match &function.expression {
+                parser::Expression::Name(name) => self.typecheck_expr_call(&name, args, range),
                 _ => {
-                    self.tc.errors.push(TypeCheckerError(
+                    self.tc.errors.push(CompilationError::new(
                         "Only function names are supported for now".into(),
+                        function.range.clone(),
                     ));
                     Expression::Call {
                         function_id: None,
@@ -660,10 +677,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 if *value > (u32::MAX as u64) {
-                    self.tc.errors.push(TypeCheckerError(format!(
-                        "Integer literal {} is too large",
-                        value
-                    )));
+                    self.tc.errors.push(CompilationError::new(
+                        format!("Integer literal {} is too large", value),
+                        range.clone(),
+                    ));
                 }
                 Expression::IntLiteral { value: *value }
             }
@@ -677,28 +694,34 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         var_id: Some(var.id.expect("var without id")),
                     }
                 } else {
-                    self.tc.errors.push(TypeCheckerError(format!(
-                        "Variable with name '{}' not found",
-                        name
-                    )));
+                    self.tc.errors.push(CompilationError::new(
+                        format!("Variable with name '{}' not found", name),
+                        range.clone(),
+                    ));
                     Expression::VarRef {
                         type_: None,
                         var_id: None,
                     }
                 }
             }
-            parser::Expression::BinaryOp { op, left, right } => {
+            parser::Expression::BinaryOp {
+                op,
+                op_range,
+                left,
+                right,
+            } => {
                 let left = self.typecheck_expression(left);
                 let right = self.typecheck_expression(right);
 
                 if let (Some(left_type), Some(right_type)) =
                     (left.type_(&self.tc.program), right.type_(&self.tc.program))
                 {
-                    self.check_operator_types(*op, left_type, right_type);
+                    self.check_operator_types(*op, left_type, right_type, op_range);
                 } else {
-                    self.tc
-                        .errors
-                        .push(TypeCheckerError("Invalid types for binary operator".into()));
+                    self.tc.errors.push(CompilationError::new(
+                        "Invalid types for binary operator".into(),
+                        range.clone(),
+                    ));
                 }
 
                 Expression::BinaryOp {
@@ -780,15 +803,19 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 condition,
                 then_block,
             } => {
-                let condition = self.typecheck_expression(condition);
+                let (condition, cond_range) = (
+                    self.typecheck_expression(condition),
+                    condition.range.clone(),
+                );
                 let condition_type = condition.type_(&self.tc.program);
                 let then_block = self.typecheck_statement(then_block);
                 if condition_type.is_some()
                     && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
                 {
-                    self.tc
-                        .errors
-                        .push(TypeCheckerError("If condition must be of type bool".into()));
+                    self.tc.errors.push(CompilationError::new(
+                        "If condition must be of type bool".into(),
+                        cond_range,
+                    ));
                 }
                 Statement::If {
                     condition,

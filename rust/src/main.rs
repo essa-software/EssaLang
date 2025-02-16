@@ -1,4 +1,5 @@
 pub mod codegen;
+pub mod error;
 pub mod lexer;
 pub mod parser;
 pub mod sema;
@@ -25,8 +26,8 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
         source
     };
 
-    let mut parser = parser::Parser::new(&source)?;
-    let program = parser.parse();
+    let parser = parser::Parser::new(&source)?;
+    let (program, mut errors) = parser.parse();
 
     eprintln!("{:#?}", program);
 
@@ -55,9 +56,12 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
     // };
 
     let typechecker = TypeChecker::new(&program);
-    let (program, errors) = typechecker.typecheck();
+    let (program, typechecker_errors) = typechecker.typecheck();
+
+    errors.extend(typechecker_errors);
+
     if !errors.is_empty() {
-        eprintln!("Typechecker errors:");
+        eprintln!("Errors:");
         for error in errors {
             eprintln!("{:?}", error);
         }
@@ -84,8 +88,8 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
         .expect("Failed to get home dir")
         .join(".local");
 
-    let libs_path = runtime_prefix.join("lib");
-    let include_path = runtime_prefix.join("include");
+    let runtime_libs_path = runtime_prefix.join("lib");
+    let runtime_include_path = runtime_prefix.join("include");
 
     eprintln!("calling gcc");
     let mut cmd = std::process::Command::new("gcc");
@@ -105,10 +109,10 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
         .arg(tmp_file.path())
         // include dirs
         .arg("-I")
-        .arg(include_path)
+        .arg(runtime_include_path)
         // lib dirs
         .arg("-L")
-        .arg(libs_path)
+        .arg(runtime_libs_path)
         // libs
         .arg("-leslrt");
 

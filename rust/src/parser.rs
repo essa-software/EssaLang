@@ -1,11 +1,12 @@
 use core::str;
 use std::{
+    collections::LinkedList,
     io::{BufRead, Cursor, Read, Write},
     ops::Range,
     str::{Chars, Utf8Error},
 };
 
-use crate::lexer;
+use crate::{error::CompilationError, lexer};
 
 #[derive(Debug)]
 pub enum Type {
@@ -15,7 +16,7 @@ pub enum Type {
 #[derive(Debug)]
 pub struct FunctionArg {
     pub param: Option<String>, // for kwargs
-    pub value: Expression,
+    pub value: ExpressionNode,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +78,7 @@ impl BinaryOp {
 #[derive(Debug)]
 pub enum Expression {
     Call {
-        function: Box<Expression>,
+        function: Box<ExpressionNode>,
         args: Vec<FunctionArg>,
     },
     BoolLiteral {
@@ -91,10 +92,17 @@ pub enum Expression {
     },
     BinaryOp {
         op: BinaryOp,
-        left: Box<Expression>,
-        right: Box<Expression>,
+        op_range: Range<usize>,
+        left: Box<ExpressionNode>,
+        right: Box<ExpressionNode>,
     },
     Name(String),
+}
+
+#[derive(Debug)]
+pub struct ExpressionNode {
+    pub expression: Expression,
+    pub range: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -103,13 +111,13 @@ pub enum Statement {
         mut_: bool,
         type_: Option<Type>,
         name: String,
-        init_value: Option<Expression>,
+        init_value: Option<ExpressionNode>,
     },
-    Expression(Expression),
-    Return(Option<Expression>),
+    Expression(ExpressionNode),
+    Return(Option<ExpressionNode>),
     Block(Vec<Statement>),
     If {
-        condition: Expression,
+        condition: ExpressionNode,
         then_block: Box<Statement>,
         // TODO: else
     },
@@ -130,15 +138,11 @@ pub struct Program {
 }
 
 ////
-pub struct ParseError {
-    pub message: String,
-    pub range: Range<usize>,
-}
 
 pub struct Parser<'a> {
     input: &'a [u8],
     iter: lexer::TokenIterator<'a>,
-    errors: Vec<ParseError>,
+    errors: Vec<CompilationError>,
 }
 
 impl<'a> Parser<'a> {
@@ -162,14 +166,14 @@ impl<'a> Parser<'a> {
             if predicate(&next.type_) {
                 return Some(next);
             } else {
-                self.errors.push(ParseError {
-                    message: if more_info.is_empty() {
+                self.errors.push(CompilationError::new(
+                    if more_info.is_empty() {
                         "Unexpected token".into()
                     } else {
                         format!("Expected {}", more_info)
                     },
-                    range: next.range.clone(),
-                });
+                    next.range.clone(),
+                ));
             }
         }
         None
@@ -261,7 +265,7 @@ impl<'a> Parser<'a> {
     pub fn consume_comma_separated_expression_list(
         &mut self,
         is_end: impl Fn(lexer::TokenType) -> bool,
-    ) -> Vec<Expression> {
+    ) -> Vec<ExpressionNode> {
         let mut expressions = vec![];
         if let Some(a) = self.iter.clone().next() {
             if is_end(a.type_) {
@@ -292,28 +296,41 @@ impl<'a> Parser<'a> {
         expressions
     }
 
-    pub fn consume_primary_expression(&mut self) -> Option<Expression> {
+    pub fn consume_primary_expression(&mut self) -> Option<ExpressionNode> {
         let next = self.iter.next()?;
         match next.type_ {
-            lexer::TokenType::Name(name) => Some(Expression::Name(name)),
-            lexer::TokenType::Integer(text) => Some(Expression::IntLiteral { value: text }),
-            lexer::TokenType::KeywordTrue => Some(Expression::BoolLiteral { value: true }),
-            lexer::TokenType::KeywordFalse => Some(Expression::BoolLiteral { value: false }),
-            lexer::TokenType::StringLiteral(text) => {
-                Some(Expression::StringLiteral { value: text })
-            }
+            lexer::TokenType::Name(name) => Some(ExpressionNode {
+                expression: Expression::Name(name),
+                range: next.range,
+            }),
+            lexer::TokenType::Integer(text) => Some(ExpressionNode {
+                expression: Expression::IntLiteral { value: text },
+                range: next.range,
+            }),
+            lexer::TokenType::KeywordTrue => Some(ExpressionNode {
+                expression: Expression::BoolLiteral { value: true },
+                range: next.range,
+            }),
+            lexer::TokenType::KeywordFalse => Some(ExpressionNode {
+                expression: Expression::BoolLiteral { value: false },
+                range: next.range,
+            }),
+            lexer::TokenType::StringLiteral(text) => Some(ExpressionNode {
+                expression: Expression::StringLiteral { value: text },
+                range: next.range,
+            }),
             _ => {
-                self.errors.push(ParseError {
-                    message: "Expected expression".into(),
-                    range: next.range.clone(),
-                });
+                self.errors.push(CompilationError::new(
+                    "Expected expression".into(),
+                    next.range.clone(),
+                ));
                 None
             }
         }
     }
 
     // [primary expression] [ some postfix operator ]*
-    pub fn consume_postfix_expression(&mut self) -> Option<Expression> {
+    pub fn consume_postfix_expression(&mut self) -> Option<ExpressionNode> {
         let mut primary = self.consume_primary_expression()?;
 
         loop {
@@ -324,17 +341,20 @@ impl<'a> Parser<'a> {
                     let args = self.consume_comma_separated_expression_list(|t| {
                         matches!(t, lexer::TokenType::ParenClose)
                     });
-                    let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose));
-                    primary = Expression::Call {
-                        function: Box::new(primary),
-                        args: args
-                            .into_iter()
-                            .map(|arg| FunctionArg {
-                                param: None,
-                                value: arg,
-                            })
-                            .collect(),
-                    }
+                    let end = self.expect(|t| matches!(t, lexer::TokenType::ParenClose))?;
+                    primary = ExpressionNode {
+                        expression: Expression::Call {
+                            function: Box::new(primary),
+                            args: args
+                                .into_iter()
+                                .map(|arg| FunctionArg {
+                                    param: None,
+                                    value: arg,
+                                })
+                                .collect(),
+                        },
+                        range: next.range.start..end.range.end,
+                    };
                 }
                 _ => return Some(primary),
             }
@@ -342,10 +362,10 @@ impl<'a> Parser<'a> {
     }
 
     // [Postfix Operator]* Postfix
-    pub fn consume_expression(&mut self) -> Option<Expression> {
+    pub fn consume_expression(&mut self) -> Option<ExpressionNode> {
         // Read arguments and (binary) operators (first linearly)
-        let mut args: Vec<Expression> = vec![];
-        let mut ops: Vec<BinaryOp> = vec![];
+        let mut args: Vec<ExpressionNode> = vec![];
+        let mut ops: Vec<(BinaryOp, Range<usize>)> = vec![];
 
         // First expression
         args.push(self.consume_postfix_expression()?);
@@ -355,7 +375,7 @@ impl<'a> Parser<'a> {
             let op = BinaryOp::from_token_type(next.type_);
             if let Some(op) = op {
                 let _ = self.iter.next();
-                ops.push(op);
+                ops.push((op, next.range));
                 args.push(self.consume_postfix_expression()?);
             } else {
                 break;
@@ -370,24 +390,28 @@ impl<'a> Parser<'a> {
             assert_eq!(ops.len(), args.len() - 1);
 
             // get operator with max precedence
-            let (idx, op) = ops
+            let (idx, _) = ops
                 .iter()
                 .enumerate()
-                .max_by_key(|(_, op)| op.precedence())
+                .max_by_key(|(_, (op, _))| op.precedence())
                 .unwrap();
+
+            // remove the operator
+            let (op, range) = ops.remove(idx);
 
             // build a new binary expression
             let left = args.remove(idx);
             let right = args.remove(idx);
-            let new_expr = Expression::BinaryOp {
-                op: *op,
-                left: Box::new(left),
-                right: Box::new(right),
+            let new_expr = ExpressionNode {
+                range: left.range.start..right.range.end,
+                expression: Expression::BinaryOp {
+                    op,
+                    op_range: range,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
             };
             args.insert(idx, new_expr);
-
-            // remove the operator
-            ops.remove(idx);
         }
 
         args.into_iter().next()
@@ -470,10 +494,10 @@ impl<'a> Parser<'a> {
                 Some(Type::Simple(name))
             }
             _ => {
-                self.errors.push(ParseError {
-                    message: "Expected type".into(),
-                    range: next.range.clone(),
-                });
+                self.errors.push(CompilationError::new(
+                    "Expected type".into(),
+                    next.range.clone(),
+                ));
                 let _ = self.iter.next(); //whatever
                 None
             }
@@ -524,17 +548,17 @@ impl<'a> Parser<'a> {
         match next.type_ {
             lexer::TokenType::KeywordFunc => self.consume_function_impl(),
             _ => {
-                self.errors.push(ParseError {
-                    message: "Expected declaration".into(),
-                    range: next.range.clone(),
-                });
+                self.errors.push(CompilationError::new(
+                    "Expected declaration".into(),
+                    next.range.clone(),
+                ));
                 let _ = self.iter.next(); //whatever
                 None
             }
         }
     }
 
-    pub fn parse(&mut self) -> Program {
+    pub fn parse(mut self) -> (Program, Vec<CompilationError>) {
         let mut declarations = vec![];
         loop {
             if self.iter.clone().next().is_none() {
@@ -546,11 +570,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // print errors
-        for error in &self.errors {
-            eprintln!("Error:{:?}: {}", error.range, error.message);
-        }
-
-        Program { declarations }
+        (Program { declarations }, self.errors)
     }
 }
