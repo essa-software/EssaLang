@@ -1,3 +1,1 @@
-[90mnot_matching_types.esl: [m[1;31mError:[m Could not find operator '+' for 'string' and 'u32'
-   2 |     let _ = 1 [31m+[m "string";
-                     ^ [31mCould not find operator '+' for 'string' and 'u32'[m
+CompilationError { message: "Invalid types for arithmetic operator", range: 28..29 }

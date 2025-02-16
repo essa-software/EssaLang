@@ -1,3 +1,1 @@
-[90mnot_matching_types_assignment.esl: [m[1;31mError:[m Cannot convert 'string' to 'u32' in assignment
-   3 |     a [31m=[m "test";
-             ^ [31mCannot convert 'string' to 'u32' in assignment[m
+CompilationError { message: "Assignment with different types", range: 35..36 }
