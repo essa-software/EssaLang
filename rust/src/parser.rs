@@ -226,7 +226,7 @@ impl<'a> Parser<'a> {
 
     // Consume next token, and return error if it doesn't match
     // the predicate
-    pub fn expect_msg(
+    pub fn expect(
         &mut self,
         predicate: impl Fn(&lexer::TokenType) -> bool,
         more_info: &str,
@@ -244,22 +244,32 @@ impl<'a> Parser<'a> {
                     },
                     next.range.clone(),
                 ));
+                None
             }
+        } else {
+            self.errors.push(CompilationError::new(
+                if more_info.is_empty() {
+                    "Unexpected EOF".into()
+                } else {
+                    format!("Expected {}", more_info)
+                },
+                self.input.len()..self.input.len() + 1,
+            ));
+            None
         }
-        None
     }
 
-    pub fn expect(
+    pub fn expect_no_msg(
         &mut self,
         predicate: impl Fn(&lexer::TokenType) -> bool,
     ) -> Option<lexer::Token> {
-        self.expect_msg(predicate, "")
+        self.expect(predicate, "")
     }
 
     // var-decl ::= "let" name [":" type] "=" expression ";"
     pub fn consume_var_decl(&mut self) -> Option<Statement> {
         // "let"
-        let let_or_mut = self.expect(|t| {
+        let let_or_mut = self.expect_no_msg(|t| {
             matches!(
                 t,
                 lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut
@@ -268,13 +278,13 @@ impl<'a> Parser<'a> {
         let is_mut = matches!(let_or_mut.type_, lexer::TokenType::KeywordMut);
 
         // name
-        let name = self.expect_msg(|t| matches!(t, lexer::TokenType::Name(_)), "variable name")?;
+        let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "variable name")?;
 
         // type (optional)
         let type_ = self.iter.clone().next().and_then(|next| {
             if matches!(next.type_, lexer::TokenType::Colon) {
                 // ":"
-                let _ = self.expect(|t| matches!(t, lexer::TokenType::Colon));
+                let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::Colon));
 
                 // type
                 Some(self.consume_type()?)
@@ -284,13 +294,13 @@ impl<'a> Parser<'a> {
         });
 
         // "="
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::OpEquals));
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::OpEquals));
 
         // expression
         let init_value = self.consume_expression()?;
 
         // ";"
-        let _ = self.expect_msg(|t| matches!(t, lexer::TokenType::Semicolon), ";");
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), ";");
 
         Some(Statement::VarDecl {
             mut_: is_mut,
@@ -302,7 +312,7 @@ impl<'a> Parser<'a> {
 
     pub fn consume_block(&mut self) -> Statement {
         // "{"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::CurlyOpen));
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::CurlyOpen));
 
         // statements
         let mut statements = vec![];
@@ -323,7 +333,7 @@ impl<'a> Parser<'a> {
         }
 
         // "}"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::CurlyClose));
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::CurlyClose), "'}'");
 
         Statement::Block(statements)
     }
@@ -352,13 +362,17 @@ impl<'a> Parser<'a> {
                 if let Some(a) = self.iter.clone().next() {
                     a
                 } else {
+                    self.errors.push(CompilationError::new(
+                        "EOF while reading expression list".into(),
+                        self.input.len()..self.input.len() + 1,
+                    ));
                     break;
                 }
             };
             if is_end(next.type_) {
                 break;
             } else {
-                let _ = self.expect(|t| matches!(t, lexer::TokenType::Comma));
+                let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::Comma));
             }
         }
         expressions
@@ -403,13 +417,17 @@ impl<'a> Parser<'a> {
 
         loop {
             let next = self.iter.clone().next()?;
+
             match next.type_ {
                 lexer::TokenType::ParenOpen => {
                     let _ = self.iter.next(); // consume "("
                     let args = self.consume_comma_separated_expression_list(|t| {
                         matches!(t, lexer::TokenType::ParenClose)
                     });
-                    let end = self.expect(|t| matches!(t, lexer::TokenType::ParenClose))?;
+                    let end = self.expect(
+                        |t| matches!(t, lexer::TokenType::ParenClose),
+                        "')' after argument list",
+                    )?;
                     primary = ExpressionNode {
                         expression: Expression::Call {
                             function: Box::new(primary),
@@ -496,7 +514,7 @@ impl<'a> Parser<'a> {
 
     pub fn consume_expression_statement(&mut self) -> Option<Statement> {
         let expr = self.consume_expression()?;
-        let _ = self.expect_msg(
+        let _ = self.expect(
             |t| matches!(t, lexer::TokenType::Semicolon),
             "';' after expression statement",
         );
@@ -505,7 +523,7 @@ impl<'a> Parser<'a> {
 
     pub fn consume_return_statement(&mut self) -> Option<Statement> {
         // "return"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::KeywordReturn));
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordReturn));
 
         // early ';' for "return;"
         if let Some(next) = self.iter.clone().next() {
@@ -519,7 +537,7 @@ impl<'a> Parser<'a> {
         let expr = self.consume_expression()?;
 
         // ";"
-        let _ = self.expect_msg(
+        let _ = self.expect(
             |t| matches!(t, lexer::TokenType::Semicolon),
             "';' after return",
         );
@@ -530,16 +548,16 @@ impl<'a> Parser<'a> {
     // if-statement ::= "if" "(" expression ")" block [ "else" block ]
     pub fn consume_if_statement(&mut self) -> Option<Statement> {
         // "if"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::KeywordIf))?;
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordIf))?;
 
         // "("
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenOpen))?;
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen))?;
 
         // expression
         let condition = self.consume_expression()?;
 
         // ")"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose))?;
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose), "')'")?;
 
         // block
         let then_block = self.consume_block();
@@ -623,10 +641,10 @@ impl<'a> Parser<'a> {
         let _ = self.iter.next();
 
         // name
-        let name = self.expect_msg(|t| matches!(t, lexer::TokenType::Name(_)), "function name")?;
+        let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "function name")?;
 
         // "("
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenOpen))?;
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen))?;
 
         // params
         let mut params = vec![];
@@ -640,7 +658,7 @@ impl<'a> Parser<'a> {
                     }
                     lexer::TokenType::Name(name) => {
                         let _ = self.iter.next();
-                        let _ = self.expect(|t| matches!(t, lexer::TokenType::Colon));
+                        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::Colon));
                         let type_ = self.consume_type()?;
                         let next = self.iter.clone().next()?;
                         match next.type_ {
