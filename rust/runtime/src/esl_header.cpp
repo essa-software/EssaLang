@@ -77,4 +77,9 @@ void _esl_print_static_string(void* data) {
 void _esl_print_u32(void* data) {
     printf("%u", *(esl_u32*)data);
 }
+
+void _esl_print_range(void* data) {
+    esl_range* range = (esl_range*)data;
+    printf("%zu..%zu", range->_start, range->_end);
+}
 }

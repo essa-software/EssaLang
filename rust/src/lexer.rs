@@ -21,6 +21,7 @@ pub enum TokenType {
     Name(String),
     OpAsterisk,       // *
     OpAsteriskEquals, // *=
+    OpDotDot,         // ..
     OpEquals,         // =
     OpEqualsEquals,   // ==
     OpExlmEquals,     // !=
@@ -170,6 +171,14 @@ impl<'a> TokenIterator<'a> {
             '}' => {
                 self.read_one();
                 Some(self.token(TokenType::CurlyClose, start))
+            }
+            '.' => {
+                self.read_one();
+                if self.peek() == Some('.') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpDotDot, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
             }
             '=' => {
                 self.read_one();

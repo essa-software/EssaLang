@@ -38,7 +38,7 @@ pub const PRELUDE_MODULE: ModuleId = ModuleId(0);
 pub const MAIN_MODULE: ModuleId = ModuleId(1);
 pub const PRINT_VARARGS_HACK_MODULE: ModuleId = ModuleId(2137);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Primitive {
     Void,
     U32,
@@ -57,7 +57,7 @@ pub enum Primitive {
 
 //// Type
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Primitive(Primitive),
     Array {
@@ -310,12 +310,15 @@ impl Expression {
                 {
                     Some(Type::Primitive(Primitive::U32))
                 }
+                _ if matches!(op.class(), BinOpClass::Range) => {
+                    Some(Type::Primitive(Primitive::Range))
+                }
                 _ => None,
             },
         }
     }
 
-    pub fn value_type(&self) -> ValueType {
+    fn value_type(&self) -> ValueType {
         match self {
             Expression::VarRef { mut_, .. } => {
                 if *mut_ {
@@ -726,6 +729,16 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 if left != right {
                     self.tc.errors.push(CompilationError::new(
                         "Assignment with different types".into(),
+                        range.clone(),
+                    ));
+                }
+            }
+            BinOpClass::Range => {
+                if left != Type::Primitive(Primitive::U32)
+                    || right != Type::Primitive(Primitive::U32)
+                {
+                    self.tc.errors.push(CompilationError::new(
+                        "Range operator with non-u32 types".into(),
                         range.clone(),
                     ));
                 }

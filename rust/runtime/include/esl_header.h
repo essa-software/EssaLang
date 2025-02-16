@@ -48,6 +48,7 @@ void _esl_print(const char* fmtstr, size_t argc, esl_format_arg* argv);
 void _esl_print_bool(void* data);
 void _esl_print_static_string(void* data);
 void _esl_print_u32(void* data);
+void _esl_print_range(void* data);
 
 //// builtin operator overloads ////
 
@@ -71,5 +72,7 @@ esl_u32 _esl_opmod_u32_u32(esl_u32 a, esl_u32 b);
 #define _esl_opassmul_u32_u32(aptr, b) (void)(*aptr = _esl_opmul_u32_u32(*aptr, b))
 #define _esl_opassdiv_u32_u32(aptr, b) (void)(*aptr = _esl_opdiv_u32_u32(*aptr, b))
 #define _esl_opassmod_u32_u32(aptr, b) (void)(*aptr = _esl_opmod_u32_u32(*aptr, b))
+
+#define _esl_oprange_u32_u32(a, b) ((esl_range) { (esl_usize)a, (esl_usize)b })
 
 _END_DECLS

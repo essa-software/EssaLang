@@ -41,9 +41,12 @@ pub enum BinaryOp {
     AssMul,     // *=
     AssDiv,     // /=
     AssMod,     // %=
+
+    Range, // ..
 }
 
 pub enum BinOpClass {
+    Range,
     Multiplicative,
     Additive,
     Comparison,
@@ -73,6 +76,8 @@ impl BinaryOp {
             lexer::TokenType::OpSlashEquals => Some(Self::AssDiv),
             lexer::TokenType::OpPercentEquals => Some(Self::AssMod),
 
+            lexer::TokenType::OpDotDot => Some(Self::Range),
+
             _ => None,
         }
     }
@@ -93,6 +98,7 @@ impl BinaryOp {
             | Self::AssMul
             | Self::AssDiv
             | Self::AssMod => BinOpClass::Assignment,
+            Self::Range => BinOpClass::Range,
         }
     }
 
@@ -103,6 +109,7 @@ impl BinaryOp {
             BinOpClass::Comparison => 2,
             BinOpClass::Additive => 3,
             BinOpClass::Multiplicative => 4,
+            BinOpClass::Range => 5,
         }
     }
 
@@ -125,6 +132,7 @@ impl BinaryOp {
             Self::AssMul => "assmul",
             Self::AssDiv => "assdiv",
             Self::AssMod => "assmod",
+            Self::Range => "range",
         }
     }
 }

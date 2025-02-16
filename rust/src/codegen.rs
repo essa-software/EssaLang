@@ -112,6 +112,7 @@ impl<'data> CodeGen<'data> {
                 Some(sema::Type::Primitive(sema::Primitive::Bool)) => "_esl_print_bool",
                 Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_u32",
                 Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
+                Some(sema::Type::Primitive(sema::Primitive::Range)) => "_esl_print_range",
                 _ => todo!(),
             }
         )?;
@@ -166,6 +167,7 @@ impl<'data> CodeGen<'data> {
         op: &parser::BinaryOp,
         left: &sema::Expression,
         right: &sema::Expression,
+        out_type: &sema::Type,
     ) -> IoResult<Option<String>> {
         let left_tmp = self
             .emit_expression_eval(left)?
@@ -185,7 +187,7 @@ impl<'data> CodeGen<'data> {
             Ok(None)
         } else {
             // out = op(lhs, rhs)
-            let tmp_var = self.emit_tmp_var(&left.type_(self.program).unwrap(), "binop")?;
+            let tmp_var = self.emit_tmp_var(out_type, "binop")?;
 
             // select C overload
             let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
@@ -288,7 +290,8 @@ impl<'data> CodeGen<'data> {
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
-                Ok(self.emit_binary_op(op, left, right)?)
+                let out_type = expr.type_(self.program).unwrap();
+                Ok(self.emit_binary_op(op, left, right, &out_type)?)
             }
         }
     }
