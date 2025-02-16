@@ -27,10 +27,22 @@ pub enum BinaryOp {
     CmpLessEq,    // <=
     CmpGreater,   // >
     CmpGreaterEq, // >=
+
+    Add, // +
+    Sub, // -
+
+    Assignment, // =
+    AssAdd,     // +=
+    AssSub,     // -=
+    AssMul,     // *=
+    AssDiv,     // /=
+    AssMod,     // %=
 }
 
 pub enum BinOpClass {
     Comparison,
+    Additive,
+    Assignment,
 }
 
 impl BinaryOp {
@@ -42,6 +54,17 @@ impl BinaryOp {
             lexer::TokenType::OpLessEquals => Some(Self::CmpLessEq),
             lexer::TokenType::OpGreater => Some(Self::CmpGreater),
             lexer::TokenType::OpGreaterEquals => Some(Self::CmpGreaterEq),
+
+            lexer::TokenType::OpPlus => Some(Self::Add),
+            lexer::TokenType::OpMinus => Some(Self::Sub),
+
+            lexer::TokenType::OpEquals => Some(Self::Assignment),
+            lexer::TokenType::OpPlusEquals => Some(Self::AssAdd),
+            lexer::TokenType::OpMinusEquals => Some(Self::AssSub),
+            lexer::TokenType::OpAsteriskEquals => Some(Self::AssMul),
+            lexer::TokenType::OpSlashEquals => Some(Self::AssDiv),
+            lexer::TokenType::OpPercentEquals => Some(Self::AssMod),
+
             _ => None,
         }
     }
@@ -54,12 +77,22 @@ impl BinaryOp {
             | Self::CmpLessEq
             | Self::CmpGreater
             | Self::CmpGreaterEq => BinOpClass::Comparison,
+            Self::Add | Self::Sub => BinOpClass::Additive,
+            Self::Assignment
+            | Self::AssAdd
+            | Self::AssSub
+            | Self::AssMul
+            | Self::AssDiv
+            | Self::AssMod => BinOpClass::Assignment,
         }
     }
 
+    // greater numbers will be evaluated first
     pub fn precedence(&self) -> u8 {
         match self.class() {
-            BinOpClass::Comparison => 1,
+            BinOpClass::Assignment => 1,
+            BinOpClass::Comparison => 2,
+            BinOpClass::Additive => 3,
         }
     }
 
@@ -71,6 +104,14 @@ impl BinaryOp {
             Self::CmpLessEq => "cmplte",
             Self::CmpGreater => "cmpgt",
             Self::CmpGreaterEq => "cmpgte",
+            Self::Add => "add",
+            Self::Sub => "sub",
+            Self::Assignment => "ass",
+            Self::AssAdd => "assadd",
+            Self::AssSub => "asssub",
+            Self::AssMul => "assmul",
+            Self::AssDiv => "assdiv",
+            Self::AssMod => "assmod",
         }
     }
 }
@@ -477,7 +518,7 @@ impl<'a> Parser<'a> {
         match next.type_ {
             lexer::TokenType::CurlyOpen => Some(self.consume_block()),
             lexer::TokenType::CurlyClose => panic!("somebody didn't consume '}}'"),
-            lexer::TokenType::KeywordLet => self.consume_var_decl(),
+            lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut => self.consume_var_decl(),
             lexer::TokenType::KeywordReturn => self.consume_return_statement(),
             lexer::TokenType::KeywordIf => self.consume_if_statement(),
             _ => self.consume_expression_statement(),

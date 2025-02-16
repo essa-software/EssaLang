@@ -1,7 +1,5 @@
 use std::{borrow::Borrow, collections::HashMap, ops::Range};
 
-use scopeguard::{guard, ScopeGuard};
-
 use crate::{
     error::CompilationError,
     parser::{self, BinOpClass},
@@ -291,6 +289,12 @@ impl Expression {
             Expression::BinaryOp { op, left, right } => match op {
                 _ if matches!(op.class(), BinOpClass::Comparison) => {
                     Some(Type::Primitive(Primitive::Bool))
+                }
+                _ if matches!(op.class(), BinOpClass::Assignment) => {
+                    Some(Type::Primitive(Primitive::Void))
+                }
+                _ if matches!(op.class(), BinOpClass::Additive) => {
+                    Some(Type::Primitive(Primitive::U32))
                 }
                 _ => None,
             },

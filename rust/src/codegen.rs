@@ -166,7 +166,7 @@ impl<'data> CodeGen<'data> {
         op: &parser::BinaryOp,
         left: &sema::Expression,
         right: &sema::Expression,
-    ) -> IoResult<String> {
+    ) -> IoResult<Option<String>> {
         let left_tmp = self
             .emit_expression_eval(left)?
             .expect("void expression in bin op lhs");
@@ -174,19 +174,29 @@ impl<'data> CodeGen<'data> {
             .emit_expression_eval(right)?
             .expect("void expression in bin op rhs");
 
-        let tmp_var = self.emit_tmp_var(&left.type_(self.program).unwrap(), "binop")?;
-
-        // select C overload
         let left_type = left.type_(self.program).unwrap().mangle(self.program);
         let right_type = right.type_(self.program).unwrap().mangle(self.program);
-        let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
 
-        writeln!(
-            self.out,
-            "    {} = {}({}, {});",
-            tmp_var, overload, left_tmp, right_tmp
-        )?;
-        return Ok(tmp_var);
+        let is_assignment = matches!(op.class(), parser::BinOpClass::Assignment);
+        if is_assignment {
+            // op(lhs, rhs)
+            let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
+            writeln!(self.out, "    {}(&{}, {});", overload, left_tmp, right_tmp)?;
+            Ok(None)
+        } else {
+            // out = op(lhs, rhs)
+            let tmp_var = self.emit_tmp_var(&left.type_(self.program).unwrap(), "binop")?;
+
+            // select C overload
+            let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
+
+            writeln!(
+                self.out,
+                "    {} = {}({}, {});",
+                tmp_var, overload, left_tmp, right_tmp
+            )?;
+            Ok(Some(tmp_var))
+        }
     }
 
     // Emit ESL expression evaluation as C statements.
@@ -276,7 +286,7 @@ impl<'data> CodeGen<'data> {
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
-                Ok(Some(self.emit_binary_op(op, left, right)?))
+                Ok(self.emit_binary_op(op, left, right)?)
             }
         }
     }

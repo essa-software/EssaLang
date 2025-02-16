@@ -1,7 +1,6 @@
 use std::{
     ops::Range,
     str::{self, Chars, Utf8Error},
-    thread::sleep,
 };
 
 #[derive(Debug)]
@@ -19,13 +18,20 @@ pub enum TokenType {
     KeywordReturn,
     KeywordTrue,
     Name(String),
-    OpEquals,        // =
-    OpEqualsEquals,  // ==
-    OpExlmEquals,    // !=
-    OpLess,          // <
-    OpLessEquals,    // <=
-    OpGreater,       // >
-    OpGreaterEquals, // >=
+    OpAsteriskEquals, // *=
+    OpEquals,         // =
+    OpEqualsEquals,   // ==
+    OpExlmEquals,     // !=
+    OpGreater,        // >
+    OpGreaterEquals,  // >=
+    OpLess,           // <
+    OpLessEquals,     // <=
+    OpMinus,          // -
+    OpMinusEquals,    // -=
+    OpPercentEquals,  // %=
+    OpPlus,           // +
+    OpPlusEquals,     // +=
+    OpSlashEquals,    // /=
     ParenClose,
     ParenOpen,
     Semicolon,
@@ -127,6 +133,10 @@ impl<'a> TokenIterator<'a> {
                         self.read_while(|c| c != '\n');
                         return self.read_token();
                     }
+                    Some('=') => {
+                        self.read_one();
+                        return Some(self.token(TokenType::OpSlashEquals, start));
+                    }
                     _ => {
                         // TODO: Division operator
                         return Some(self.token(TokenType::Garbage, start));
@@ -134,6 +144,14 @@ impl<'a> TokenIterator<'a> {
                 }
             }
             // punctuation / operators
+            '*' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpAsteriskEquals, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
+            }
             ':' => {
                 self.read_one();
                 Some(self.token(TokenType::Colon, start))
@@ -182,6 +200,22 @@ impl<'a> TokenIterator<'a> {
                 }
                 Some(self.token(TokenType::OpLess, start))
             }
+            '-' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpMinusEquals, start));
+                }
+                Some(self.token(TokenType::OpMinus, start))
+            }
+            '%' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpPercentEquals, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
+            }
             '(' => {
                 self.read_one();
                 Some(self.token(TokenType::ParenOpen, start))
@@ -189,6 +223,14 @@ impl<'a> TokenIterator<'a> {
             ')' => {
                 self.read_one();
                 Some(self.token(TokenType::ParenClose, start))
+            }
+            '+' => {
+                self.read_one();
+                if self.peek() == Some('=') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpPlusEquals, start));
+                }
+                Some(self.token(TokenType::OpPlus, start))
             }
             ';' => {
                 self.read_one();
