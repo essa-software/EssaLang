@@ -16,7 +16,7 @@ ROOT = os.path.dirname(__file__)
 
 TESTS_DIR = os.path.normpath(os.path.join(ROOT, "tests"))
 COMPILER_PATH = os.path.normpath(
-    os.path.join(ROOT, "build", "bootstrap", "esl"))
+    os.path.join(ROOT, "rust/target/debug/elc"))
 
 BINARY_DIR = os.path.join(ROOT, "build")
 os.chdir(BINARY_DIR)
@@ -59,48 +59,55 @@ def run_test(test_path, env_dir_id):
         os.makedirs(env_dir, exist_ok=True)
 
         # print(p)
+        # Compile error
+        expected_compile_err_path = os.path.join(TESTS_DIR, str(test_path) + ".cerr")
+        expected_compile_err = load_expectation(expected_compile_err_path)
+
+        # Runtime stdout
         expected_out_path = os.path.join(TESTS_DIR, str(test_path) + ".out")
         expected_out = load_expectation(expected_out_path)
 
+        # Runtime stderr (e.g panics)
         expected_err_path = os.path.join(TESTS_DIR, str(test_path) + ".err")
         expected_err = load_expectation(expected_err_path)
 
-        if len(expected_out) == 0 and len(expected_err) == 0:
+        if len(expected_compile_err) == 0 and len(expected_out) == 0 and len(expected_err) == 0:
             return
 
         start_time = time.perf_counter_ns()
 
+        # Compiler
         proc = sp.Popen([COMPILER_PATH, str(test_path)],
                         stdout=sp.PIPE, stderr=sp.PIPE,
                         cwd=env_dir)
-        out, err = proc.communicate()
+        compile_out, compile_err = proc.communicate()
         ret = proc.returncode
         compiler_time = time.perf_counter_ns() - start_time
         # print("out:", out, "err:", err, "ret:", ret)
 
         if args.update:
-            if len(err) > 0:
-                with open(expected_err_path, "wb") as f:
-                    f.write(err)
+            if len(compile_err) > 0:
+                with open(expected_compile_err_path, "wb") as f:
+                    f.write(compile_err)
             if ret != 0:
                 print(f"compiler error: {test_path}")
                 return
         else:
             if ret != 0:
-                if err != expected_err:
-                    sys.stderr.buffer.write(err)
-                    sys.stderr.buffer.flush()
-                    if len(out) > 0:
-                        fail(test_path, "expected success but got compiler error")
+                if len(expected_compile_err) > 0:
+                    if compile_err != expected_compile_err:
+                        fail(test_path, "got different compile error message than expected")
+                        return
                     else:
-                        fail(
-                            test_path, "got different compile error message than expected")
-                pass_(test_path, compiler_time)
-                return
-            elif len(err) > 0:
+                        pass_(test_path, compiler_time)
+                else:
+                    fail(test_path, "expected success but got compile error")
+                    return
+            elif len(expected_compile_err) > 0:
                 fail(test_path, "expected compile error but got success")
                 return
 
+        # Runtime
         proc = sp.Popen([os.path.join(env_dir, "build", "out")],
                         stdout=sp.PIPE, stderr=sp.PIPE, cwd=env_dir)
         out, err = proc.communicate()
@@ -115,20 +122,16 @@ def run_test(test_path, env_dir_id):
                     f.write(out)
         else:
             if ret != 0:
-                if err != expected_err:
-                    sys.stderr.buffer.write(err)
-                    sys.stderr.buffer.flush()
-                    if len(out) > 0:
-                        fail(test_path, "expected success but got runtime error")
+                if len(expected_err) > 0:
+                    if err != expected_err:
+                        fail(test_path, "got different runtime error message than expected")
+                        return
                     else:
-                        fail(
-                            test_path, "got different runtime error message than expected")
+                        pass_(test_path, compiler_time)
+                else:
+                    fail(test_path, "expected success but got runtime error")
                     return
-            elif len(out) > 0:
-                if out != expected_out:
-                    fail(test_path, "got different output than expected")
-                    return
-            elif len(err) > 0:
+            elif len(expected_err) > 0:
                 fail(test_path, "expected runtime error but got success")
                 return
 
@@ -137,7 +140,8 @@ def run_test(test_path, env_dir_id):
         fail(test_path, str(e))
 
 
-with ThreadPoolExecutor() as pool:
+MAX_THREADS = 1
+with ThreadPoolExecutor(max_workers=MAX_THREADS) as pool:
     for idx, test_path in enumerate(Path(TESTS_DIR).rglob("*.esl")):
         pool.submit(run_test, test_path, idx)
 
