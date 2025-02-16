@@ -1,1 +1,1 @@
-[31;1mPanic:[m Integer overflow when calculating 2147483648 + 2147483648
+Panic: Overflow in addition

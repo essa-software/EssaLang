@@ -63,7 +63,9 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
     if !errors.is_empty() {
         eprintln!("Errors:");
         for error in errors {
-            eprintln!("{:?}", error);
+            // Note: This is the only thing printed on stdout in the
+            // whole program. (The correct program prints nothing)
+            println!("{:?}", error);
         }
         return Ok(false);
     }
