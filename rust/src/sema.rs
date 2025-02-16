@@ -677,12 +677,32 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         right: Type,
         range: &Range<usize>,
     ) {
-        if matches!(op.class(), BinOpClass::Comparison) {
-            if left != right {
-                self.tc.errors.push(CompilationError::new(
-                    "Comparison operator with different types".into(),
-                    range.clone(),
-                ));
+        match op.class() {
+            BinOpClass::Multiplicative | BinOpClass::Additive => {
+                if !matches!(left, Type::Primitive(Primitive::U32))
+                    || !matches!(right, Type::Primitive(Primitive::U32))
+                {
+                    self.tc.errors.push(CompilationError::new(
+                        "Invalid types for arithmetic operator".into(),
+                        range.clone(),
+                    ));
+                }
+            }
+            BinOpClass::Comparison => {
+                if left != right {
+                    self.tc.errors.push(CompilationError::new(
+                        "Comparison operator with different types".into(),
+                        range.clone(),
+                    ));
+                }
+            }
+            BinOpClass::Assignment => {
+                if left != right {
+                    self.tc.errors.push(CompilationError::new(
+                        "Assignment with different types".into(),
+                        range.clone(),
+                    ));
+                }
             }
         }
     }
