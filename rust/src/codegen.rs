@@ -228,7 +228,7 @@ impl<'data> CodeGen<'data> {
                 }
 
                 // Emit function call
-                let return_method = func.return_type.function_return_method();
+                let return_method = func.return_type.as_ref().unwrap().function_return_method();
                 match return_method {
                     FunctionReturnMethod::None => {
                         write!(self.out, "{}(", func.name)?;
@@ -237,7 +237,8 @@ impl<'data> CodeGen<'data> {
                         return Ok(None);
                     }
                     FunctionReturnMethod::Return => {
-                        let tmp_var = self.emit_tmp_var(&func.return_type, "rv")?;
+                        let tmp_var =
+                            self.emit_tmp_var(func.return_type.as_ref().unwrap(), "rv")?;
                         write!(self.out, "{} = ", tmp_var)?;
                         write!(self.out, "{}(", func.name)?;
                         write!(self.out, "{}", arg_tmps.join(", "))?;
@@ -245,7 +246,8 @@ impl<'data> CodeGen<'data> {
                         return Ok(Some(tmp_var));
                     }
                     FunctionReturnMethod::FirstArg => {
-                        let tmp_var = self.emit_tmp_var(&func.return_type, "bigrv")?;
+                        let tmp_var =
+                            self.emit_tmp_var(func.return_type.as_ref().unwrap(), "bigrv")?;
                         write!(self.out, "{}(", func.name)?;
                         if arg_tmps.is_empty() {
                             write!(self.out, "/*rv*/&{}", tmp_var)?;
@@ -281,8 +283,8 @@ impl<'data> CodeGen<'data> {
                 return Ok(Some(
                     self.variable_names
                         .get(&var_id.expect("invalid var ref"))
-                        .unwrap()
-                        .clone(),
+                        .cloned()
+                        .unwrap_or("INVALID".into()),
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
@@ -333,6 +335,7 @@ impl<'data> CodeGen<'data> {
             sema::Statement::If {
                 condition,
                 then_block,
+                else_block,
             } => {
                 let condition_tmp_var = self
                     .emit_expression_eval(condition)?
@@ -340,6 +343,11 @@ impl<'data> CodeGen<'data> {
                 writeln!(self.out, "    if ({condition_tmp_var}) {{")?;
                 self.emit_statement(&then_block)?;
                 writeln!(self.out, "    }}")?;
+                if let Some(else_block) = else_block {
+                    writeln!(self.out, "    else {{")?;
+                    self.emit_statement(&else_block)?;
+                    writeln!(self.out, "    }}")?;
+                }
             }
         }
         Ok(())
@@ -353,7 +361,7 @@ impl<'data> CodeGen<'data> {
             function.id().0.mangle(),
             function.params_scope.0.mangle()
         )?;
-        self.emit_type(&function.return_type)?;
+        self.emit_type(function.return_type.as_ref().unwrap())?;
 
         write!(self.out, " {}(", self.mangled_function_name(&function))?;
         let scope = self.program.get_scope(function.params_scope);
@@ -374,10 +382,25 @@ impl<'data> CodeGen<'data> {
 
     fn emit_function_impl(&mut self, function: &sema::Function) -> IoResult<()> {
         assert!(function.body.is_some());
-        self.emit_type(&function.return_type)?;
+        self.emit_type(&function.return_type.as_ref().expect("invalid type"))?;
 
         write!(self.out, " {}(", self.mangled_function_name(&function))?;
-        // TODO: Params
+        let scope = self.program.get_scope(function.params_scope);
+        for (i, param) in scope.vars.iter().enumerate() {
+            if i > 0 {
+                write!(self.out, ", ")?;
+            }
+
+            // TODO: handle different ways to pass arguments
+            let var = self.program.get_var(*param);
+            self.emit_type(&var.type_.as_ref().unwrap())?;
+
+            let var_name = format!("{}{}_param", var.name, self.local_var_counter);
+            self.local_var_counter += 1;
+            self.variable_names.insert(*param, var_name.clone());
+
+            write!(self.out, " {}", var_name)?;
+        }
         writeln!(self.out, ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;
         // return, for main function

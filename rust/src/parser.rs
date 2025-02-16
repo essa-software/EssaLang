@@ -1,16 +1,17 @@
 use core::str;
-use std::{
-    collections::LinkedList,
-    io::{BufRead, Cursor, Read, Write},
-    ops::Range,
-    str::{Chars, Utf8Error},
-};
+use std::{ops::Range, str::Utf8Error};
 
 use crate::{error::CompilationError, lexer};
 
 #[derive(Debug)]
 pub enum Type {
     Simple(String),
+}
+
+#[derive(Debug)]
+pub struct TypeNode {
+    pub type_: Type,
+    pub range: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -162,7 +163,7 @@ pub struct ExpressionNode {
 pub enum Statement {
     VarDecl {
         mut_: bool,
-        type_: Option<Type>,
+        type_: Option<TypeNode>,
         name: String,
         init_value: Option<ExpressionNode>,
     },
@@ -172,15 +173,23 @@ pub enum Statement {
     If {
         condition: ExpressionNode,
         then_block: Box<Statement>,
-        // TODO: else
+        else_block: Option<Box<Statement>>,
     },
+}
+
+#[derive(Debug)]
+pub struct FunctionParam {
+    pub name: String,
+    pub type_: TypeNode,
+    pub range: Range<usize>,
 }
 
 #[derive(Debug)]
 pub enum Declaration {
     FunctionImpl {
         name: String,
-        return_type: Option<Type>,
+        params: Vec<FunctionParam>,
+        return_type: Option<TypeNode>,
         body: Statement,
     },
 }
@@ -273,7 +282,7 @@ impl<'a> Parser<'a> {
         let init_value = self.consume_expression()?;
 
         // ";"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon));
+        let _ = self.expect_msg(|t| matches!(t, lexer::TokenType::Semicolon), ";");
 
         Some(Statement::VarDecl {
             mut_: is_mut,
@@ -440,15 +449,24 @@ impl<'a> Parser<'a> {
         while !ops.is_empty() {
             assert_eq!(ops.len(), args.len() - 1);
 
-            // get operator with max precedence
-            let (idx, _) = ops
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, (op, _))| op.precedence())
-                .unwrap();
+            // get operator with max precedence (if equal, take the first one == left associative)
+            let (idx, _) =
+                ops.iter()
+                    .enumerate()
+                    .fold((0, 0), |(max_idx, max_prec), (idx, (op, _))| {
+                        eprintln!("  ops: {:?}", ops);
+                        let prec = op.precedence();
+                        if prec > max_prec {
+                            (idx, prec)
+                        } else {
+                            (max_idx, max_prec)
+                        }
+                    });
 
             // remove the operator
             let (op, range) = ops.remove(idx);
+
+            eprintln!("  op: {:?} at {:?}", op, range);
 
             // build a new binary expression
             let left = args.remove(idx);
@@ -470,7 +488,10 @@ impl<'a> Parser<'a> {
 
     pub fn consume_expression_statement(&mut self) -> Option<Statement> {
         let expr = self.consume_expression()?;
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon));
+        let _ = self.expect_msg(
+            |t| matches!(t, lexer::TokenType::Semicolon),
+            "';' after expression statement",
+        );
         Some(Statement::Expression(expr))
     }
 
@@ -515,11 +536,41 @@ impl<'a> Parser<'a> {
         // block
         let then_block = self.consume_block();
 
-        // TODO: else
+        // "else"
+        let else_block = if let Some(next) = self.iter.clone().next() {
+            if matches!(next.type_, lexer::TokenType::KeywordElse) {
+                let _ = self.iter.next(); // "else"
+
+                // next might be another 'if' or a (final) block
+                let next = self.iter.clone().next()?;
+                match next.type_ {
+                    lexer::TokenType::KeywordIf => {
+                        let else_block = self.consume_if_statement()?;
+                        Some(else_block)
+                    }
+                    lexer::TokenType::CurlyOpen => {
+                        let else_block = self.consume_block();
+                        Some(else_block)
+                    }
+                    _ => {
+                        self.errors.push(CompilationError::new(
+                            "Expected 'else' block or another 'if'".into(),
+                            next.range.clone(),
+                        ));
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Some(Statement::If {
             condition,
             then_block: Box::new(then_block),
+            else_block: else_block.map(Box::new),
         })
     }
 
@@ -537,12 +588,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn consume_type(&mut self) -> Option<Type> {
+    pub fn consume_type(&mut self) -> Option<TypeNode> {
         let next = self.iter.clone().next()?;
         match next.type_ {
             lexer::TokenType::Name(name) => {
                 let _ = self.iter.next();
-                Some(Type::Simple(name))
+                Some(TypeNode {
+                    type_: Type::Simple(name),
+                    range: next.range,
+                })
             }
             _ => {
                 self.errors.push(CompilationError::new(
@@ -556,7 +610,6 @@ impl<'a> Parser<'a> {
     }
 
     // function-impl ::= "func" name "(" ")" [ ":" type ] "{" statement ... "}"
-    // (TODO: args, return value)
     pub fn consume_function_impl(&mut self) -> Option<Declaration> {
         // "func"
         let _ = self.iter.next();
@@ -567,11 +620,54 @@ impl<'a> Parser<'a> {
         // "("
         let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenOpen))?;
 
-        // ")"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose))?;
+        // params
+        let mut params = vec![];
+        loop {
+            // if next is ")", stop
+            if let Some(next) = self.iter.clone().next() {
+                match next.type_ {
+                    lexer::TokenType::ParenClose => {
+                        let _ = self.iter.next();
+                        break;
+                    }
+                    lexer::TokenType::Name(name) => {
+                        let _ = self.iter.next();
+                        let _ = self.expect(|t| matches!(t, lexer::TokenType::Colon));
+                        let type_ = self.consume_type()?;
+                        let next = self.iter.clone().next()?;
+                        match next.type_ {
+                            lexer::TokenType::Comma => {
+                                let _ = self.iter.next();
+                            }
+                            lexer::TokenType::ParenClose => {}
+                            _ => {
+                                self.errors.push(CompilationError::new(
+                                    "Expected ',' or ')'".into(),
+                                    next.range.clone(),
+                                ));
+                                let _ = self.iter.next(); //whatever
+                            }
+                        }
+                        params.push(FunctionParam {
+                            name: name.into(),
+                            type_,
+                            range: next.range.clone(),
+                        });
+                    }
+                    _ => {
+                        self.errors.push(CompilationError::new(
+                            "Expected parameter name or ')'".into(),
+                            next.range.clone(),
+                        ));
+                        let _ = self.iter.next(); //whatever
+                    }
+                }
+            } else {
+                break;
+            }
+        }
 
         // return type
-        // TODO: parse_type
         let colon = self
             .iter
             .clone()
@@ -588,6 +684,7 @@ impl<'a> Parser<'a> {
 
         Some(Declaration::FunctionImpl {
             name: name.slice_str(&self.input).unwrap().into(),
+            params,
             return_type,
             body,
         })

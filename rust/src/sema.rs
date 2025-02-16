@@ -179,7 +179,7 @@ pub struct Function {
     pub name: String,
     pub params_scope: ScopeId,
     pub body: Option<Statement>, // none = extern function
-    pub return_type: Type,
+    pub return_type: Option<Type>,
 }
 
 impl Function {
@@ -193,7 +193,7 @@ impl Function {
             name,
             params_scope,
             body: None,
-            return_type: Type::Primitive(Primitive::Void),
+            return_type: Some(Type::Primitive(Primitive::Void)),
         }
     }
 
@@ -216,7 +216,7 @@ impl Function {
         self
     }
     pub fn with_return_type(mut self, rt: Type) -> Function {
-        self.return_type = rt;
+        self.return_type = Some(rt);
         self
     }
     pub fn with_body(mut self, body: Statement) -> Function {
@@ -246,6 +246,7 @@ pub enum Statement {
     If {
         condition: Expression,
         then_block: Box<Statement>,
+        else_block: Option<Box<Statement>>,
     },
 }
 
@@ -280,7 +281,7 @@ impl Expression {
     pub fn type_(&self, program: &Program) -> Option<Type> {
         match self {
             Expression::Call { function_id, .. } => {
-                Some(program.get_function((*function_id)?).return_type.clone())
+                program.get_function((*function_id)?).return_type.clone()
             }
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
@@ -456,15 +457,28 @@ impl<'data> TypeChecker<'data> {
         self.program.add_function(PRELUDE_MODULE, print_func);
     }
 
-    fn typecheck_type(&self, p_type: &parser::Type) -> Type {
+    fn typecheck_type(
+        &mut self,
+        parser::TypeNode {
+            type_: p_type,
+            range,
+        }: &parser::TypeNode,
+    ) -> Option<Type> {
         match p_type {
             parser::Type::Simple(name) => match name.as_str() {
-                "u32" => Type::Primitive(Primitive::U32),
-                "bool" => Type::Primitive(Primitive::Bool),
-                "string" => Type::Primitive(Primitive::String),
-                "static_string" => Type::Primitive(Primitive::StaticString),
-                "range" => Type::Primitive(Primitive::Range),
-                _ => todo!("custom types / structs"),
+                "void" => Some(Type::Primitive(Primitive::Void)),
+                "u32" => Some(Type::Primitive(Primitive::U32)),
+                "bool" => Some(Type::Primitive(Primitive::Bool)),
+                "string" => Some(Type::Primitive(Primitive::String)),
+                "static_string" => Some(Type::Primitive(Primitive::StaticString)),
+                "range" => Some(Type::Primitive(Primitive::Range)),
+                _ => {
+                    self.errors.push(CompilationError::new(
+                        format!("Unknown type '{}'", name),
+                        range.clone(),
+                    ));
+                    None
+                }
             },
         }
     }
@@ -474,19 +488,31 @@ impl<'data> TypeChecker<'data> {
             match decl {
                 parser::Declaration::FunctionImpl {
                     name,
+                    params,
                     return_type,
                     body,
                 } => {
+                    let should_infer_return_type = return_type.is_none();
                     let rt = return_type
                         .as_ref()
-                        .map(|ty| self.typecheck_type(&ty))
-                        .unwrap_or(if name == "main" {
-                            Type::Primitive(Primitive::U32)
-                        } else {
-                            Type::Primitive(Primitive::Void)
+                        .and_then(|ty| self.typecheck_type(&ty))
+                        .or_else(|| {
+                            if should_infer_return_type {
+                                if name == "main" {
+                                    Some(Type::Primitive(Primitive::U32))
+                                } else {
+                                    Some(Type::Primitive(Primitive::Void))
+                                }
+                            } else {
+                                None
+                            }
                         });
-                    let function =
-                        Function::new(name.clone(), &mut self.program).with_return_type(rt);
+                    let mut function = Function::new(name.clone(), &mut self.program);
+                    function.return_type = rt;
+                    for param in params {
+                        let type_ = self.typecheck_type(&param.type_);
+                        function.add_param(Var::new(type_, param.name.clone()), &mut self.program);
+                    }
                     let id = self.program.add_function(MAIN_MODULE, function);
                     self.function_bodies_to_check.push((body, id));
                 }
@@ -763,13 +789,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     .as_ref()
                     .map(|expr| self.typecheck_expression(expr));
 
-                let type_: Option<Type> = type_.as_ref().map(|ty| self.tc.typecheck_type(&ty)).or(
-                    if let Some(init) = &init_value {
+                let type_: Option<Type> = type_
+                    .as_ref()
+                    .and_then(|ty| self.tc.typecheck_type(&ty))
+                    .or(if let Some(init) = &init_value {
                         init.type_(&self.tc.program)
                     } else {
                         None
-                    },
-                );
+                    });
                 let var = Var::new(type_, name.clone());
                 let func_module = self
                     .tc
@@ -810,13 +837,13 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             parser::Statement::If {
                 condition,
                 then_block,
+                else_block,
             } => {
                 let (condition, cond_range) = (
                     self.typecheck_expression(condition),
                     condition.range.clone(),
                 );
                 let condition_type = condition.type_(&self.tc.program);
-                let then_block = self.typecheck_statement(then_block);
                 if condition_type.is_some()
                     && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
                 {
@@ -825,9 +852,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         cond_range,
                     ));
                 }
+                let then_block = self.typecheck_statement(then_block);
+                let else_block = else_block
+                    .as_ref()
+                    .map(|block| Box::new(self.typecheck_statement(block)));
                 Statement::If {
                     condition,
                     then_block: Box::new(then_block),
+                    else_block,
                 }
             }
         }

@@ -10,6 +10,7 @@ pub enum TokenType {
     CurlyClose,
     CurlyOpen,
     Integer(u64),
+    KeywordElse,
     KeywordFalse,
     KeywordFunc,
     KeywordIf,
@@ -239,6 +240,13 @@ impl<'a> TokenIterator<'a> {
                 Some(self.token(TokenType::Semicolon, start))
             }
             // keywords
+            'e' => {
+                let kw = self.read_while(|c| c.is_alphabetic());
+                match kw {
+                    "else" => Some(self.token(TokenType::KeywordElse, start)),
+                    _ => Some(self.name(kw.to_string(), start)),
+                }
+            }
             'f' => {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
