@@ -30,6 +30,9 @@ pub enum BinaryOp {
 
     Add, // +
     Sub, // -
+    Mul, // *
+    Div, // /
+    Mod, // %
 
     Assignment, // =
     AssAdd,     // +=
@@ -40,8 +43,9 @@ pub enum BinaryOp {
 }
 
 pub enum BinOpClass {
-    Comparison,
+    Multiplicative,
     Additive,
+    Comparison,
     Assignment,
 }
 
@@ -57,6 +61,9 @@ impl BinaryOp {
 
             lexer::TokenType::OpPlus => Some(Self::Add),
             lexer::TokenType::OpMinus => Some(Self::Sub),
+            lexer::TokenType::OpAsterisk => Some(Self::Mul),
+            lexer::TokenType::OpSlash => Some(Self::Div),
+            lexer::TokenType::OpPercent => Some(Self::Mod),
 
             lexer::TokenType::OpEquals => Some(Self::Assignment),
             lexer::TokenType::OpPlusEquals => Some(Self::AssAdd),
@@ -78,6 +85,7 @@ impl BinaryOp {
             | Self::CmpGreater
             | Self::CmpGreaterEq => BinOpClass::Comparison,
             Self::Add | Self::Sub => BinOpClass::Additive,
+            Self::Mul | Self::Div | Self::Mod => BinOpClass::Multiplicative,
             Self::Assignment
             | Self::AssAdd
             | Self::AssSub
@@ -88,11 +96,12 @@ impl BinaryOp {
     }
 
     // greater numbers will be evaluated first
-    pub fn precedence(&self) -> u8 {
+    fn precedence(&self) -> u8 {
         match self.class() {
             BinOpClass::Assignment => 1,
             BinOpClass::Comparison => 2,
             BinOpClass::Additive => 3,
+            BinOpClass::Multiplicative => 4,
         }
     }
 
@@ -106,6 +115,9 @@ impl BinaryOp {
             Self::CmpGreaterEq => "cmpgte",
             Self::Add => "add",
             Self::Sub => "sub",
+            Self::Mul => "mul",
+            Self::Div => "div",
+            Self::Mod => "mod",
             Self::Assignment => "ass",
             Self::AssAdd => "assadd",
             Self::AssSub => "asssub",

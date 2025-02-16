@@ -18,6 +18,7 @@ pub enum TokenType {
     KeywordReturn,
     KeywordTrue,
     Name(String),
+    OpAsterisk,       // *
     OpAsteriskEquals, // *=
     OpEquals,         // =
     OpEqualsEquals,   // ==
@@ -28,9 +29,11 @@ pub enum TokenType {
     OpLessEquals,     // <=
     OpMinus,          // -
     OpMinusEquals,    // -=
+    OpPercent,        // %
     OpPercentEquals,  // %=
     OpPlus,           // +
     OpPlusEquals,     // +=
+    OpSlash,          // /=
     OpSlashEquals,    // /=
     ParenClose,
     ParenOpen,
@@ -138,8 +141,7 @@ impl<'a> TokenIterator<'a> {
                         return Some(self.token(TokenType::OpSlashEquals, start));
                     }
                     _ => {
-                        // TODO: Division operator
-                        return Some(self.token(TokenType::Garbage, start));
+                        return Some(self.token(TokenType::OpSlash, start));
                     }
                 }
             }
@@ -150,7 +152,7 @@ impl<'a> TokenIterator<'a> {
                     self.read_one();
                     return Some(self.token(TokenType::OpAsteriskEquals, start));
                 }
-                Some(self.token(TokenType::Garbage, start))
+                Some(self.token(TokenType::OpAsterisk, start))
             }
             ':' => {
                 self.read_one();
@@ -214,7 +216,7 @@ impl<'a> TokenIterator<'a> {
                     self.read_one();
                     return Some(self.token(TokenType::OpPercentEquals, start));
                 }
-                Some(self.token(TokenType::Garbage, start))
+                Some(self.token(TokenType::OpPercent, start))
             }
             '(' => {
                 self.read_one();

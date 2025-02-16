@@ -293,7 +293,11 @@ impl Expression {
                 _ if matches!(op.class(), BinOpClass::Assignment) => {
                     Some(Type::Primitive(Primitive::Void))
                 }
-                _ if matches!(op.class(), BinOpClass::Additive) => {
+                _ if matches!(
+                    op.class(),
+                    BinOpClass::Additive | BinOpClass::Multiplicative
+                ) =>
+                {
                     Some(Type::Primitive(Primitive::U32))
                 }
                 _ => None,
