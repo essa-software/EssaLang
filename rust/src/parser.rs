@@ -381,6 +381,11 @@ impl<'a> Parser<'a> {
     pub fn consume_primary_expression(&mut self) -> Option<ExpressionNode> {
         let next = self.iter.next()?;
         match next.type_ {
+            lexer::TokenType::ParenOpen => {
+                let in_expr = self.consume_expression();
+                let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose), "')'")?;
+                in_expr
+            }
             lexer::TokenType::Name(name) => Some(ExpressionNode {
                 expression: Expression::Name(name),
                 range: next.range,
