@@ -62,7 +62,7 @@ def get_expected_paths(test_path):
 
 
 def run_compiler(test_path, env_dir):
-    proc = sp.Popen([COMPILER_PATH, str(test_path)],
+    proc = sp.Popen([COMPILER_PATH, str(test_path), "--machine-readable-errors"],
                     stdout=sp.PIPE, stderr=sp.PIPE,
                     cwd=env_dir)
     compile_out, compile_err = proc.communicate()

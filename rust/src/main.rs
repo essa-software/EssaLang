@@ -11,12 +11,17 @@ use std::{
     path::Path,
 };
 
+use argparse::{ArgumentParser, Store, StoreTrue};
 use codegen::CodeGen;
 use sema::TypeChecker;
 
+struct CompileArgs {
+    machine_readable_errors: bool,
+}
+
 // This returns Err only on fatal errors like failing to open a file.
 // For "soft" errors (compilation) this returns false.
-fn compile_file(path: &Path) -> anyhow::Result<bool> {
+fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
     eprintln!("Running file: {:?}", path);
 
     let source: Vec<u8> = {
@@ -29,43 +34,23 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
     let parser = parser::Parser::new(&source)?;
     let (program, mut errors) = parser.parse();
 
-    eprintln!("{:#?}", program);
-
-    // let program = parser::Program {
-    //     declarations: vec![parser::Declaration::FunctionImpl {
-    //         name: "main".into(),
-    //         return_type: parser::Type::Simple("u32".into()),
-    //         body: parser::Statement::Block(vec![
-    //             parser::Statement::VarDecl {
-    //                 mut_: false,
-    //                 name: "str".into(),
-    //                 type_: parser::Type::Simple("static_string".into()),
-    //                 init_value: Some(parser::Expression::StringLiteral {
-    //                     value: "Hello, world!\\n".into(),
-    //                 }),
-    //             },
-    //             parser::Statement::Expression(parser::Expression::Call {
-    //                 function: "print".into(),
-    //                 args: vec![parser::FunctionArg {
-    //                     param: None,
-    //                     value: parser::Expression::Name("str".into()),
-    //                 }],
-    //             }),
-    //         ]),
-    //     }],
-    // };
-
     let typechecker = TypeChecker::new(&program);
     let (program, typechecker_errors) = typechecker.typecheck();
 
     errors.extend(typechecker_errors);
 
     if !errors.is_empty() {
-        eprintln!("Errors:");
-        for error in errors {
-            // Note: This is the only thing printed on stdout in the
-            // whole program. (The correct program prints nothing)
-            println!("{:?}", error);
+        if args.machine_readable_errors {
+            eprintln!("Errors:");
+            for error in errors {
+                // Note: This is the only thing printed on stdout in the
+                // whole program. (The correct program prints nothing)
+                println!("{:?}", error);
+            }
+        } else {
+            for error in errors {
+                error.print(&source);
+            }
         }
         return Ok(false);
     }
@@ -126,9 +111,25 @@ fn compile_file(path: &Path) -> anyhow::Result<bool> {
 }
 
 fn main() {
-    let input = args().nth(1).expect("Expected input file");
-    let path = Path::new(&input);
-    match compile_file(path) {
+    let mut path = String::new();
+    let mut args = CompileArgs {
+        machine_readable_errors: false,
+    };
+
+    {
+        let mut ap = ArgumentParser::new();
+        ap.refer(&mut path)
+            .add_argument("source", Store, "Source file")
+            .required();
+        ap.refer(&mut args.machine_readable_errors).add_option(
+            &["--machine-readable-errors"],
+            StoreTrue,
+            "Print errors in a machine-readable format",
+        );
+        ap.parse_args_or_exit();
+    }
+
+    match compile_file(Path::new(&path), &args) {
         Ok(true) => {}
         Ok(false) => {
             eprintln!("Compilation failed");

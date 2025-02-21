@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+argparse = "0.2.2"
 dirs = "6.0.0"
 scopeguard = "1.2.0"
 tempfile = "3.16.0"
