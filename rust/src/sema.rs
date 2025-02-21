@@ -131,6 +131,13 @@ impl Type {
             Type::Struct { id } => format!("struct_{}", program.structs[id].name),
         }
     }
+
+    pub fn iter_value_type(&self, _program: &Program) -> Option<Type> {
+        match self {
+            Type::Primitive(Primitive::Range) => Some(Type::Primitive(Primitive::U32)),
+            _ => None,
+        }
+    }
 }
 
 //// Function
@@ -245,6 +252,11 @@ pub enum Statement {
         init: Option<Expression>,
     },
     Return(Option<Expression>),
+    For {
+        it_var: VarId,
+        iterable: Expression,
+        body: Box<Statement>,
+    },
     If {
         condition: Expression,
         then_block: Box<Statement>,
@@ -885,21 +897,8 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         None
                     });
                 let var = Var::new(type_, name.clone(), *mut_);
-                let func_module = self
-                    .tc
-                    .program
-                    .get_function(self.function)
-                    .params_scope
-                    .0
-                    .module;
+                let func_module = self.function.0.module;
                 let var_id = self.tc.program.add_var(func_module, var);
-                eprintln!(
-                    "adding var id={:?} to scope id={:?}",
-                    var_id,
-                    self.current_scope()
-                );
-                // current scope stack
-                eprintln!("current scopes stack: {:?}", self.scope_stack);
 
                 self.tc
                     .program
@@ -920,6 +919,47 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 // TODO: Check function return type
 
                 Statement::Return(expr)
+            }
+            parser::Statement::For {
+                it_var,
+                iterable,
+                body,
+            } => {
+                let tc_iterable = self.typecheck_expression(iterable);
+                let iter_type = tc_iterable.type_(&self.tc.program);
+                let iter_value_type: Option<Type> = tc_iterable
+                    .type_(&self.tc.program)
+                    .and_then(|t| t.iter_value_type(&self.tc.program));
+
+                if !iter_type.is_none() && iter_value_type.is_none() {
+                    self.tc.errors.push(CompilationError::new(
+                        "For loop iterable must be an iterable type".into(),
+                        iterable.range.clone(),
+                    ));
+                }
+
+                self.push_scope();
+
+                // iterable var
+                let var = Var::new(iter_value_type, it_var.clone(), false);
+                let func_module = self.function.0.module;
+                let var_id = self.tc.program.add_var(func_module, var);
+                eprintln!("iterable var id: {:?}", var_id);
+
+                self.tc
+                    .program
+                    .get_scope_mut(self.current_scope())
+                    .vars
+                    .push(var_id);
+
+                let body = self.typecheck_statement(body);
+                self.pop_scope();
+
+                Statement::For {
+                    it_var: var_id,
+                    iterable: tc_iterable,
+                    body: Box::new(body),
+                }
             }
             parser::Statement::If {
                 condition,

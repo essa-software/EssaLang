@@ -178,6 +178,11 @@ pub enum Statement {
     Expression(ExpressionNode),
     Return(Option<ExpressionNode>),
     Block(Vec<Statement>),
+    For {
+        it_var: String,
+        iterable: ExpressionNode,
+        body: Box<Statement>,
+    },
     If {
         condition: ExpressionNode,
         then_block: Box<Statement>,
@@ -550,6 +555,43 @@ impl<'a> Parser<'a> {
         Some(Statement::Return(Some(expr)))
     }
 
+    // for-statement ::= "for" "(" "let" var-name "of" expression ")" block
+    pub fn consume_for_statement(&mut self) -> Option<Statement> {
+        // "for"
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordFor));
+
+        // "("
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen));
+
+        // "let"
+        // TODO: distinguish let/mut
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordLet));
+
+        // var name
+        let it_var = self.expect(
+            |t| matches!(t, lexer::TokenType::Name(_)),
+            "iterator variable",
+        )?;
+
+        // "of"
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordOf));
+
+        // iterable
+        let iterable = self.consume_expression()?;
+
+        // ")"
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenClose));
+
+        // block
+        let body = self.consume_block();
+
+        Some(Statement::For {
+            it_var: it_var.slice_str(&self.input).unwrap().into(),
+            iterable,
+            body: Box::new(body),
+        })
+    }
+
     // if-statement ::= "if" "(" expression ")" block [ "else" block ]
     pub fn consume_if_statement(&mut self) -> Option<Statement> {
         // "if"
@@ -610,11 +652,12 @@ impl<'a> Parser<'a> {
         let next = self.iter.clone().next()?;
         // eprintln!("  next token in consume_statement: {:?}", next);
         match next.type_ {
-            lexer::TokenType::CurlyOpen => Some(self.consume_block()),
             lexer::TokenType::CurlyClose => panic!("somebody didn't consume '}}'"),
+            lexer::TokenType::CurlyOpen => Some(self.consume_block()),
+            lexer::TokenType::KeywordFor => self.consume_for_statement(),
+            lexer::TokenType::KeywordIf => self.consume_if_statement(),
             lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut => self.consume_var_decl(),
             lexer::TokenType::KeywordReturn => self.consume_return_statement(),
-            lexer::TokenType::KeywordIf => self.consume_if_statement(),
             _ => self.consume_expression_statement(),
         }
     }

@@ -86,6 +86,16 @@ impl<'data> CodeGen<'data> {
     }
 
     // Returns a name.
+    fn emit_tmp_var_c(&mut self, c_type: String, debug: &str) -> IoResult<String> {
+        self.tmp_var_counter += 1;
+
+        let name = format!("$$tmp{}_{}", self.tmp_var_counter, debug.to_string());
+
+        writeln!(self.out, "    {} {};", c_type, name)?;
+
+        Ok(name)
+    }
+
     fn emit_tmp_var(&mut self, ty: &sema::Type, debug: &str) -> IoResult<String> {
         self.tmp_var_counter += 1;
 
@@ -286,7 +296,7 @@ impl<'data> CodeGen<'data> {
                     self.variable_names
                         .get(&var_id.expect("invalid var ref"))
                         .cloned()
-                        .unwrap_or("INVALID".into()),
+                        .unwrap_or(format!("INVALID{}", var_id.unwrap().0.mangle())),
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
@@ -309,7 +319,12 @@ impl<'data> CodeGen<'data> {
             }
             sema::Statement::VarDecl { var: var_id, init } => {
                 let var = self.program.get_var(*var_id);
-                let var_name = format!("{}{}", var.name, self.local_var_counter);
+                let var_name = format!(
+                    "{}{}_{}",
+                    var.name,
+                    self.local_var_counter,
+                    var_id.0.mangle()
+                );
                 self.local_var_counter += 1;
                 self.variable_names.insert(*var_id, var_name.clone());
                 writeln!(self.out, "    /* var decl {} */", var.name)?;
@@ -334,6 +349,60 @@ impl<'data> CodeGen<'data> {
                 } else {
                     writeln!(self.out, "return;")?;
                 }
+            }
+            sema::Statement::For {
+                it_var,
+                iterable,
+                body,
+            } => {
+                // Generate iterable
+                let iterable_tmp = self
+                    .emit_expression_eval(iterable)?
+                    .expect("void for iterable");
+
+                let iterable_type = iterable.type_(self.program).unwrap().mangle(self.program);
+                let value_type = iterable
+                    .type_(self.program)
+                    .unwrap()
+                    .iter_value_type(self.program)
+                    .unwrap();
+
+                let iterator_type_name = format!("esl_iterator__{}", iterable_type);
+                let iterator_new_func = format!("_{}_new", iterator_type_name);
+                let iterator_next_func = format!("_{}_next", iterator_type_name);
+                let iterator_has_next_func = format!("_{}_has_next", iterator_type_name);
+
+                // construct iterator
+                let iterator_tmp = self.emit_tmp_var_c(iterator_type_name, "iterator")?;
+                writeln!(
+                    self.out,
+                    "    {} = {}(&{});",
+                    iterator_tmp, iterator_new_func, iterable_tmp
+                )?;
+
+                // while(iterator.has_next()) { body }
+                writeln!(
+                    self.out,
+                    "    while({}(&{})) {{",
+                    iterator_has_next_func, iterator_tmp
+                )?;
+
+                // get next value
+                let it_var_name = format!("it{}_{}", self.local_var_counter, it_var.0.mangle());
+                self.local_var_counter += 1;
+                self.variable_names.insert(*it_var, it_var_name.clone());
+                writeln!(self.out, "    // iter var id = {}", it_var.0.mangle())?;
+                self.emit_type(&value_type)?;
+                writeln!(
+                    self.out,
+                    " {} = {}(&{});",
+                    it_var_name, iterator_next_func, iterator_tmp
+                )?;
+
+                // emit body
+                self.emit_statement(body)?;
+
+                writeln!(self.out, "    }}")?;
             }
             sema::Statement::If {
                 condition,

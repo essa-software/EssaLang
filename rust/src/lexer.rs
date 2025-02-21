@@ -12,10 +12,12 @@ pub enum TokenType {
     Integer(u64),
     KeywordElse,
     KeywordFalse,
+    KeywordFor,
     KeywordFunc,
     KeywordIf,
     KeywordLet,
     KeywordMut,
+    KeywordOf,
     KeywordReturn,
     KeywordTrue,
     Name(String),
@@ -260,6 +262,7 @@ impl<'a> TokenIterator<'a> {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
                     "false" => Some(self.token(TokenType::KeywordFalse, start)),
+                    "for" => Some(self.token(TokenType::KeywordFor, start)),
                     "func" => Some(self.token(TokenType::KeywordFunc, start)),
                     _ => Some(self.name(kw.to_string(), start)),
                 }
@@ -282,6 +285,13 @@ impl<'a> TokenIterator<'a> {
                 let kw = self.read_while(|c| c.is_alphabetic());
                 match kw {
                     "mut" => Some(self.token(TokenType::KeywordMut, start)),
+                    _ => Some(self.name(kw.to_string(), start)),
+                }
+            }
+            'o' => {
+                let kw = self.read_while(|c| c.is_alphabetic());
+                match kw {
+                    "of" => Some(self.token(TokenType::KeywordOf, start)),
                     _ => Some(self.name(kw.to_string(), start)),
                 }
             }
