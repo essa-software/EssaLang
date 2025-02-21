@@ -1,3 +1,1 @@
-[90mpassing_argument_of_invalid_type.esl: [m[1;31mError:[m Cannot convert 'string' to 'u32' for function argument
-   4 |     foo([31m"[m[31mt[m[31me[m[31ms[m[31mt[m[31m"[m);
-               ^^^^^^ [31mCannot convert 'string' to 'u32' for function argument[m
+CompilationError { message: "Argument 0 has invalid type", range: 45..51 }

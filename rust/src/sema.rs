@@ -684,7 +684,15 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 ));
                 break;
             });
-            // TODO: Check param type
+
+            let var = self.tc.program.get_var(param);
+            if var.type_ != expr.type_(&self.tc.program) {
+                self.tc.errors.push(CompilationError::new(
+                    format!("Argument {} has invalid type", i),
+                    range.clone(),
+                ));
+            }
+
             arguments.insert(param, expr);
         }
 

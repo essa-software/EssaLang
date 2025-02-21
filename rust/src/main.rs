@@ -5,7 +5,6 @@ pub mod parser;
 pub mod sema;
 
 use std::{
-    env::args,
     fs::{self, File},
     io::Read,
     path::Path,
