@@ -8,14 +8,15 @@ import argparse as ap
 from concurrent.futures import ThreadPoolExecutor
 
 parser = ap.ArgumentParser("run-tests")
-parser.add_argument("--update", help="update expectations for matching tests with actual outputs")
+parser.add_argument(
+    "--update", help="update expectations for matching tests with actual outputs"
+)
 args = parser.parse_args()
 
 ROOT = os.path.dirname(__file__)
 
 TESTS_DIR = os.path.normpath(os.path.join(ROOT, "tests"))
-COMPILER_PATH = os.path.normpath(
-    os.path.join(ROOT, "rust/target/debug/elc"))
+COMPILER_PATH = os.path.normpath(os.path.join(ROOT, "rust/target/debug/elc"))
 
 BINARY_DIR = os.path.join(ROOT, "build")
 os.chdir(BINARY_DIR)
@@ -46,10 +47,12 @@ def pass_(test_path, compiler_time):
     global passed
     passed += 1
     print(
-        f"\033[42m PASS \033[0;34m {test_name} \033[30m({compiler_time/1e9:.2f}s)\033[m")
+        f"\033[42m PASS \033[0;34m {test_name} \033[30m({compiler_time / 1e9:.2f}s)\033[m"
+    )
 
 
 total_start_time = time.perf_counter_ns()
+
 
 def get_expected_paths(test_path):
     # Compile error (stdout)
@@ -62,9 +65,12 @@ def get_expected_paths(test_path):
 
 
 def run_compiler(test_path, env_dir):
-    proc = sp.Popen([COMPILER_PATH, str(test_path), "--machine-readable-errors"],
-                    stdout=sp.PIPE, stderr=sp.PIPE,
-                    cwd=env_dir)
+    proc = sp.Popen(
+        [COMPILER_PATH, str(test_path), "--machine-readable-errors"],
+        stdout=sp.PIPE,
+        stderr=sp.PIPE,
+        cwd=env_dir,
+    )
     compile_out, compile_err = proc.communicate()
     ret = proc.returncode
 
@@ -72,8 +78,12 @@ def run_compiler(test_path, env_dir):
 
 
 def run_runtime(test_path, env_dir):
-    proc = sp.Popen([os.path.join(env_dir, "build", "out")],
-                    stdout=sp.PIPE, stderr=sp.PIPE, cwd=env_dir)
+    proc = sp.Popen(
+        [os.path.join(env_dir, "build", "out")],
+        stdout=sp.PIPE,
+        stderr=sp.PIPE,
+        cwd=env_dir,
+    )
     out, err = proc.communicate()
     ret = proc.returncode
 
@@ -85,12 +95,18 @@ def run_test(test_path, env_dir_id):
         env_dir = os.path.join(BINARY_DIR, str(env_dir_id))
         os.makedirs(env_dir, exist_ok=True)
 
-        expected_compile_out_path, expected_out_path, expected_err_path = get_expected_paths(test_path)
+        expected_compile_out_path, expected_out_path, expected_err_path = (
+            get_expected_paths(test_path)
+        )
         expected_compile_out = load_expectation(expected_compile_out_path)
         expected_out = load_expectation(expected_out_path)
         expected_err = load_expectation(expected_err_path)
 
-        if len(expected_compile_out) == 0 and len(expected_out) == 0 and len(expected_err) == 0:
+        if (
+            len(expected_compile_out) == 0
+            and len(expected_out) == 0
+            and len(expected_err) == 0
+        ):
             return
 
         start_time = time.perf_counter_ns()
@@ -174,7 +190,8 @@ else:
             pool.submit(run_test, test_path, idx)
 
     print(
-        f"\n\033[32mPassed:\033[m {passed}, \033[31mFailed:\033[m {failed}, Took {(time.perf_counter_ns() - total_start_time)/1e9:.2f}s")
+        f"\n\033[32mPassed:\033[m {passed}, \033[31mFailed:\033[m {failed}, Took {(time.perf_counter_ns() - total_start_time) / 1e9:.2f}s"
+    )
 
     if failed > 0:
         sys.exit(1)
