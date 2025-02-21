@@ -104,10 +104,7 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
         .arg("-leslrt");
 
     eprintln!("Calling: {:?}", cmd);
-
-    cmd.spawn()?.wait()?;
-
-    Ok(true)
+    Ok(cmd.spawn()?.wait()?.code().map_or(false, |c| c == 0))
 }
 
 fn main() {
