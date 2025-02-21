@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 project(esl-runtime)
 
 add_library(eslrt
-    src/esl_header.cpp
+    src/prelude/fmt.cpp
+    src/prelude/ops.cpp
+    src/prelude/panic.cpp
 )
 target_include_directories(eslrt PUBLIC include)
 
