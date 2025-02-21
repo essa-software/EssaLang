@@ -421,6 +421,12 @@ impl<'data> CodeGen<'data> {
                     writeln!(self.out, "    }}")?;
                 }
             }
+            sema::Statement::Break => {
+                writeln!(self.out, "break;")?;
+            }
+            sema::Statement::Continue => {
+                writeln!(self.out, "continue;")?;
+            }
         }
         Ok(())
     }

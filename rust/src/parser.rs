@@ -188,6 +188,8 @@ pub enum Statement {
         then_block: Box<StatementNode>,
         else_block: Option<Box<StatementNode>>,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Debug)]
@@ -700,6 +702,22 @@ impl<'a> Parser<'a> {
         match next.type_ {
             lexer::TokenType::CurlyClose => panic!("somebody didn't consume '}}'"),
             lexer::TokenType::CurlyOpen => Some(self.consume_block()),
+            lexer::TokenType::KeywordBreak => {
+                let range = self.iter.next()?.range;
+                self.expect(|t| matches!(t, lexer::TokenType::Semicolon), "';'");
+                Some(StatementNode {
+                    statement: Statement::Break,
+                    range,
+                })
+            }
+            lexer::TokenType::KeywordContinue => {
+                let range = self.iter.next()?.range;
+                self.expect(|t| matches!(t, lexer::TokenType::Semicolon), "';'");
+                Some(StatementNode {
+                    statement: Statement::Continue,
+                    range,
+                })
+            }
             lexer::TokenType::KeywordFor => self.consume_for_statement(),
             lexer::TokenType::KeywordIf => self.consume_if_statement(),
             lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut => self.consume_var_decl(),

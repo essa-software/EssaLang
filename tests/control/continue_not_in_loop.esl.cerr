@@ -1,0 +1,1 @@
+CompilationError { message: "'continue' outside of a loop", range: 18..26 }

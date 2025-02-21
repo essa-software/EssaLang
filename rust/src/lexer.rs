@@ -10,6 +10,8 @@ pub enum TokenType {
     CurlyClose,
     CurlyOpen,
     Integer(u64),
+    KeywordBreak,
+    KeywordContinue,
     KeywordElse,
     KeywordFalse,
     KeywordFor,
@@ -263,6 +265,8 @@ impl<'a> TokenIterator<'a> {
             _ if c.is_alphabetic() || c == '_' => {
                 let name = self.read_while(|c| c.is_alphanumeric() || c == '_');
                 match name {
+                    "break" => Some(self.token(TokenType::KeywordBreak, start)),
+                    "continue" => Some(self.token(TokenType::KeywordContinue, start)),
                     "else" => Some(self.token(TokenType::KeywordElse, start)),
                     "false" => Some(self.token(TokenType::KeywordFalse, start)),
                     "for" => Some(self.token(TokenType::KeywordFor, start)),

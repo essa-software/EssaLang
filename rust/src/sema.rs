@@ -262,6 +262,8 @@ pub enum Statement {
         then_block: Box<Statement>,
         else_block: Option<Box<Statement>>,
     },
+    Break,
+    Continue,
 }
 
 //// Expressions
@@ -589,6 +591,7 @@ pub struct TypeCheckerExecution<'tc, 'data> {
     function: FunctionId,
 
     scope_stack: Vec<ScopeId>,
+    loop_depth: usize,
 }
 
 impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
@@ -597,6 +600,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             tc,
             function,
             scope_stack: vec![],
+            loop_depth: 0,
         }
     }
 
@@ -611,6 +615,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
 
     fn current_scope(&self) -> ScopeId {
         *self.scope_stack.last().expect("no scope")
+    }
+
+    fn is_in_loop(&self) -> bool {
+        self.loop_depth > 0
     }
 
     fn lookup_variable(&self, name: String) -> Option<&Var> {
@@ -868,10 +876,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
 
     fn typecheck_statement(
         &mut self,
-        parser::StatementNode {
-            statement,
-            range: _,
-        }: &parser::StatementNode,
+        parser::StatementNode { statement, range }: &parser::StatementNode,
     ) -> Statement {
         match statement {
             parser::Statement::Expression(expr) => {
@@ -885,7 +890,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 b
             }
             parser::Statement::VarDecl {
-                mut_, // TODO: handle mut
+                mut_,
                 type_,
                 name,
                 init_value,
@@ -945,6 +950,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 }
 
                 self.push_scope();
+                self.loop_depth += 1;
 
                 // iterable var
                 let var = Var::new(iter_value_type, it_var.clone(), false);
@@ -959,6 +965,8 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     .push(var_id);
 
                 let body = self.typecheck_statement(body);
+
+                self.loop_depth -= 1;
                 self.pop_scope();
 
                 Statement::For {
@@ -994,6 +1002,24 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     then_block: Box::new(then_block),
                     else_block,
                 }
+            }
+            parser::Statement::Break => {
+                if !self.is_in_loop() {
+                    self.tc.errors.push(CompilationError::new(
+                        "'break' outside of a loop".into(),
+                        range.clone(),
+                    ))
+                }
+                Statement::Break
+            }
+            parser::Statement::Continue => {
+                if !self.is_in_loop() {
+                    self.tc.errors.push(CompilationError::new(
+                        "'continue' outside of a loop".into(),
+                        range.clone(),
+                    ))
+                }
+                Statement::Continue
             }
         }
     }
