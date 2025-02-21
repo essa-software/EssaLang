@@ -462,7 +462,7 @@ pub struct TypeChecker<'data> {
     program: Program,
 
     // stage 1
-    function_bodies_to_check: Vec<(&'data parser::Statement, FunctionId)>,
+    function_bodies_to_check: Vec<(&'data parser::StatementNode, FunctionId)>,
 
     // stage 2
     errors: Vec<CompilationError>,
@@ -866,8 +866,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
-    fn typecheck_statement(&mut self, stmt: &parser::Statement) -> Statement {
-        match stmt {
+    fn typecheck_statement(
+        &mut self,
+        parser::StatementNode {
+            statement,
+            range: _,
+        }: &parser::StatementNode,
+    ) -> Statement {
+        match statement {
             parser::Statement::Expression(expr) => {
                 Statement::Expression(self.typecheck_expression(&expr))
             }
@@ -992,7 +998,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
-    fn typecheck(&mut self, stmt: &parser::Statement) {
+    fn typecheck(&mut self, stmt: &parser::StatementNode) {
         self.scope_stack
             .push(self.tc.program.get_function(self.function).params_scope);
 

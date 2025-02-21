@@ -177,17 +177,23 @@ pub enum Statement {
     },
     Expression(ExpressionNode),
     Return(Option<ExpressionNode>),
-    Block(Vec<Statement>),
+    Block(Vec<StatementNode>),
     For {
         it_var: String,
         iterable: ExpressionNode,
-        body: Box<Statement>,
+        body: Box<StatementNode>,
     },
     If {
         condition: ExpressionNode,
-        then_block: Box<Statement>,
-        else_block: Option<Box<Statement>>,
+        then_block: Box<StatementNode>,
+        else_block: Option<Box<StatementNode>>,
     },
+}
+
+#[derive(Debug)]
+pub struct StatementNode {
+    pub statement: Statement,
+    pub range: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -203,7 +209,7 @@ pub enum Declaration {
         name: String,
         params: Vec<FunctionParam>,
         return_type: Option<TypeNode>,
-        body: Statement,
+        body: StatementNode,
     },
 }
 
@@ -272,7 +278,7 @@ impl<'a> Parser<'a> {
     }
 
     // var-decl ::= "let" name [":" type] "=" expression ";"
-    pub fn consume_var_decl(&mut self) -> Option<Statement> {
+    pub fn consume_var_decl(&mut self) -> Option<StatementNode> {
         // "let"
         let let_or_mut = self.expect_no_msg(|t| {
             matches!(
@@ -305,17 +311,22 @@ impl<'a> Parser<'a> {
         let init_value = self.consume_expression()?;
 
         // ";"
-        let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), ";");
+        let sem = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), ";")?;
 
-        Some(Statement::VarDecl {
-            mut_: is_mut,
-            name: name.slice_str(&self.input).unwrap().into(),
-            type_,
-            init_value: Some(init_value),
+        Some(StatementNode {
+            statement: Statement::VarDecl {
+                mut_: is_mut,
+                name: name.slice_str(&self.input).unwrap().into(),
+                type_,
+                init_value: Some(init_value),
+            },
+            range: let_or_mut.range.start..sem.range.end,
         })
     }
 
-    pub fn consume_block(&mut self) -> Statement {
+    pub fn consume_block(&mut self) -> StatementNode {
+        let start = self.iter.clone().next().map(|t| t.range.start).unwrap_or(0);
+
         // "{"
         let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::CurlyOpen));
 
@@ -340,7 +351,11 @@ impl<'a> Parser<'a> {
         // "}"
         let _ = self.expect(|t| matches!(t, lexer::TokenType::CurlyClose), "'}'");
 
-        Statement::Block(statements)
+        let end = self.iter.clone().next().map(|t| t.range.end).unwrap_or(0);
+        StatementNode {
+            statement: Statement::Block(statements),
+            range: start..end,
+        }
     }
 
     // `(expression ",")* expression ","?` delimited by token matched by `is_end` (it is not consumed)
@@ -522,24 +537,33 @@ impl<'a> Parser<'a> {
         args.into_iter().next()
     }
 
-    pub fn consume_expression_statement(&mut self) -> Option<Statement> {
+    pub fn consume_expression_statement(&mut self) -> Option<StatementNode> {
         let expr = self.consume_expression()?;
         let _ = self.expect(
             |t| matches!(t, lexer::TokenType::Semicolon),
             "';' after expression statement",
         );
-        Some(Statement::Expression(expr))
+        let end = self.iter.clone().next().map(|t| t.range.end).unwrap_or(0);
+        Some(StatementNode {
+            range: expr.range.start..end,
+            statement: Statement::Expression(expr),
+        })
     }
 
-    pub fn consume_return_statement(&mut self) -> Option<Statement> {
+    pub fn consume_return_statement(&mut self) -> Option<StatementNode> {
+        let start = self.iter.clone().next()?.range.start;
+
         // "return"
         let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordReturn));
 
         // early ';' for "return;"
         if let Some(next) = self.iter.clone().next() {
             if matches!(next.type_, lexer::TokenType::Semicolon) {
-                let _ = self.iter.next();
-                return Some(Statement::Return(None));
+                let end = self.iter.next().unwrap().range.end;
+                return Some(StatementNode {
+                    statement: Statement::Return(None),
+                    range: start..end,
+                });
             }
         }
 
@@ -551,14 +575,21 @@ impl<'a> Parser<'a> {
             |t| matches!(t, lexer::TokenType::Semicolon),
             "';' after return",
         );
+        let end = self.iter.clone().next().map(|t| t.range.end).unwrap_or(0);
 
-        Some(Statement::Return(Some(expr)))
+        return Some(StatementNode {
+            statement: Statement::Return(Some(expr)),
+            range: start..end,
+        });
     }
 
     // for-statement ::= "for" "(" "let" var-name "of" expression ")" block
-    pub fn consume_for_statement(&mut self) -> Option<Statement> {
+    pub fn consume_for_statement(&mut self) -> Option<StatementNode> {
         // "for"
-        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordFor));
+        let start = self
+            .expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordFor))?
+            .range
+            .start;
 
         // "("
         let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen));
@@ -584,18 +615,25 @@ impl<'a> Parser<'a> {
 
         // block
         let body = self.consume_block();
+        let end = body.range.end;
 
-        Some(Statement::For {
-            it_var: it_var.slice_str(&self.input).unwrap().into(),
-            iterable,
-            body: Box::new(body),
+        Some(StatementNode {
+            statement: Statement::For {
+                it_var: it_var.slice_str(&self.input).unwrap().into(),
+                iterable,
+                body: Box::new(body),
+            },
+            range: start..end,
         })
     }
 
     // if-statement ::= "if" "(" expression ")" block [ "else" block ]
-    pub fn consume_if_statement(&mut self) -> Option<Statement> {
+    pub fn consume_if_statement(&mut self) -> Option<StatementNode> {
         // "if"
-        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordIf))?;
+        let start = self
+            .expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordIf))?
+            .range
+            .start;
 
         // "("
         let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen))?;
@@ -640,15 +678,23 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Some(Statement::If {
-            condition,
-            then_block: Box::new(then_block),
-            else_block: else_block.map(Box::new),
+        let end = else_block
+            .as_ref()
+            .map(|b| b.range.end)
+            .unwrap_or(then_block.range.end);
+
+        Some(StatementNode {
+            statement: Statement::If {
+                condition,
+                then_block: Box::new(then_block),
+                else_block: else_block.map(Box::new),
+            },
+            range: start..end,
         })
     }
 
     // statement ::= var-decl | expression ';' | block | return-statement | if-statement
-    pub fn consume_statement(&mut self) -> Option<Statement> {
+    pub fn consume_statement(&mut self) -> Option<StatementNode> {
         let next = self.iter.clone().next()?;
         // eprintln!("  next token in consume_statement: {:?}", next);
         match next.type_ {
