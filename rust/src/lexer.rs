@@ -250,65 +250,6 @@ impl<'a> TokenIterator<'a> {
                 self.read_one();
                 Some(self.token(TokenType::Semicolon, start))
             }
-            // keywords
-            'e' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "else" => Some(self.token(TokenType::KeywordElse, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'f' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "false" => Some(self.token(TokenType::KeywordFalse, start)),
-                    "for" => Some(self.token(TokenType::KeywordFor, start)),
-                    "func" => Some(self.token(TokenType::KeywordFunc, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'i' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "if" => Some(self.token(TokenType::KeywordIf, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'l' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "let" => Some(self.token(TokenType::KeywordLet, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'm' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "mut" => Some(self.token(TokenType::KeywordMut, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'o' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "of" => Some(self.token(TokenType::KeywordOf, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            'r' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "return" => Some(self.token(TokenType::KeywordReturn, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
-            't' => {
-                let kw = self.read_while(|c| c.is_alphabetic());
-                match kw {
-                    "true" => Some(self.token(TokenType::KeywordTrue, start)),
-                    _ => Some(self.name(kw.to_string(), start)),
-                }
-            }
             // number
             _ if c.is_numeric() => {
                 let num = self.read_while(|c| c.is_numeric());
@@ -321,7 +262,19 @@ impl<'a> TokenIterator<'a> {
             // name
             _ if c.is_alphabetic() || c == '_' => {
                 let name = self.read_while(|c| c.is_alphanumeric() || c == '_');
-                Some(self.name(name.to_string(), start))
+                match name {
+                    "else" => Some(self.token(TokenType::KeywordElse, start)),
+                    "false" => Some(self.token(TokenType::KeywordFalse, start)),
+                    "for" => Some(self.token(TokenType::KeywordFor, start)),
+                    "func" => Some(self.token(TokenType::KeywordFunc, start)),
+                    "if" => Some(self.token(TokenType::KeywordIf, start)),
+                    "let" => Some(self.token(TokenType::KeywordLet, start)),
+                    "mut" => Some(self.token(TokenType::KeywordMut, start)),
+                    "of" => Some(self.token(TokenType::KeywordOf, start)),
+                    "return" => Some(self.token(TokenType::KeywordReturn, start)),
+                    "true" => Some(self.token(TokenType::KeywordTrue, start)),
+                    name => Some(self.name(name.to_string(), start)),
+                }
             }
             // string literal
             '"' => {
