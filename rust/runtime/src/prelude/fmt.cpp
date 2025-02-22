@@ -25,20 +25,20 @@ void _esl_print(const char* fmtstr, size_t argc, esl_format_arg* argv) {
     }
 }
 
-void _esl_print_bool(void* data) {
-    printf("%s", *(esl_bool*)data ? "true" : "false");
+void _esl_print_bool(void const* data) {
+    printf("%s", *(esl_bool const*)data ? "true" : "false");
 }
 
-void _esl_print_static_string(void* data) {
+void _esl_print_static_string(void const* data) {
     printf("%s", (const char*)data);
 }
 
-void _esl_print_u32(void* data) {
-    printf("%u", *(esl_u32*)data);
+void _esl_print_u32(void const* data) {
+    printf("%u", *(esl_u32 const*)data);
 }
 
-void _esl_print_range(void* data) {
-    esl_range* range = (esl_range*)data;
+void _esl_print_range(void const* data) {
+    esl_range const* range = (esl_range const*)data;
     printf("%zu..%zu", range->_start, range->_end);
 }
 }
