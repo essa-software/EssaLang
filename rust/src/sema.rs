@@ -846,9 +846,11 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
     }
 
     fn is_type_convertible(&mut self, to: &Type, from: &Type) -> bool {
-        // Special case: EmptyArray can be converted to any Array
+        // Special case: EmptyArray can be converted to:
+        // - any Array
+        // - any struct (default init)
         if matches!(from, Type::Primitive(Primitive::EmptyArray))
-            && matches!(to, Type::Array { .. })
+            && matches!(to, Type::Array { .. } | Type::Struct { .. })
         {
             return true;
         }
@@ -1137,6 +1139,21 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     } else {
                         None
                     });
+
+                let init_value_type = init_value.as_ref().and_then(|e| e.type_(&self.tc.program));
+                if let (Some(var_type), Some(init_type)) = (&type_, init_value_type) {
+                    if !self.is_type_convertible(&var_type, &init_type) {
+                        self.tc.errors.push(CompilationError::new(
+                            format!(
+                                "Cannot convert '{}' to '{}' for variable initialization",
+                                init_type.name(&self.tc.program),
+                                var_type.name(&self.tc.program)
+                            ),
+                            range.clone(),
+                        ));
+                    }
+                }
+
                 let var = Var::new(type_, name.clone(), *mut_);
                 let func_module = self.function.0.module;
                 let var_id = self.tc.program.add_var(func_module, var);
