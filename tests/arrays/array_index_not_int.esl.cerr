@@ -1,3 +1,1 @@
-[90marray_index_not_int.esl: [m[1;31mError:[m Array index must be an unsigned integer or a range
-   3 |     arr[[31m"[m[31mt[m[31me[m[31ms[m[31mt[m[31m"[m];
-               ^^^^^^ [31mArray index must be an unsigned integer or a range[m
+CompilationError { message: "Index must be u32", range: 49..55 }

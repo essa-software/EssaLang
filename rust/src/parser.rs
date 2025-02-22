@@ -144,6 +144,10 @@ pub enum Expression {
         function: Box<ExpressionNode>,
         args: Vec<FunctionArg>,
     },
+    Index {
+        indexable: Box<ExpressionNode>,
+        index: Box<ExpressionNode>,
+    },
     BoolLiteral {
         value: bool,
     },
@@ -488,6 +492,21 @@ impl<'a> Parser<'a> {
                                 .collect(),
                         },
                         range: next.range.start..end.range.end,
+                    };
+                }
+                lexer::TokenType::BraceOpen => {
+                    let _ = self.iter.next(); // consume "["
+                    let index = self.consume_expression()?;
+                    let end = self.expect(
+                        |t| matches!(t, lexer::TokenType::BraceClose),
+                        "']' after index",
+                    )?;
+                    primary = ExpressionNode {
+                        range: primary.range.start..end.range.end,
+                        expression: Expression::Index {
+                            indexable: Box::new(primary),
+                            index: Box::new(index),
+                        },
                     };
                 }
                 _ => return Some(primary),

@@ -7,7 +7,7 @@ pub struct CodeGen<'data> {
     program: &'data sema::Program,
     tmp_var_counter: usize,
     local_var_counter: usize,
-    variable_names: HashMap<sema::VarId, String>,
+    variable_names: HashMap<sema::VarId, TmpVar>,
 }
 
 type IoResult<T> = std::result::Result<T, std::io::Error>;
@@ -37,6 +37,32 @@ impl sema::Type {
 fn escape_c(str: &String) -> String {
     // TODO
     str.clone()
+}
+
+#[derive(Clone)]
+struct TmpVar {
+    name: String,
+    is_ptr: bool,
+}
+
+impl TmpVar {
+    fn new(name: String, is_ptr: bool) -> Self {
+        Self { name, is_ptr }
+    }
+
+    fn access(&self) -> String {
+        match self.is_ptr {
+            true => format!("*{}", self.name),
+            false => self.name.clone(),
+        }
+    }
+
+    fn access_ptr(&self) -> String {
+        match self.is_ptr {
+            true => self.name.clone(),
+            false => format!("&{}", self.name),
+        }
+    }
 }
 
 impl<'data> CodeGen<'data> {
@@ -86,17 +112,38 @@ impl<'data> CodeGen<'data> {
     }
 
     // like `int var` or `int var[5]`
-    fn emit_var_decl(&mut self, type_: &sema::Type, name: &str) -> IoResult<()> {
+    fn emit_var_decl(
+        &mut self,
+        type_: &sema::Type,
+        name: &str,
+        value_type: sema::ValueType,
+    ) -> IoResult<TmpVar> {
         match type_ {
-            sema::Type::Primitive(primitive) => {
-                self.emit_type(type_);
-                write!(self.out, " {}", name)?;
-                Ok(())
+            sema::Type::Primitive(_primitive) => {
+                self.emit_type(type_)?;
+                match value_type {
+                    sema::ValueType::LValue => {
+                        write!(self.out, " *{}", name)?;
+                    }
+                    sema::ValueType::ConstLValue => {
+                        write!(self.out, " const *{}", name)?;
+                    }
+                    sema::ValueType::RValue => {
+                        write!(self.out, " {}", name)?;
+                    }
+                }
+                Ok(TmpVar::new(
+                    name.into(),
+                    !matches!(value_type, sema::ValueType::RValue),
+                ))
             }
             sema::Type::Array { inner, size } => {
                 self.emit_type(inner)?;
                 write!(self.out, " {}[{}]", name, size)?;
-                Ok(())
+                Ok(TmpVar::new(
+                    name.into(),
+                    !matches!(value_type, sema::ValueType::RValue),
+                ))
             }
             sema::Type::Function { function } => todo!(),
             sema::Type::Slice {
@@ -110,24 +157,26 @@ impl<'data> CodeGen<'data> {
     // Returns a name.
     fn emit_tmp_var_c(&mut self, c_type: &str, debug: &str) -> IoResult<String> {
         self.tmp_var_counter += 1;
-
         let name = format!("$$tmp{}_{}", self.tmp_var_counter, debug.to_string());
-
         writeln!(self.out, "    {} {};", c_type, name)?;
-
         Ok(name)
     }
 
-    fn emit_tmp_var(&mut self, ty: &sema::Type, debug: &str) -> IoResult<String> {
+    fn emit_tmp_var(
+        &mut self,
+        ty: &sema::Type,
+        debug: &str,
+        value_type: sema::ValueType,
+    ) -> IoResult<TmpVar> {
         self.tmp_var_counter += 1;
 
         let name = format!("$$tmp{}_{}", self.tmp_var_counter, debug.to_string());
 
         writeln!(self.out, "    ")?;
-        self.emit_var_decl(ty, &name)?;
+        let tmpvar = self.emit_var_decl(ty, &name, value_type)?;
         writeln!(self.out, ";")?;
 
-        Ok(name)
+        Ok(tmpvar)
     }
 
     fn emit_format_arg_eval(&mut self, arg: &sema::Expression) -> IoResult<String> {
@@ -148,7 +197,7 @@ impl<'data> CodeGen<'data> {
                 _ => todo!(),
             }
         )?;
-        writeln!(self.out, " {arg_var_name}.data = &{};", tmp_var)?;
+        writeln!(self.out, " {arg_var_name}.data = {};", tmp_var.access_ptr())?;
         Ok(arg_var_name)
     }
 
@@ -187,7 +236,8 @@ impl<'data> CodeGen<'data> {
         // call print
         writeln!(
             self.out,
-            "    _esl_print({fmtstr_var_name}, {}, {args_var_name});",
+            "    _esl_print({}, {}, {args_var_name});",
+            fmtstr_var_name.access(),
             args_in_varid_order.len(),
         )?;
 
@@ -200,7 +250,7 @@ impl<'data> CodeGen<'data> {
         left: &sema::Expression,
         right: &sema::Expression,
         out_type: &sema::Type,
-    ) -> IoResult<Option<String>> {
+    ) -> IoResult<Option<TmpVar>> {
         let left_tmp = self
             .emit_expression_eval(left)?
             .expect("void expression in bin op lhs");
@@ -215,11 +265,17 @@ impl<'data> CodeGen<'data> {
         if is_assignment {
             // op(lhs, rhs)
             let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
-            writeln!(self.out, "    {}(&{}, {});", overload, left_tmp, right_tmp)?;
+            writeln!(
+                self.out,
+                "    {}({}, {});",
+                overload,
+                left_tmp.access_ptr(),
+                right_tmp.access()
+            )?;
             Ok(None)
         } else {
             // out = op(lhs, rhs)
-            let tmp_var = self.emit_tmp_var(out_type, "binop")?;
+            let tmp_var = self.emit_tmp_var(out_type, "binop", sema::ValueType::RValue)?;
 
             // select C overload
             let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
@@ -227,15 +283,19 @@ impl<'data> CodeGen<'data> {
             writeln!(
                 self.out,
                 "    {} = {}({}, {});",
-                tmp_var, overload, left_tmp, right_tmp
+                tmp_var.access(),
+                overload,
+                left_tmp.access(),
+                right_tmp.access()
             )?;
             Ok(Some(tmp_var))
         }
     }
 
     // Emit ESL expression evaluation as C statements.
-    // Returns local var name with result if applicable
-    fn emit_expression_eval(&mut self, expr: &sema::Expression) -> IoResult<Option<String>> {
+    // Returns local var name with result if applicable.
+    // Emits *pointer* if expr is a (const) lvalue.
+    fn emit_expression_eval(&mut self, expr: &sema::Expression) -> IoResult<Option<TmpVar>> {
         match expr {
             sema::Expression::Call {
                 function_id,
@@ -266,50 +326,91 @@ impl<'data> CodeGen<'data> {
                 match return_method {
                     FunctionReturnMethod::None => {
                         write!(self.out, "{}(", func.name)?;
-                        write!(self.out, "{}", arg_tmps.join(", "))?;
+                        write!(
+                            self.out,
+                            "{}",
+                            arg_tmps
+                                .iter()
+                                .map(|a| a.access())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )?;
                         writeln!(self.out, ");")?;
                         return Ok(None);
                     }
                     FunctionReturnMethod::Return => {
-                        let tmp_var =
-                            self.emit_tmp_var(func.return_type.as_ref().unwrap(), "rv")?;
-                        write!(self.out, "{} = ", tmp_var)?;
+                        let tmp_var = self.emit_tmp_var(
+                            func.return_type.as_ref().unwrap(),
+                            "rv",
+                            sema::ValueType::RValue,
+                        )?;
+                        write!(self.out, "{} = ", tmp_var.access())?;
                         write!(self.out, "{}(", func.name)?;
-                        write!(self.out, "{}", arg_tmps.join(", "))?;
+                        write!(
+                            self.out,
+                            "{}",
+                            arg_tmps
+                                .iter()
+                                .map(|a| a.access())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )?;
                         writeln!(self.out, ");")?;
                         return Ok(Some(tmp_var));
                     }
                     FunctionReturnMethod::FirstArg => {
-                        let tmp_var =
-                            self.emit_tmp_var(func.return_type.as_ref().unwrap(), "bigrv")?;
-                        write!(self.out, "{}(", func.name)?;
-                        if arg_tmps.is_empty() {
-                            write!(self.out, "/*rv*/&{}", tmp_var)?;
-                        } else {
-                            write!(self.out, "/*rv*/&{}, ", tmp_var)?;
-                            write!(self.out, "{}", arg_tmps.join(", "))?;
-                        }
-                        writeln!(self.out, ");")?;
-                        return Ok(Some(tmp_var));
+                        todo!();
                     }
                 }
             }
+            sema::Expression::Index { indexable, index } => {
+                let index_tmp_var = self.emit_expression_eval(index)?.unwrap();
+                let indexable_tmp_var = self.emit_expression_eval(indexable)?.unwrap();
+                let out_tmp_var = self.emit_tmp_var(
+                    &indexable
+                        .type_(self.program)
+                        .unwrap()
+                        .iter_value_type(self.program)
+                        .unwrap(),
+                    "index",
+                    expr.value_type(),
+                )?;
+                // Note: out_tmp_var is lvalue so it's always a ptr.
+                assert!(out_tmp_var.is_ptr);
+                writeln!(
+                    self.out,
+                    "    {} = &({})[{}];",
+                    out_tmp_var.access_ptr(),
+                    indexable_tmp_var.access(),
+                    index_tmp_var.access()
+                )?;
+                Ok(Some(out_tmp_var))
+            }
             sema::Expression::BoolLiteral { value } => {
-                let tmp_var =
-                    self.emit_tmp_var(&sema::Type::Primitive(sema::Primitive::Bool), "bool")?;
-                writeln!(self.out, "{} = {};", tmp_var, value)?;
+                let tmp_var = self.emit_tmp_var(
+                    &sema::Type::Primitive(sema::Primitive::Bool),
+                    "bool",
+                    sema::ValueType::RValue,
+                )?;
+                writeln!(self.out, "{} = {};", tmp_var.access(), value)?;
                 return Ok(Some(tmp_var));
             }
             sema::Expression::IntLiteral { value } => {
-                let tmp_var =
-                    self.emit_tmp_var(&sema::Type::Primitive(sema::Primitive::U32), "int")?;
-                writeln!(self.out, "{} = {};", tmp_var, value)?;
+                let tmp_var = self.emit_tmp_var(
+                    &sema::Type::Primitive(sema::Primitive::U32),
+                    "int",
+                    sema::ValueType::RValue,
+                )?;
+                writeln!(self.out, "{} = {};", tmp_var.access(), value)?;
                 return Ok(Some(tmp_var));
             }
             sema::Expression::StringLiteral { value } => {
-                let tmp_var = self
-                    .emit_tmp_var(&sema::Type::Primitive(sema::Primitive::StaticString), "str")?;
-                writeln!(self.out, "{} = \"{}\";", tmp_var, escape_c(value))?;
+                let tmp_var = self.emit_tmp_var(
+                    &sema::Type::Primitive(sema::Primitive::StaticString),
+                    "str",
+                    sema::ValueType::RValue,
+                )?;
+                writeln!(self.out, "{} = \"{}\";", tmp_var.access(), escape_c(value))?;
                 return Ok(Some(tmp_var));
             }
             sema::Expression::VarRef { var_id, .. } => {
@@ -318,21 +419,30 @@ impl<'data> CodeGen<'data> {
                     self.variable_names
                         .get(&var_id.expect("invalid var ref"))
                         .cloned()
-                        .unwrap_or(format!("INVALID{}", var_id.unwrap().0.mangle())),
+                        .unwrap(),
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
                 let out_type = expr.type_(self.program).unwrap();
                 Ok(self.emit_binary_op(op, left, right, &out_type)?)
             }
-            sema::Expression::ArrayLiteral { value_type, values } => {
+            sema::Expression::ArrayLiteral {
+                value_type: _,
+                values,
+            } => {
                 let type_ = expr.type_(self.program).unwrap();
-                let tmp_var = self.emit_tmp_var(&type_, "array")?;
+                let tmp_var = self.emit_tmp_var(&type_, "array", sema::ValueType::RValue)?;
                 for (i, value) in values.iter().enumerate() {
                     let value_tmp = self
                         .emit_expression_eval(value)?
                         .expect("void expression in array literal");
-                    writeln!(self.out, "    {}[{}] = {};", tmp_var, i, value_tmp)?;
+                    writeln!(
+                        self.out,
+                        "    ({})[{}] = {};",
+                        tmp_var.access(),
+                        i,
+                        value_tmp.access()
+                    )?;
                 }
                 Ok(Some(tmp_var))
             }
@@ -348,20 +458,20 @@ impl<'data> CodeGen<'data> {
             sema::Expression::ArrayLiteral { values, .. } => {
                 for (i, value) in values.iter().enumerate() {
                     let value_tmp = self.emit_expression_eval(value)?.unwrap();
-                    writeln!(self.out, "    {}[{}] = {};", var, i, value_tmp)?;
+                    writeln!(self.out, "    {}[{}] = {};", var, i, value_tmp.access())?;
                 }
                 Ok(())
             }
             _ => {
                 let tmp_var = self.emit_expression_eval(expr)?;
-                writeln!(self.out, "    {} = {};", var, tmp_var.unwrap())
+                writeln!(self.out, "    {} = {};", var, tmp_var.unwrap().access())
             }
         }
     }
 
     // Emit iterator construction for an expression, return
     // (iterable, iterator)
-    fn emit_iterator_new(&mut self, iterable: &sema::Expression) -> IoResult<(String, String)> {
+    fn emit_iterator_new(&mut self, iterable: &sema::Expression) -> IoResult<(TmpVar, TmpVar)> {
         // Eval iterable
         let iterable_tmp = self
             .emit_expression_eval(iterable)?
@@ -375,7 +485,7 @@ impl<'data> CodeGen<'data> {
                 // size_t iter = 0;
                 let iterator = self.emit_tmp_var_c("esl_usize", "array_iter")?;
                 writeln!(self.out, "    {} = 0;", iterator)?;
-                Ok((iterable_tmp, iterator))
+                Ok((iterable_tmp, TmpVar::new(iterator, false)))
             }
             _ => {
                 let iterable_type_name = iterable_type.mangle(self.program);
@@ -386,10 +496,12 @@ impl<'data> CodeGen<'data> {
                 let iterator_tmp = self.emit_tmp_var_c(&iterator_type_name, "iterator")?;
                 writeln!(
                     self.out,
-                    "    {} = {}(&{});",
-                    iterator_tmp, iterator_new_func, iterable_tmp
+                    "    {} = {}({});",
+                    iterator_tmp,
+                    iterator_new_func,
+                    iterable_tmp.access_ptr()
                 )?;
-                Ok((iterable_tmp, iterator_tmp))
+                Ok((iterable_tmp, TmpVar::new(iterator_tmp, false)))
             }
         }
     }
@@ -398,19 +510,19 @@ impl<'data> CodeGen<'data> {
     fn generate_iterator_has_next_expr(
         &self,
         iterable_type: &sema::Type,
-        iterator: &str,
+        iterator: &TmpVar,
     ) -> String {
         match iterable_type {
             sema::Type::Array { inner: _, size } => {
                 // iter < size
                 let iter = iterator;
-                format!("{} < {}", iter, size)
+                format!("{} < {}", iter.access(), size)
             }
             _ => {
                 let iterable_type_name = iterable_type.mangle(self.program);
                 let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
                 let iterator_has_next_func = format!("_{}_has_next", iterator_type_name);
-                format!("!{}(&{})", iterator_has_next_func, iterator)
+                format!("!{}({})", iterator_has_next_func, iterator.access_ptr())
             }
         }
     }
@@ -420,13 +532,19 @@ impl<'data> CodeGen<'data> {
     fn emit_iterator_next(
         &mut self,
         iterable_type: &sema::Type,
-        iterable: &str,
-        iterator: &str,
-    ) -> IoResult<String> {
+        iterable: &TmpVar,
+        iterator: &TmpVar,
+    ) -> IoResult<TmpVar> {
         match iterable_type {
             sema::Type::Array { inner, size: _ } => {
-                let tmp_var = self.emit_tmp_var(inner, "array_elem")?;
-                writeln!(self.out, "    {} = {}[{}++];", tmp_var, iterable, iterator)?;
+                let tmp_var = self.emit_tmp_var(inner, "array_elem", sema::ValueType::RValue)?;
+                writeln!(
+                    self.out,
+                    "    {} = {}[{}++];",
+                    tmp_var.access(),
+                    iterable.access(),
+                    iterator.access()
+                )?;
                 Ok(tmp_var)
             }
             _ => {
@@ -434,11 +552,14 @@ impl<'data> CodeGen<'data> {
                 let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
                 let iterator_next_func = format!("_{}_next", iterator_type_name);
                 let value_type = iterable_type.iter_value_type(self.program).unwrap();
-                let tmp_var = self.emit_tmp_var(&value_type, "array_elem")?;
+                let tmp_var =
+                    self.emit_tmp_var(&value_type, "array_elem", sema::ValueType::RValue)?;
                 writeln!(
                     self.out,
-                    "    {} = {}(&{});",
-                    tmp_var, iterator_next_func, iterator
+                    "    {} = {}({});",
+                    tmp_var.access(),
+                    iterator_next_func,
+                    iterator.access_ptr()
                 )?;
                 Ok(tmp_var)
             }
@@ -465,7 +586,8 @@ impl<'data> CodeGen<'data> {
                     var_id.0.mangle()
                 );
                 self.local_var_counter += 1;
-                self.variable_names.insert(*var_id, var_name.clone());
+                self.variable_names
+                    .insert(*var_id, TmpVar::new(var_name.clone(), false));
                 writeln!(
                     self.out,
                     "    // let {}: {}",
@@ -473,7 +595,11 @@ impl<'data> CodeGen<'data> {
                     var.type_.as_ref().unwrap().name(self.program)
                 )?;
                 write!(self.out, "    ")?;
-                self.emit_var_decl(var.type_.as_ref().unwrap(), &var_name)?;
+                self.emit_var_decl(
+                    var.type_.as_ref().unwrap(),
+                    &var_name,
+                    sema::ValueType::RValue,
+                )?;
                 writeln!(self.out, ";")?;
                 // init
                 if let Some(init) = init {
@@ -484,11 +610,7 @@ impl<'data> CodeGen<'data> {
                 // TODO: handle return by first arg
                 if let Some(expr) = expression {
                     let tmp_var = self.emit_expression_eval(expr)?;
-                    write!(
-                        self.out,
-                        "return {};",
-                        tmp_var.expect("void expression in return statement")
-                    )?;
+                    write!(self.out, "return {};", tmp_var.unwrap().access())?;
                 } else {
                     writeln!(self.out, "return;")?;
                 }
@@ -528,7 +650,7 @@ impl<'data> CodeGen<'data> {
                 let condition_tmp_var = self
                     .emit_expression_eval(condition)?
                     .expect("void expression in if condition");
-                writeln!(self.out, "    if ({condition_tmp_var}) {{")?;
+                writeln!(self.out, "    if ({}) {{", condition_tmp_var.access())?;
                 self.emit_statement(&then_block)?;
                 writeln!(self.out, "    }}")?;
                 if let Some(else_block) = else_block {
@@ -546,7 +668,11 @@ impl<'data> CodeGen<'data> {
             sema::Statement::While { condition, body } => {
                 writeln!(self.out, "    while(true) {{")?;
                 let condition_tmp_var = self.emit_expression_eval(condition)?;
-                writeln!(self.out, "    if (!{}) break;", condition_tmp_var.unwrap())?;
+                writeln!(
+                    self.out,
+                    "    if (!{}) break;",
+                    condition_tmp_var.unwrap().access()
+                )?;
                 self.emit_statement(body)?;
                 writeln!(self.out, "    }}")?;
             }
@@ -597,10 +723,10 @@ impl<'data> CodeGen<'data> {
             self.emit_type(&var.type_.as_ref().unwrap())?;
 
             let var_name = format!("{}{}_param", var.name, self.local_var_counter);
-            self.local_var_counter += 1;
-            self.variable_names.insert(*param, var_name.clone());
-
             write!(self.out, " {}", var_name)?;
+            self.local_var_counter += 1;
+            self.variable_names
+                .insert(*param, TmpVar::new(var_name, false));
         }
         writeln!(self.out, ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;

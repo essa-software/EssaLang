@@ -139,6 +139,11 @@ impl Type {
             _ => None,
         }
     }
+
+    pub fn index_value_type(&self, _program: &Program) -> Option<Type> {
+        // Currently all iterable types are also indexable.
+        self.iter_value_type(_program)
+    }
 }
 
 //// Function
@@ -278,6 +283,10 @@ pub enum Expression {
         function_id: Option<FunctionId>,
         arguments: HashMap<VarId, Expression>,
     },
+    Index {
+        indexable: Box<Expression>,
+        index: Box<Expression>,
+    },
     BoolLiteral {
         value: bool,
     },
@@ -303,9 +312,9 @@ pub enum Expression {
     },
 }
 
-enum ValueType {
-    LValue,      // can be read and write to directly
-    ConstLValue, // can be read directly but not write
+pub enum ValueType {
+    LValue,      // can be read and written to directly
+    ConstLValue, // can be read directly but not written to
     RValue,      // needs to be evaluated
 }
 
@@ -314,6 +323,13 @@ impl Expression {
         match self {
             Expression::Call { function_id, .. } => {
                 program.get_function((*function_id)?).return_type.clone()
+            }
+            Expression::Index {
+                indexable,
+                index: _,
+            } => {
+                let indexable_type = indexable.type_(program)?;
+                indexable_type.index_value_type(program)
             }
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
@@ -355,7 +371,7 @@ impl Expression {
         }
     }
 
-    fn value_type(&self) -> ValueType {
+    pub fn value_type(&self) -> ValueType {
         match self {
             Expression::VarRef { mut_, .. } => {
                 if *mut_ {
@@ -364,6 +380,10 @@ impl Expression {
                     ValueType::ConstLValue
                 }
             }
+            Expression::Index {
+                indexable,
+                index: _,
+            } => indexable.value_type(),
             _ => ValueType::RValue,
         }
     }
@@ -841,6 +861,35 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     }
                 }
             },
+            parser::Expression::Index { indexable, index } => {
+                let indexable_tc = self.typecheck_expression(indexable);
+                let index_tc = self.typecheck_expression(index);
+
+                // index must be u32 for now
+                if let Some(index_type) = index_tc.type_(&self.tc.program) {
+                    if index_type != Type::Primitive(Primitive::U32) {
+                        self.tc.errors.push(CompilationError::new(
+                            "Index must be u32".into(),
+                            index.range.clone(),
+                        ));
+                    }
+                }
+
+                // indexable must be indexable
+                if let Some(indexable_type) = indexable_tc.type_(&self.tc.program) {
+                    if indexable_type.index_value_type(&self.tc.program).is_none() {
+                        self.tc.errors.push(CompilationError::new(
+                            "Non-indexable type in index operator".into(),
+                            indexable.range.clone(),
+                        ));
+                    }
+                }
+
+                Expression::Index {
+                    indexable: Box::new(indexable_tc),
+                    index: Box::new(index_tc),
+                }
+            }
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 if *value > (u32::MAX as u64) {
