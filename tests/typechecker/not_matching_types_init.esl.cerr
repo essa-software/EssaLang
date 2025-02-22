@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot convert 'static_string' to 'u32' for variable initialization", range: 18..40 }
