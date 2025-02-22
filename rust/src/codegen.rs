@@ -119,7 +119,7 @@ impl<'data> CodeGen<'data> {
         value_type: sema::ValueType,
     ) -> IoResult<TmpVar> {
         match type_ {
-            sema::Type::Primitive(_primitive) => {
+            sema::Type::Primitive(..) | sema::Type::Struct { .. } => {
                 self.emit_type(type_)?;
                 match value_type {
                     sema::ValueType::LValue => {
@@ -150,7 +150,6 @@ impl<'data> CodeGen<'data> {
                 inner,
                 mut_elements,
             } => todo!(),
-            sema::Type::Struct { id } => todo!(),
         }
     }
 
@@ -401,6 +400,20 @@ impl<'data> CodeGen<'data> {
                     index_tmp_var.access()
                 )?;
                 Ok(Some(out_tmp_var))
+            }
+            sema::Expression::MemberAccess { object, member } => {
+                let object_tmp_var = self.emit_expression_eval(object)?.unwrap();
+                let member_type = expr.type_(self.program).unwrap();
+                let member_tmp_var =
+                    self.emit_tmp_var(&member_type, "member", expr.value_type())?;
+                writeln!(
+                    self.out,
+                    "    {} = &({}).{};",
+                    member_tmp_var.access_ptr(),
+                    object_tmp_var.access(),
+                    member
+                )?;
+                return Ok(Some(member_tmp_var));
             }
             sema::Expression::BoolLiteral { value } => {
                 let tmp_var = self.emit_tmp_var(
@@ -768,6 +781,15 @@ impl<'data> CodeGen<'data> {
 
     pub fn emit_program(&mut self) -> IoResult<()> {
         self.emit_header()?;
+        for struct_ in self.program.structs() {
+            let struct_name = format!("struct{}", struct_.id.unwrap().0.mangle());
+            writeln!(self.out, "typedef struct _{} {{", struct_name)?;
+            for field in struct_.fields.iter() {
+                self.emit_type(&field.type_.as_ref().unwrap())?;
+                writeln!(self.out, " {};", field.name)?;
+            }
+            writeln!(self.out, "}} {};", struct_name)?;
+        }
         for func in self.program.functions() {
             self.emit_function_decl(func)?;
         }

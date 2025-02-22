@@ -148,6 +148,10 @@ pub enum Expression {
         indexable: Box<ExpressionNode>,
         index: Box<ExpressionNode>,
     },
+    MemberAccess {
+        object: Box<ExpressionNode>,
+        member: String,
+    },
     BoolLiteral {
         value: bool,
     },
@@ -218,12 +222,23 @@ pub struct FunctionParam {
 }
 
 #[derive(Debug)]
+pub struct FieldDecl {
+    pub name: String,
+    pub type_: TypeNode,
+    pub range: Range<usize>,
+}
+
+#[derive(Debug)]
 pub enum Declaration {
     FunctionImpl {
         name: String,
         params: Vec<FunctionParam>,
         return_type: Option<TypeNode>,
         body: StatementNode,
+    },
+    Struct {
+        name: String,
+        fields: Vec<FieldDecl>,
     },
 }
 
@@ -506,6 +521,24 @@ impl<'a> Parser<'a> {
                         expression: Expression::Index {
                             indexable: Box::new(primary),
                             index: Box::new(index),
+                        },
+                    };
+                }
+                lexer::TokenType::OpDot => {
+                    // Member access: `.name`
+                    let _ = self.iter.next(); // consume "."
+                    let lexer::TokenType::Name(name) = self
+                        .expect(|t| matches!(t, lexer::TokenType::Name(_)), "member name")?
+                        .type_
+                    else {
+                        unreachable!();
+                    };
+                    let end = self.iter.clone().next().map(|t| t.range.end).unwrap_or(0);
+                    primary = ExpressionNode {
+                        range: primary.range.start..end,
+                        expression: Expression::MemberAccess {
+                            object: Box::new(primary),
+                            member: name.into(),
                         },
                     };
                 }
@@ -916,11 +949,63 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // struct-decl ::= "struct" name "{" [name: type]* "}"
+    pub fn consume_struct_decl(&mut self) -> Option<Declaration> {
+        // "struct"
+        let _ = self.iter.next();
+
+        // name
+        let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "struct name")?;
+
+        // "{"
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::CurlyOpen));
+
+        // fields
+        let mut fields = vec![];
+        loop {
+            let next = self.iter.clone().next();
+            if let Some(next) = next {
+                if matches!(next.type_, lexer::TokenType::CurlyClose) {
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            // field name
+            let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "field name")?;
+
+            // ":"
+            let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::Colon));
+
+            // type
+            let type_ = self.consume_type()?;
+
+            // ";"
+            let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), ";");
+
+            fields.push(FieldDecl {
+                name: name.slice_str(&self.input).unwrap().into(),
+                type_,
+                range: name.range.clone(),
+            });
+        }
+
+        // "}"
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::CurlyClose));
+
+        Some(Declaration::Struct {
+            name: name.slice_str(&self.input).unwrap().into(),
+            fields,
+        })
+    }
+
     pub fn consume_declaration(&mut self) -> Option<Declaration> {
         let next = self.iter.clone().next()?;
         eprintln!("next token in consume_declaration: {:?}", next);
         match next.type_ {
             lexer::TokenType::KeywordFunc => self.consume_function_impl(),
+            lexer::TokenType::KeywordStruct => self.consume_struct_decl(),
             _ => {
                 self.errors.push(CompilationError::new(
                     "Expected declaration".into(),

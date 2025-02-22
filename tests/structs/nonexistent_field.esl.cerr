@@ -1,3 +1,2 @@
-[90mnonexistent_field.esl: [m[1;31mError:[m No such field or method 'mum' in struct 'Foo'
-   8 |     print("{}", foo.[31mm[m[31mu[m[31mm[m);
-                           ^^^ [31mNo such field or method 'mum' in struct 'Foo'[m
+CompilationError { message: "Member access on non-existing field", range: 130..138 }
+CompilationError { message: "Argument 1 to print function has invalid type", range: 130..138 }

@@ -1,3 +1,1 @@
-[90mnonexisting_type.esl: [m[1;31mError:[m Invalid type 'Foo' in variable declaration
-   2 |     let foo: [31mF[m[31mo[m[31mo[m = [];
-                    ^^^ [31mInvalid type 'Foo' in variable declaration[m
+CompilationError { message: "Unknown type 'Foo'", range: 27..30 }

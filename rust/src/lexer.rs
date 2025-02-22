@@ -23,11 +23,13 @@ pub enum TokenType {
     KeywordMut,
     KeywordOf,
     KeywordReturn,
+    KeywordStruct,
     KeywordTrue,
     KeywordWhile,
     Name(String),
     OpAsterisk,       // *
     OpAsteriskEquals, // *=
+    OpDot,            // .
     OpDotDot,         // ..
     OpEquals,         // =
     OpEqualsEquals,   // ==
@@ -193,7 +195,7 @@ impl<'a> TokenIterator<'a> {
                     self.read_one();
                     return Some(self.token(TokenType::OpDotDot, start));
                 }
-                Some(self.token(TokenType::Garbage, start))
+                Some(self.token(TokenType::OpDot, start))
             }
             '=' => {
                 self.read_one();
@@ -287,6 +289,7 @@ impl<'a> TokenIterator<'a> {
                     "mut" => Some(self.token(TokenType::KeywordMut, start)),
                     "of" => Some(self.token(TokenType::KeywordOf, start)),
                     "return" => Some(self.token(TokenType::KeywordReturn, start)),
+                    "struct" => Some(self.token(TokenType::KeywordStruct, start)),
                     "true" => Some(self.token(TokenType::KeywordTrue, start)),
                     "while" => Some(self.token(TokenType::KeywordWhile, start)),
                     name => Some(self.name(name.to_string(), start)),

@@ -287,6 +287,10 @@ pub enum Expression {
         indexable: Box<Expression>,
         index: Box<Expression>,
     },
+    MemberAccess {
+        object: Box<Expression>,
+        member: String,
+    },
     BoolLiteral {
         value: bool,
     },
@@ -330,6 +334,16 @@ impl Expression {
             } => {
                 let indexable_type = indexable.type_(program)?;
                 indexable_type.index_value_type(program)
+            }
+            Expression::MemberAccess { object, member } => {
+                let object_type = object.type_(program)?;
+                match object_type {
+                    Type::Struct { id } => {
+                        let struct_ = program.get_struct(id);
+                        struct_.resolve_field(member).and_then(|f| f.type_.clone())
+                    }
+                    _ => None,
+                }
             }
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
@@ -384,6 +398,7 @@ impl Expression {
                 indexable,
                 index: _,
             } => indexable.value_type(),
+            Expression::MemberAccess { object, member: _ } => object.value_type(),
             _ => ValueType::RValue,
         }
     }
@@ -391,9 +406,23 @@ impl Expression {
 
 //// Struct
 
+#[derive(Debug)]
+pub struct Field {
+    pub type_: Option<Type>,
+    pub name: String,
+}
+
+#[derive(Debug)]
 pub struct Struct {
-    id: Option<StructId>,
-    name: String,
+    pub id: Option<StructId>,
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+
+impl Struct {
+    pub fn resolve_field(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().find(|f| f.name == name)
+    }
 }
 
 //// Program
@@ -459,6 +488,7 @@ impl Program {
             id: self.structs.len(),
         });
         struct_.id = Some(id);
+        eprintln!("Adding struct: {:?}", struct_);
         self.structs.insert(id, struct_);
         id
     }
@@ -540,6 +570,11 @@ impl<'data> TypeChecker<'data> {
         self.program.add_function(PRELUDE_MODULE, print_func);
     }
 
+    fn lookup_struct(&self, name: &str) -> Option<&Struct> {
+        // TODO: Optimize this
+        self.program.structs.values().find(|s| s.name == name)
+    }
+
     fn typecheck_type(
         &mut self,
         parser::TypeNode {
@@ -556,11 +591,18 @@ impl<'data> TypeChecker<'data> {
                 "static_string" => Some(Type::Primitive(Primitive::StaticString)),
                 "range" => Some(Type::Primitive(Primitive::Range)),
                 _ => {
-                    self.errors.push(CompilationError::new(
-                        format!("Unknown type '{}'", name),
-                        range.clone(),
-                    ));
-                    None
+                    let struct_ = self.lookup_struct(name);
+                    if let Some(struct_) = struct_ {
+                        Some(Type::Struct {
+                            id: struct_.id.unwrap(),
+                        })
+                    } else {
+                        self.errors.push(CompilationError::new(
+                            format!("Unknown type '{}'", name),
+                            range.clone(),
+                        ));
+                        None
+                    }
                 }
             },
             parser::Type::SizedArray { value, size } => {
@@ -573,7 +615,29 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    fn typecheck_pass1_function_decls(&mut self) {
+    fn typecheck_pass1_structs(&mut self) {
+        for decl in &self.p_program.declarations {
+            match decl {
+                parser::Declaration::Struct { name, fields } => {
+                    let struct_ = Struct {
+                        id: None,
+                        name: name.clone(),
+                        fields: fields
+                            .iter()
+                            .map(|field| Field {
+                                type_: self.typecheck_type(&field.type_),
+                                name: field.name.clone(),
+                            })
+                            .collect(),
+                    };
+                    self.program.add_struct(MAIN_MODULE, struct_);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn typecheck_pass2_function_decls(&mut self) {
         for decl in &self.p_program.declarations {
             match decl {
                 parser::Declaration::FunctionImpl {
@@ -609,11 +673,12 @@ impl<'data> TypeChecker<'data> {
                     let id = self.program.add_function(MAIN_MODULE, function);
                     self.function_bodies_to_check.push((body, id));
                 }
+                _ => {}
             }
         }
     }
 
-    fn typecheck_pass2_function_bodies(&mut self) {
+    fn typecheck_pass3_function_bodies(&mut self) {
         let btc = self.function_bodies_to_check.clone(); // Should be ok, this is just a bunch of pointers.
         for (parsed, id) in btc {
             let mut tc = TypeCheckerExecution::new(self, id);
@@ -624,11 +689,14 @@ impl<'data> TypeChecker<'data> {
     pub fn typecheck(mut self) -> (Program, Vec<CompilationError>) {
         self.add_prelude();
 
-        // pass 1: add function declarations
-        self.typecheck_pass1_function_decls();
+        // pass 1: typecheck structs (to have all types there)
+        self.typecheck_pass1_structs();
 
-        // pass 2: typecheck function bodies
-        self.typecheck_pass2_function_bodies();
+        // pass 2: add function declarations
+        self.typecheck_pass2_function_decls();
+
+        // pass 3: typecheck function bodies
+        self.typecheck_pass3_function_bodies();
 
         (self.program, self.errors)
     }
@@ -888,6 +956,35 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 Expression::Index {
                     indexable: Box::new(indexable_tc),
                     index: Box::new(index_tc),
+                }
+            }
+            parser::Expression::MemberAccess { object, member } => {
+                let object_tc = self.typecheck_expression(object);
+
+                // object must be a struct
+                if let Some(object_type) = object_tc.type_(&self.tc.program) {
+                    match object_type {
+                        Type::Struct { id } => {
+                            let struct_ = self.tc.program.get_struct(id);
+                            if let None = struct_.resolve_field(member) {
+                                self.tc.errors.push(CompilationError::new(
+                                    "Member access on non-existing field".into(),
+                                    range.clone(),
+                                ));
+                            }
+                        }
+                        _ => {
+                            self.tc.errors.push(CompilationError::new(
+                                "Member access on non-struct type".into(),
+                                object.range.clone(),
+                            ));
+                        }
+                    }
+                }
+
+                Expression::MemberAccess {
+                    object: Box::new(object_tc),
+                    member: member.clone(),
                 }
             }
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },

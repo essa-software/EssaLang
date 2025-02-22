@@ -1,3 +1,2 @@
-[90mmember_access_on_nonstruct.esl: [m[1;31mError:[m Invalid member access on non-struct type 'u32'
-   2 |     print(0[31m.[mtest);
-                  ^ [31mInvalid member access on non-struct type 'u32'[m
+CompilationError { message: "Member access on non-struct type", range: 24..25 }
+CompilationError { message: "Argument 0 to print function has invalid type", range: 24..31 }
