@@ -5,6 +5,8 @@ use std::{
 
 #[derive(Debug)]
 pub enum TokenType {
+    BraceClose,
+    BraceOpen,
     Colon,
     Comma,
     CurlyClose,
@@ -160,6 +162,14 @@ impl<'a> TokenIterator<'a> {
                     return Some(self.token(TokenType::OpAsteriskEquals, start));
                 }
                 Some(self.token(TokenType::OpAsterisk, start))
+            }
+            '[' => {
+                self.read_one();
+                Some(self.token(TokenType::BraceOpen, start))
+            }
+            ']' => {
+                self.read_one();
+                Some(self.token(TokenType::BraceClose, start))
             }
             ':' => {
                 self.read_one();

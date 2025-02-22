@@ -6,6 +6,7 @@ use crate::{error::CompilationError, lexer};
 #[derive(Debug)]
 pub enum Type {
     Simple(String),
+    SizedArray { value: Box<TypeNode>, size: u64 },
 }
 
 #[derive(Debug)]
@@ -151,6 +152,9 @@ pub enum Expression {
     },
     StringLiteral {
         value: String,
+    },
+    ArrayLiteral {
+        values: Vec<ExpressionNode>,
     },
     BinaryOp {
         op: BinaryOp,
@@ -411,6 +415,19 @@ impl<'a> Parser<'a> {
                 let in_expr = self.consume_expression();
                 let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose), "')'")?;
                 in_expr
+            }
+            lexer::TokenType::BraceOpen => {
+                let values = self.consume_comma_separated_expression_list(|t| {
+                    matches!(t, lexer::TokenType::BraceClose)
+                });
+                let end = self.expect(
+                    |t| matches!(t, lexer::TokenType::BraceClose),
+                    "']' after array literal",
+                )?;
+                Some(ExpressionNode {
+                    expression: Expression::ArrayLiteral { values },
+                    range: next.range.start..end.range.end,
+                })
             }
             lexer::TokenType::Name(name) => Some(ExpressionNode {
                 expression: Expression::Name(name),
@@ -764,6 +781,23 @@ impl<'a> Parser<'a> {
     pub fn consume_type(&mut self) -> Option<TypeNode> {
         let next = self.iter.clone().next()?;
         match next.type_ {
+            lexer::TokenType::BraceOpen => {
+                // array ::= [size]type
+                let _ = self.iter.next();
+                let lexer::TokenType::Integer(size) = self
+                    .expect(|t| matches!(t, lexer::TokenType::Integer(_)), "array size")?
+                    .type_
+                else {
+                    unreachable!();
+                };
+                let _ = self.expect(|t| matches!(t, lexer::TokenType::BraceClose), "']'");
+                let value = Box::new(self.consume_type()?);
+                let end = self.iter.clone().next().map(|t| t.range.end).unwrap_or(0);
+                Some(TypeNode {
+                    type_: Type::SizedArray { value, size },
+                    range: next.range.start..end,
+                })
+            }
             lexer::TokenType::Name(name) => {
                 let _ = self.iter.next();
                 Some(TypeNode {

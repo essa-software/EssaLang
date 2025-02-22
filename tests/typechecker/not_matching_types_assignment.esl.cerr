@@ -1,1 +1,1 @@
-CompilationError { message: "Assignment with different types", range: 35..36 }
+CompilationError { message: "Cannot assign 'static_string' to 'u32'", range: 35..36 }

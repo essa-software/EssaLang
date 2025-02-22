@@ -135,6 +135,7 @@ impl Type {
     pub fn iter_value_type(&self, _program: &Program) -> Option<Type> {
         match self {
             Type::Primitive(Primitive::Range) => Some(Type::Primitive(Primitive::U32)),
+            Type::Array { inner, .. } => Some(*inner.clone()),
             _ => None,
         }
     }
@@ -286,6 +287,10 @@ pub enum Expression {
     StringLiteral {
         value: String,
     },
+    ArrayLiteral {
+        value_type: Option<Type>,
+        values: Vec<Expression>,
+    },
     VarRef {
         type_: Option<Type>,
         var_id: Option<VarId>,
@@ -314,7 +319,11 @@ impl Expression {
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
             Expression::VarRef { type_, .. } => type_.clone(),
-            Expression::BinaryOp { op, left, right } => match op {
+            Expression::BinaryOp {
+                op,
+                left: _,
+                right: _,
+            } => match op {
                 _ if matches!(op.class(), BinOpClass::Comparison) => {
                     Some(Type::Primitive(Primitive::Bool))
                 }
@@ -333,6 +342,16 @@ impl Expression {
                 }
                 _ => None,
             },
+            Expression::ArrayLiteral { value_type, values } => {
+                if values.is_empty() {
+                    Some(Type::Primitive(Primitive::EmptyArray))
+                } else {
+                    Some(Type::Array {
+                        inner: Box::new(value_type.clone()?),
+                        size: values.len(),
+                    })
+                }
+            }
         }
     }
 
@@ -524,6 +543,13 @@ impl<'data> TypeChecker<'data> {
                     None
                 }
             },
+            parser::Type::SizedArray { value, size } => {
+                let inner = self.typecheck_type(value)?;
+                Some(Type::Array {
+                    inner: Box::new(inner),
+                    size: *size as usize,
+                })
+            }
         }
     }
 
@@ -731,6 +757,18 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
+    fn is_type_convertible(&mut self, to: &Type, from: &Type) -> bool {
+        // Special case: EmptyArray can be converted to any Array
+        if matches!(from, Type::Primitive(Primitive::EmptyArray))
+            && matches!(to, Type::Array { .. })
+        {
+            return true;
+        }
+
+        // Strict type everything else
+        return to == from;
+    }
+
     fn check_operator_types(
         &mut self,
         op: parser::BinaryOp,
@@ -758,9 +796,13 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 }
             }
             BinOpClass::Assignment => {
-                if left != right {
+                if !self.is_type_convertible(&left, &right) {
                     self.tc.errors.push(CompilationError::new(
-                        "Assignment with different types".into(),
+                        format!(
+                            "Cannot assign '{}' to '{}'",
+                            right.name(&self.tc.program),
+                            left.name(&self.tc.program)
+                        ),
                         range.clone(),
                     ));
                 }
@@ -873,6 +915,44 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     op: *op,
                     left: Box::new(left),
                     right: Box::new(right),
+                }
+            }
+            parser::Expression::ArrayLiteral { values } => {
+                if values.is_empty() {
+                    Expression::ArrayLiteral {
+                        value_type: None,
+                        values: Vec::new(),
+                    }
+                } else {
+                    let tc_values: Vec<Expression> = values
+                        .iter()
+                        .map(|v| self.typecheck_expression(v))
+                        .collect();
+
+                    // Use first element as type hint
+                    let value_type = tc_values
+                        .first()
+                        .map(|v| v.type_(&self.tc.program))
+                        .unwrap();
+
+                    // Check if all values have type convertible to the first one
+                    for (i, v) in tc_values.iter().enumerate() {
+                        if let Some(value_type) = &value_type {
+                            if let Some(v_type) = v.type_(&self.tc.program) {
+                                if !self.is_type_convertible(&value_type, &v_type) {
+                                    self.tc.errors.push(CompilationError::new(
+                                        format!("Array literal value {} has invalid type", i),
+                                        values[i].range.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    Expression::ArrayLiteral {
+                        value_type,
+                        values: tc_values,
+                    }
                 }
             }
         }
