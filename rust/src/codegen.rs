@@ -377,6 +377,22 @@ impl<'data> CodeGen<'data> {
                 )?;
                 // Note: out_tmp_var is lvalue so it's always a ptr.
                 assert!(out_tmp_var.is_ptr);
+                let indexable_type = indexable.type_(self.program).unwrap();
+
+                // bounds check
+                writeln!(
+                    self.out,
+                    "    if({} >= {}) {{",
+                    index_tmp_var.access(),
+                    match &indexable_type {
+                        sema::Type::Array { inner: _, size } => size.to_string(),
+                        _ => todo!(),
+                    },
+                )?;
+                writeln!(self.out, "        _esl_panic(\"index out of bounds\");")?;
+                writeln!(self.out, "    }}")?;
+
+                // access itself
                 writeln!(
                     self.out,
                     "    {} = &({})[{}];",
