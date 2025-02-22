@@ -22,6 +22,7 @@ pub enum TokenType {
     KeywordOf,
     KeywordReturn,
     KeywordTrue,
+    KeywordWhile,
     Name(String),
     OpAsterisk,       // *
     OpAsteriskEquals, // *=
@@ -277,6 +278,7 @@ impl<'a> TokenIterator<'a> {
                     "of" => Some(self.token(TokenType::KeywordOf, start)),
                     "return" => Some(self.token(TokenType::KeywordReturn, start)),
                     "true" => Some(self.token(TokenType::KeywordTrue, start)),
+                    "while" => Some(self.token(TokenType::KeywordWhile, start)),
                     name => Some(self.name(name.to_string(), start)),
                 }
             }

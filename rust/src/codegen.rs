@@ -427,6 +427,13 @@ impl<'data> CodeGen<'data> {
             sema::Statement::Continue => {
                 writeln!(self.out, "continue;")?;
             }
+            sema::Statement::While { condition, body } => {
+                writeln!(self.out, "    while(true) {{")?;
+                let condition_tmp_var = self.emit_expression_eval(condition)?;
+                writeln!(self.out, "    if (!{}) break;", condition_tmp_var.unwrap())?;
+                self.emit_statement(body)?;
+                writeln!(self.out, "    }}")?;
+            }
         }
         Ok(())
     }

@@ -188,6 +188,10 @@ pub enum Statement {
         then_block: Box<StatementNode>,
         else_block: Option<Box<StatementNode>>,
     },
+    While {
+        condition: ExpressionNode,
+        body: Box<StatementNode>,
+    },
     Break,
     Continue,
 }
@@ -695,6 +699,36 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // while-statement ::= "while" "(" expression ")" block
+    pub fn consume_while_statement(&mut self) -> Option<StatementNode> {
+        // "while"
+        let start = self
+            .expect_no_msg(|t| matches!(t, lexer::TokenType::KeywordWhile))?
+            .range
+            .start;
+
+        // "("
+        let _ = self.expect_no_msg(|t| matches!(t, lexer::TokenType::ParenOpen))?;
+
+        // expression
+        let condition = self.consume_expression()?;
+
+        // ")"
+        let _ = self.expect(|t| matches!(t, lexer::TokenType::ParenClose), "')'")?;
+
+        // block
+        let body = self.consume_block();
+        let end = body.range.end;
+
+        Some(StatementNode {
+            statement: Statement::While {
+                condition,
+                body: Box::new(body),
+            },
+            range: start..end,
+        })
+    }
+
     // statement ::= var-decl | expression ';' | block | return-statement | if-statement
     pub fn consume_statement(&mut self) -> Option<StatementNode> {
         let next = self.iter.clone().next()?;
@@ -722,6 +756,7 @@ impl<'a> Parser<'a> {
             lexer::TokenType::KeywordIf => self.consume_if_statement(),
             lexer::TokenType::KeywordLet | lexer::TokenType::KeywordMut => self.consume_var_decl(),
             lexer::TokenType::KeywordReturn => self.consume_return_statement(),
+            lexer::TokenType::KeywordWhile => self.consume_while_statement(),
             _ => self.consume_expression_statement(),
         }
     }

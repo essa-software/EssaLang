@@ -262,6 +262,10 @@ pub enum Statement {
         then_block: Box<Statement>,
         else_block: Option<Box<Statement>>,
     },
+    While {
+        condition: Expression,
+        body: Box<Statement>,
+    },
     Break,
     Continue,
 }
@@ -1020,6 +1024,30 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     ))
                 }
                 Statement::Continue
+            }
+            parser::Statement::While { condition, body } => {
+                let (condition, cond_range) = (
+                    self.typecheck_expression(condition),
+                    condition.range.clone(),
+                );
+                let condition_type = condition.type_(&self.tc.program);
+                if condition_type.is_some()
+                    && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
+                {
+                    self.tc.errors.push(CompilationError::new(
+                        "While condition must be of type bool".into(),
+                        cond_range,
+                    ));
+                }
+                self.push_scope();
+                self.loop_depth += 1;
+                let body = self.typecheck_statement(body);
+                self.loop_depth -= 1;
+                self.pop_scope();
+                Statement::While {
+                    condition,
+                    body: Box::new(body),
+                }
             }
         }
     }
