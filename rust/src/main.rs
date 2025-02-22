@@ -48,7 +48,7 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
             }
         } else {
             for error in errors {
-                error.print(&source);
+                error.print(&path.to_string_lossy(), &source);
             }
         }
         return Ok(false);

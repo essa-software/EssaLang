@@ -14,10 +14,8 @@ impl CompilationError {
         Self { message, range }
     }
 
-    pub fn print(&self, input: &[u8]) {
-        eprintln!("{}", self.message);
-
-        let line_no = 1;
+    pub fn print(&self, input_filename: &str, input: &[u8]) {
+        let mut line_no = 1;
         let mut reader = Cursor::new(input);
         loop {
             let mut line = String::new();
@@ -29,7 +27,14 @@ impl CompilationError {
             if self.range.start >= line_start as usize && self.range.end <= line_end as usize {
                 let column = self.range.start - line_start as usize;
                 let line_no_str_len = line_no.to_string().len();
-                eprintln!("{} |{}", line_no_str_len, line.trim_end());
+                eprintln!(
+                    "{}:{}:{}: error: {}",
+                    input_filename,
+                    line_no,
+                    column + 1,
+                    self.message
+                );
+                eprintln!("{} |{}", line_no, line.trim_end());
                 eprint!("{}", " ".repeat(column));
                 eprint!(
                     "{}{}",
@@ -38,6 +43,7 @@ impl CompilationError {
                 );
                 eprintln!("\n");
             }
+            line_no += 1;
         }
     }
 }
