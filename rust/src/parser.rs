@@ -527,6 +527,7 @@ impl<'a> Parser<'a> {
                         "')' after argument list",
                     )?;
                     primary = ExpressionNode {
+                        range: primary.range.start..end.range.end,
                         expression: Expression::Call {
                             function: Box::new(primary),
                             args: args
@@ -537,7 +538,6 @@ impl<'a> Parser<'a> {
                                 })
                                 .collect(),
                         },
-                        range: next.range.start..end.range.end,
                     };
                 }
                 lexer::TokenType::BraceOpen => {

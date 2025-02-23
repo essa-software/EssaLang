@@ -1,1 +1,2 @@
 CompilationError { message: "Index must be u32", range: 49..55 }
+CompilationError { message: "Unused expression result", range: 45..57 }

@@ -1,4 +1,4 @@
-CompilationError { message: "Unused expression result", range: 108..111 }
+CompilationError { message: "Unused expression result", range: 105..111 }
 CompilationError { message: "Unused expression result", range: 116..123 }
 CompilationError { message: "Unused expression result", range: 128..134 }
 CompilationError { message: "Unused expression result", range: 139..152 }

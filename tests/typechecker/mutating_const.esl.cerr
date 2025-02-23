@@ -1,3 +1,3 @@
 CompilationError { message: "Cannot assign to non-mutable value", range: 64..83 }
 CompilationError { message: "Cannot assign to rvalue", range: 89..94 }
-CompilationError { message: "Cannot assign to rvalue", range: 103..109 }
+CompilationError { message: "Cannot assign to rvalue", range: 100..109 }
