@@ -1,3 +1,2 @@
-[90mexpr_list_not_closed.esl: [m[1;31mError:[m Expected ']', got '<EOF>'
-   3 | 
-       ^ [31mExpected ']', got '<EOF>'[m
+CompilationError { message: "Expected ']' after array literal", range: 39..40 }
+CompilationError { message: "Expected '}'", range: 39..40 }

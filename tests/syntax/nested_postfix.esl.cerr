@@ -1,3 +1,1 @@
-[90mnested_postfix.esl: [m[1;31mError:[m 'test' is not declared
-   2 |     [31mt[m[31me[m[31ms[m[31mt[m()[0].help[0]();
-           ^^^^ [31m'test' is not declared[m
+CompilationError { message: "Only function names are supported for now", range: 23..36 }

@@ -1,9 +1,10 @@
 use std::{
+    fmt::Display,
     ops::Range,
     str::{self, Chars, Utf8Error},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TokenType {
     BraceClose,
     BraceOpen,
@@ -51,6 +52,59 @@ pub enum TokenType {
     Semicolon,
     StringLiteral(String),
     Garbage,
+}
+
+impl Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenType::BraceClose => f.write_str("']'"),
+            TokenType::BraceOpen => f.write_str("'['"),
+            TokenType::Colon => f.write_str("':'"),
+            TokenType::Comma => f.write_str("','"),
+            TokenType::CurlyClose => f.write_str("'}'"),
+            TokenType::CurlyOpen => f.write_str("'{'"),
+            TokenType::Integer(i) => write!(f, "number '{}'", i),
+            TokenType::KeywordBreak => f.write_str("'break'"),
+            TokenType::KeywordContinue => f.write_str("'continue'"),
+            TokenType::KeywordElse => f.write_str("'else'"),
+            TokenType::KeywordFalse => f.write_str("'false'"),
+            TokenType::KeywordFor => f.write_str("'for'"),
+            TokenType::KeywordFunc => f.write_str("'func'"),
+            TokenType::KeywordIf => f.write_str("'if'"),
+            TokenType::KeywordLet => f.write_str("'let'"),
+            TokenType::KeywordMut => f.write_str("'mut'"),
+            TokenType::KeywordOf => f.write_str("'of'"),
+            TokenType::KeywordReturn => f.write_str("'return'"),
+            TokenType::KeywordStruct => f.write_str("'struct'"),
+            TokenType::KeywordTrue => f.write_str("'true'"),
+            TokenType::KeywordWhile => f.write_str("'while'"),
+            TokenType::Name(n) => write!(f, "name '{}'", n),
+            TokenType::OpAsterisk => f.write_str("'*'"),
+            TokenType::OpAsteriskEquals => f.write_str("'*='"),
+            TokenType::OpDot => f.write_str("'.'"),
+            TokenType::OpDotDot => f.write_str("'..'"),
+            TokenType::OpEquals => f.write_str("'='"),
+            TokenType::OpEqualsEquals => f.write_str("'=='"),
+            TokenType::OpExlmEquals => f.write_str("'!='"),
+            TokenType::OpGreater => f.write_str("'>'"),
+            TokenType::OpGreaterEquals => f.write_str("'>='"),
+            TokenType::OpLess => f.write_str("'<'"),
+            TokenType::OpLessEquals => f.write_str("'<='"),
+            TokenType::OpMinus => f.write_str("'-'"),
+            TokenType::OpMinusEquals => f.write_str("'-='"),
+            TokenType::OpPercent => f.write_str("'%'"),
+            TokenType::OpPercentEquals => f.write_str("'%='"),
+            TokenType::OpPlus => f.write_str("'+'"),
+            TokenType::OpPlusEquals => f.write_str("'+='"),
+            TokenType::OpSlash => f.write_str("'/'"),
+            TokenType::OpSlashEquals => f.write_str("'/='"),
+            TokenType::ParenClose => f.write_str("')'"),
+            TokenType::ParenOpen => f.write_str("'('"),
+            TokenType::Semicolon => f.write_str("';'"),
+            TokenType::StringLiteral(l) => write!(f, "\"{}\"", l),
+            TokenType::Garbage => f.write_str("<garbage>"),
+        }
+    }
 }
 
 #[derive(Debug)]

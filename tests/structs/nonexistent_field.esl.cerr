@@ -1,2 +1,2 @@
-CompilationError { message: "Member access on non-existing field", range: 130..138 }
-CompilationError { message: "Argument 1 to print function has invalid type", range: 130..138 }
+CompilationError { message: "Member access on non-existing field", range: 130..137 }
+CompilationError { message: "Argument 1 to print function has invalid type", range: 130..137 }
