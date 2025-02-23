@@ -353,24 +353,14 @@ impl Expression {
                 op,
                 left: _,
                 right: _,
-            } => match op {
-                _ if matches!(op.class(), BinOpClass::Comparison) => {
-                    Some(Type::Primitive(Primitive::Bool))
-                }
-                _ if matches!(op.class(), BinOpClass::Assignment) => {
-                    Some(Type::Primitive(Primitive::Void))
-                }
-                _ if matches!(
-                    op.class(),
-                    BinOpClass::Additive | BinOpClass::Multiplicative
-                ) =>
-                {
+            } => match op.class() {
+                BinOpClass::Comparison => Some(Type::Primitive(Primitive::Bool)),
+                BinOpClass::Assignment => Some(Type::Primitive(Primitive::Void)),
+                BinOpClass::Additive | BinOpClass::Multiplicative => {
                     Some(Type::Primitive(Primitive::U32))
                 }
-                _ if matches!(op.class(), BinOpClass::Range) => {
-                    Some(Type::Primitive(Primitive::Range))
-                }
-                _ => None,
+                BinOpClass::Range => Some(Type::Primitive(Primitive::Range)),
+                BinOpClass::Logical => Some(Type::Primitive(Primitive::Bool)),
             },
             Expression::ArrayLiteral { value_type, values } => {
                 if values.is_empty() {
@@ -893,6 +883,16 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                             right.name(&self.tc.program),
                             left.name(&self.tc.program)
                         ),
+                        range.clone(),
+                    ));
+                }
+            }
+            BinOpClass::Logical => {
+                if left != Type::Primitive(Primitive::Bool)
+                    || right != Type::Primitive(Primitive::Bool)
+                {
+                    self.tc.errors.push(CompilationError::new(
+                        "Logical operator with non-bool types".into(),
                         range.clone(),
                     ));
                 }

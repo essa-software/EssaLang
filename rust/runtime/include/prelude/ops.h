@@ -25,6 +25,9 @@ esl_u32 _esl_opmod_u32_u32(esl_u32 a, esl_u32 b);
 #define _esl_opassdiv_u32_u32(aptr, b) (void)(*aptr = _esl_opdiv_u32_u32(*aptr, b))
 #define _esl_opassmod_u32_u32(aptr, b) (void)(*aptr = _esl_opmod_u32_u32(*aptr, b))
 
+#define _esl_opand_bool_bool(a, b) (a && b)
+#define _esl_opor_bool_bool(a, b) (a || b)
+
 #define _esl_oprange_u32_u32(a, b) ((esl_range) { (esl_usize)a, (esl_usize)b })
 
 _END_DECLS

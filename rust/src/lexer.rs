@@ -28,6 +28,7 @@ pub enum TokenType {
     KeywordTrue,
     KeywordWhile,
     Name(String),
+    OpAmpAmp,         // &&
     OpAsterisk,       // *
     OpAsteriskEquals, // *=
     OpDot,            // .
@@ -43,6 +44,7 @@ pub enum TokenType {
     OpMinusEquals,    // -=
     OpPercent,        // %
     OpPercentEquals,  // %=
+    OpPipePipe,       // ||
     OpPlus,           // +
     OpPlusEquals,     // +=
     OpSlash,          // /=
@@ -63,6 +65,7 @@ impl Display for TokenType {
             TokenType::Comma => f.write_str("','"),
             TokenType::CurlyClose => f.write_str("'}'"),
             TokenType::CurlyOpen => f.write_str("'{'"),
+            TokenType::Garbage => f.write_str("<garbage>"),
             TokenType::Integer(i) => write!(f, "number '{}'", i),
             TokenType::KeywordBreak => f.write_str("'break'"),
             TokenType::KeywordContinue => f.write_str("'continue'"),
@@ -79,6 +82,7 @@ impl Display for TokenType {
             TokenType::KeywordTrue => f.write_str("'true'"),
             TokenType::KeywordWhile => f.write_str("'while'"),
             TokenType::Name(n) => write!(f, "name '{}'", n),
+            TokenType::OpAmpAmp => f.write_str("'&&'"),
             TokenType::OpAsterisk => f.write_str("'*'"),
             TokenType::OpAsteriskEquals => f.write_str("'*='"),
             TokenType::OpDot => f.write_str("'.'"),
@@ -94,6 +98,7 @@ impl Display for TokenType {
             TokenType::OpMinusEquals => f.write_str("'-='"),
             TokenType::OpPercent => f.write_str("'%'"),
             TokenType::OpPercentEquals => f.write_str("'%='"),
+            TokenType::OpPipePipe => f.write_str("'||'"),
             TokenType::OpPlus => f.write_str("'+'"),
             TokenType::OpPlusEquals => f.write_str("'+='"),
             TokenType::OpSlash => f.write_str("'/'"),
@@ -102,7 +107,6 @@ impl Display for TokenType {
             TokenType::ParenOpen => f.write_str("'('"),
             TokenType::Semicolon => f.write_str("';'"),
             TokenType::StringLiteral(l) => write!(f, "\"{}\"", l),
-            TokenType::Garbage => f.write_str("<garbage>"),
         }
     }
 }
@@ -298,6 +302,22 @@ impl<'a> TokenIterator<'a> {
                     return Some(self.token(TokenType::OpPercentEquals, start));
                 }
                 Some(self.token(TokenType::OpPercent, start))
+            }
+            '&' => {
+                self.read_one();
+                if self.peek() == Some('&') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpAmpAmp, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
+            }
+            '|' => {
+                self.read_one();
+                if self.peek() == Some('|') {
+                    self.read_one();
+                    return Some(self.token(TokenType::OpPipePipe, start));
+                }
+                Some(self.token(TokenType::Garbage, start))
             }
             '(' => {
                 self.read_one();

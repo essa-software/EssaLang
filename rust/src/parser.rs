@@ -23,12 +23,7 @@ pub struct FunctionArg {
 
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
-    CmpEquals,    // ==
-    CmpNotEquals, // !=
-    CmpLess,      // <
-    CmpLessEq,    // <=
-    CmpGreater,   // >
-    CmpGreaterEq, // >=
+    Range, // ..
 
     Add, // +
     Sub, // -
@@ -36,14 +31,22 @@ pub enum BinaryOp {
     Div, // /
     Mod, // %
 
+    CmpEquals,    // ==
+    CmpNotEquals, // !=
+    CmpLess,      // <
+    CmpLessEq,    // <=
+    CmpGreater,   // >
+    CmpGreaterEq, // >=
+
+    LogicalAnd, // &&
+    LogicalOr,  // ||
+
     Assignment, // =
     AssAdd,     // +=
     AssSub,     // -=
     AssMul,     // *=
     AssDiv,     // /=
     AssMod,     // %=
-
-    Range, // ..
 }
 
 pub enum BinOpClass {
@@ -51,18 +54,14 @@ pub enum BinOpClass {
     Multiplicative,
     Additive,
     Comparison,
+    Logical,
     Assignment,
 }
 
 impl BinaryOp {
     pub fn from_token_type(token_type: lexer::TokenType) -> Option<Self> {
         match token_type {
-            lexer::TokenType::OpEqualsEquals => Some(Self::CmpEquals),
-            lexer::TokenType::OpExlmEquals => Some(Self::CmpNotEquals),
-            lexer::TokenType::OpLess => Some(Self::CmpLess),
-            lexer::TokenType::OpLessEquals => Some(Self::CmpLessEq),
-            lexer::TokenType::OpGreater => Some(Self::CmpGreater),
-            lexer::TokenType::OpGreaterEquals => Some(Self::CmpGreaterEq),
+            lexer::TokenType::OpDotDot => Some(Self::Range),
 
             lexer::TokenType::OpPlus => Some(Self::Add),
             lexer::TokenType::OpMinus => Some(Self::Sub),
@@ -70,14 +69,22 @@ impl BinaryOp {
             lexer::TokenType::OpSlash => Some(Self::Div),
             lexer::TokenType::OpPercent => Some(Self::Mod),
 
+            lexer::TokenType::OpEqualsEquals => Some(Self::CmpEquals),
+            lexer::TokenType::OpExlmEquals => Some(Self::CmpNotEquals),
+            lexer::TokenType::OpLess => Some(Self::CmpLess),
+            lexer::TokenType::OpLessEquals => Some(Self::CmpLessEq),
+            lexer::TokenType::OpGreater => Some(Self::CmpGreater),
+            lexer::TokenType::OpGreaterEquals => Some(Self::CmpGreaterEq),
+
+            lexer::TokenType::OpAmpAmp => Some(Self::LogicalAnd),
+            lexer::TokenType::OpPipePipe => Some(Self::LogicalOr),
+
             lexer::TokenType::OpEquals => Some(Self::Assignment),
             lexer::TokenType::OpPlusEquals => Some(Self::AssAdd),
             lexer::TokenType::OpMinusEquals => Some(Self::AssSub),
             lexer::TokenType::OpAsteriskEquals => Some(Self::AssMul),
             lexer::TokenType::OpSlashEquals => Some(Self::AssDiv),
             lexer::TokenType::OpPercentEquals => Some(Self::AssMod),
-
-            lexer::TokenType::OpDotDot => Some(Self::Range),
 
             _ => None,
         }
@@ -99,6 +106,7 @@ impl BinaryOp {
             | Self::AssMul
             | Self::AssDiv
             | Self::AssMod => BinOpClass::Assignment,
+            Self::LogicalAnd | Self::LogicalOr => BinOpClass::Logical,
             Self::Range => BinOpClass::Range,
         }
     }
@@ -107,10 +115,11 @@ impl BinaryOp {
     fn precedence(&self) -> u8 {
         match self.class() {
             BinOpClass::Assignment => 1,
-            BinOpClass::Comparison => 2,
-            BinOpClass::Additive => 3,
-            BinOpClass::Multiplicative => 4,
-            BinOpClass::Range => 5,
+            BinOpClass::Logical => 2,
+            BinOpClass::Comparison => 3,
+            BinOpClass::Additive => 4,
+            BinOpClass::Multiplicative => 5,
+            BinOpClass::Range => 6,
         }
     }
 
@@ -134,6 +143,8 @@ impl BinaryOp {
             Self::AssDiv => "assdiv",
             Self::AssMod => "assmod",
             Self::Range => "range",
+            Self::LogicalAnd => "and",
+            Self::LogicalOr => "or",
         }
     }
 }
