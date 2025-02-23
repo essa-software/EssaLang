@@ -77,6 +77,9 @@ def get_expected_paths(test_path: Path):
 
 
 def run_compiler(test_path: Path, env_dir: Path):
+    # remove pwd from test_path
+    test_path = Path(os.path.relpath(test_path, env_dir))
+
     proc = sp.Popen(  # noqa: S603
         [COMPILER_PATH, str(test_path), "--machine-readable-errors"],
         stdout=sp.PIPE,
