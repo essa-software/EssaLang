@@ -250,9 +250,37 @@ impl<'data> CodeGen<'data> {
         let left_tmp = self
             .emit_expression_eval(left)?
             .expect("void expression in bin op lhs");
-        let right_tmp = self
-            .emit_expression_eval(right)?
-            .expect("void expression in bin op rhs");
+
+        let right_tmp;
+        if matches!(op.class(), parser::BinOpClass::Logical) {
+            // Short-circuiting
+            right_tmp = TmpVar::new(self.emit_tmp_var_c("esl_bool", "logic")?, false);
+            // Evaluate right expr only if left_tmp is true (for and) or false (for or)
+            let left_val_to_eval = match op {
+                parser::BinaryOp::LogicalAnd => true,
+                parser::BinaryOp::LogicalOr => false,
+                _ => unreachable!(),
+            };
+            writeln!(
+                self.out,
+                "    if({} == {}) {{",
+                left_tmp.access(),
+                left_val_to_eval
+            )?;
+            self.emit_expression_into(right, &right_tmp)?;
+            writeln!(self.out, "    }} else {{")?;
+            writeln!(
+                self.out,
+                "        {} = {};",
+                right_tmp.access(),
+                !left_val_to_eval
+            )?;
+            writeln!(self.out, "    }}")?;
+        } else {
+            right_tmp = self
+                .emit_expression_eval(right)?
+                .expect("void expression in bin op rhs");
+        }
 
         let left_type = left.type_(self.program).unwrap().mangle(self.program);
         let right_type = right.type_(self.program).unwrap().mangle(self.program);
@@ -479,18 +507,29 @@ impl<'data> CodeGen<'data> {
     // (to avoid copy).
     //
     // Panics if expr is void.
-    fn emit_expression_into(&mut self, expr: &sema::Expression, var: &str) -> IoResult<()> {
+    fn emit_expression_into(&mut self, expr: &sema::Expression, var: &TmpVar) -> IoResult<()> {
         match &expr {
             sema::Expression::ArrayLiteral { values, .. } => {
                 for (i, value) in values.iter().enumerate() {
                     let value_tmp = self.emit_expression_eval(value)?.unwrap();
-                    writeln!(self.out, "    {}[{}] = {};", var, i, value_tmp.access())?;
+                    writeln!(
+                        self.out,
+                        "    ({})[{}] = {};",
+                        var.access(),
+                        i,
+                        value_tmp.access()
+                    )?;
                 }
                 Ok(())
             }
             _ => {
                 let tmp_var = self.emit_expression_eval(expr)?;
-                writeln!(self.out, "    {} = {};", var, tmp_var.unwrap().access())
+                writeln!(
+                    self.out,
+                    "    {} = {};",
+                    var.access(),
+                    tmp_var.unwrap().access()
+                )
             }
         }
     }
@@ -612,8 +651,8 @@ impl<'data> CodeGen<'data> {
                     var_id.0.mangle()
                 );
                 self.local_var_counter += 1;
-                self.variable_names
-                    .insert(*var_id, TmpVar::new(var_name.clone(), false));
+                let tmp_var = TmpVar::new(var_name.clone(), false);
+                self.variable_names.insert(*var_id, tmp_var.clone());
                 writeln!(
                     self.out,
                     "    // let {}: {}",
@@ -629,7 +668,7 @@ impl<'data> CodeGen<'data> {
                 writeln!(self.out, ";")?;
                 // init
                 if let Some(init) = init {
-                    self.emit_expression_into(init, &var_name)?;
+                    self.emit_expression_into(init, &tmp_var)?;
                 }
             }
             sema::Statement::Return(expression) => {
