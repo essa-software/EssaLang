@@ -548,7 +548,7 @@ impl<'data> CodeGen<'data> {
                 let iterable_type_name = iterable_type.mangle(self.program);
                 let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
                 let iterator_has_next_func = format!("_{}_has_next", iterator_type_name);
-                format!("!{}({})", iterator_has_next_func, iterator.access_ptr())
+                format!("{}({})", iterator_has_next_func, iterator.access_ptr())
             }
         }
     }
