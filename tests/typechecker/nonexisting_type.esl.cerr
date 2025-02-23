@@ -1,1 +1,1 @@
-CompilationError { message: "Unknown type 'Foo'", range: 27..30 }
+CompilationError { message: "Unknown type 'Foo'", range: 27..30, path: "../../tests/typechecker/nonexisting_type.esl" }

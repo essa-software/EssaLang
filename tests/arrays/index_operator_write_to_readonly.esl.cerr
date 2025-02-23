@@ -1,1 +1,1 @@
-CompilationError { message: "Cannot assign to non-mutable value", range: 96..109 }
+CompilationError { message: "Cannot assign to non-mutable value", range: 96..109, path: "../../tests/arrays/index_operator_write_to_readonly.esl" }

@@ -1,2 +1,2 @@
-CompilationError { message: "Range operator with non-u32 types", range: 86..88 }
-CompilationError { message: "Range operator with non-u32 types", range: 113..115 }
+CompilationError { message: "Range operator with non-u32 types", range: 86..88, path: "../../tests/expressions/range_not_int.esl" }
+CompilationError { message: "Range operator with non-u32 types", range: 113..115, path: "../../tests/expressions/range_not_int.esl" }

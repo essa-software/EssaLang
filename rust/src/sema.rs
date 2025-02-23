@@ -1,6 +1,7 @@
-use std::{borrow::Borrow, collections::HashMap, ops::Range};
+use std::{collections::HashMap, ops::Range, path::PathBuf};
 
 use crate::{
+    compiler,
     error::CompilationError,
     parser::{self, BinOpClass},
 };
@@ -34,10 +35,6 @@ pub struct ScopeId(pub Id);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VarId(pub Id);
 
-pub const PRELUDE_MODULE: ModuleId = ModuleId(0);
-pub const MAIN_MODULE: ModuleId = ModuleId(1);
-pub const PRINT_VARARGS_HACK_MODULE: ModuleId = ModuleId(2137);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Primitive {
     Void,
@@ -49,12 +46,6 @@ pub enum Primitive {
     EmptyArray,
 }
 
-//// Type name
-// pub enum TypeName {
-//     Primitive(PrimitiveType),
-//     Struct(StructId),
-// }
-
 //// Type
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,10 +54,6 @@ pub enum Type {
     Array {
         inner: Box<Type>,
         size: usize,
-    },
-    // function pointer
-    Function {
-        function: FunctionId,
     },
     Slice {
         inner: Box<Type>,
@@ -90,9 +77,6 @@ impl Type {
             Type::Array { inner, size } => {
                 format!("[{}]{}", size, inner.name(program))
             }
-            Type::Function { function } => {
-                format!("<func {}>", program.functions[function].borrow().name())
-            }
             Type::Slice {
                 inner,
                 mut_elements,
@@ -101,7 +85,7 @@ impl Type {
                 if *mut_elements { "mut " } else { "" },
                 inner.name(program)
             ),
-            Type::Struct { id } => program.structs[id].name.clone(),
+            Type::Struct { id } => program.get_struct(*id).name.clone(),
         }
     }
 
@@ -117,9 +101,6 @@ impl Type {
             Type::Array { inner, size } => {
                 format!("array_{}_{}", size, inner.mangle(program))
             }
-            Type::Function { function } => {
-                format!("func_{}", program.functions[function].borrow().name())
-            }
             Type::Slice {
                 inner,
                 mut_elements,
@@ -128,7 +109,7 @@ impl Type {
                 if *mut_elements { "mut" } else { "const" },
                 inner.mangle(program)
             ),
-            Type::Struct { id } => format!("struct_{}", program.structs[id].name),
+            Type::Struct { id } => format!("struct_{}", program.get_struct(*id).name),
         }
     }
 
@@ -198,9 +179,9 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(name: String, program: &mut Program) -> Self {
+    pub fn new(name: String, module: &mut Module) -> Self {
         // create params scope
-        let params_scope = program.add_scope(MAIN_MODULE, Scope::new());
+        let params_scope = module.add_scope(Scope::new());
 
         Function {
             id: None,
@@ -216,9 +197,9 @@ impl Function {
         self.id.unwrap()
     }
 
-    pub fn add_param(&mut self, var: Var, program: &mut Program) {
-        let id = program.add_var(self.params_scope.0.module, var);
-        let scope = program.get_scope_mut(self.params_scope);
+    pub fn add_param(&mut self, var: Var, module: &mut Module) {
+        let id = module.add_var(var);
+        let scope = module.get_scope_mut(self.params_scope.0.id);
         scope.vars.push(id);
     }
 
@@ -445,154 +426,298 @@ impl Struct {
     }
 }
 
-//// Program
+//// Module
 
-pub struct Program {
-    functions: HashMap<FunctionId, Function>,
-    structs: HashMap<StructId, Struct>,
-    vars: HashMap<VarId, Var>,
-    scopes: HashMap<ScopeId, Scope>,
+pub struct Module {
+    id: ModuleId,
+    functions: Vec<Function>,
+    structs: Vec<Struct>,
+    vars: Vec<Var>,
+    scopes: Vec<Scope>,
+
+    imported_modules: Vec<ModuleId>,
 }
 
-impl Program {
-    pub fn new() -> Self {
-        Program {
-            functions: HashMap::new(),
-            structs: HashMap::new(),
-            vars: HashMap::new(),
-            scopes: HashMap::new(),
+impl Module {
+    pub fn new(id: ModuleId) -> Self {
+        Module {
+            id,
+            functions: Vec::new(),
+            structs: Vec::new(),
+            vars: Vec::new(),
+            scopes: Vec::new(),
+            imported_modules: Vec::new(),
         }
     }
 
     ////
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
-        self.functions.values()
+        self.functions.iter()
     }
 
-    pub fn get_function(&self, id: FunctionId) -> &Function {
-        self.functions.get(&id).expect("Function not found")
+    pub fn get_function(&self, id: usize) -> &Function {
+        self.functions.get(id).expect("Function not found")
     }
 
-    pub fn get_function_mut(&mut self, id: FunctionId) -> &mut Function {
-        self.functions.get_mut(&id).expect("Function not found")
+    pub fn get_function_mut(&mut self, id: usize) -> &mut Function {
+        self.functions.get_mut(id).expect("Function not found")
     }
 
-    pub fn lookup_function(&self, name: &str) -> Option<&Function> {
-        self.functions.values().find(|f| f.name == name)
-    }
-
-    pub fn add_function(&mut self, module: ModuleId, mut function: Function) -> FunctionId {
+    pub fn add_function(&mut self, mut function: Function) -> FunctionId {
         let id = FunctionId(Id {
-            module,
+            module: self.id,
             id: self.functions.len(),
         });
         function.id = Some(id);
-        self.functions.insert(id, function);
+        self.functions.push(function);
         id
     }
 
     ////
 
     pub fn structs(&self) -> impl Iterator<Item = &Struct> {
-        self.structs.values()
+        self.structs.iter()
     }
 
-    pub fn get_struct(&self, id: StructId) -> &Struct {
-        self.structs.get(&id).expect("Struct not found")
+    pub fn get_struct(&self, id: usize) -> &Struct {
+        self.structs.get(id).expect("Struct not found")
     }
 
-    pub fn add_struct(&mut self, module: ModuleId, mut struct_: Struct) -> StructId {
+    pub fn add_struct(&mut self, mut struct_: Struct) -> StructId {
         let id = StructId(Id {
-            module,
+            module: self.id,
             id: self.structs.len(),
         });
         struct_.id = Some(id);
         eprintln!("Adding struct: {:?}", struct_);
-        self.structs.insert(id, struct_);
+        self.structs.push(struct_);
         id
     }
 
     ////
 
-    pub fn get_var(&self, id: VarId) -> &Var {
-        self.vars.get(&id).expect("Var not found")
+    pub fn get_var(&self, id: usize) -> &Var {
+        self.vars.get(id).expect("Var not found")
     }
 
-    pub fn add_var(&mut self, module: ModuleId, mut var: Var) -> VarId {
+    pub fn add_var(&mut self, mut var: Var) -> VarId {
         let id = VarId(Id {
-            module,
+            module: self.id,
             id: self.vars.len(),
         });
         var.id = Some(id);
-        self.vars.insert(id, var);
+        self.vars.push(var);
         id
     }
 
     ////
 
-    pub fn get_scope(&self, id: ScopeId) -> &Scope {
-        self.scopes.get(&id).expect("Scope not found")
+    pub fn get_scope(&self, id: usize) -> &Scope {
+        self.scopes.get(id).expect("Scope not found")
     }
 
-    pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
-        self.scopes.get_mut(&id).expect("Scope not found")
+    pub fn get_scope_mut(&mut self, id: usize) -> &mut Scope {
+        self.scopes.get_mut(id).expect("Scope not found")
     }
 
-    pub fn add_scope(&mut self, module: ModuleId, mut scope: Scope) -> ScopeId {
+    pub fn add_scope(&mut self, mut scope: Scope) -> ScopeId {
         let id = ScopeId(Id {
-            module,
+            module: self.id,
             id: self.scopes.len(),
         });
         scope.id = Some(id);
-        self.scopes.insert(id, scope);
+        self.scopes.push(scope);
         id
+    }
+
+    ////
+
+    pub fn import(&mut self, imported: ModuleId) {
+        self.imported_modules.push(imported);
+    }
+}
+
+//// Program
+
+pub struct Program {
+    modules: Vec<Module>,
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Program {
+            modules: Vec::new(),
+        }
+    }
+
+    pub fn modules(&self) -> impl Iterator<Item = &Module> {
+        self.modules.iter()
+    }
+
+    // add and return new module
+    pub fn add_module(&mut self) -> (&mut Module, ModuleId) {
+        let id = ModuleId(self.modules.len());
+        let module = Module::new(id);
+        self.modules.push(module);
+        (self.modules.last_mut().unwrap(), id)
+    }
+
+    pub fn get_module(&self, id: ModuleId) -> &Module {
+        self.modules.get(id.0).expect("Module not found")
+    }
+
+    pub fn get_module_mut(&mut self, id: ModuleId) -> &mut Module {
+        self.modules.get_mut(id.0).expect("Module not found")
+    }
+
+    ////
+
+    pub fn get_function(&self, id: FunctionId) -> &Function {
+        self.modules
+            .get(id.0.module.0)
+            .expect("Module not found")
+            .get_function(id.0.id)
+    }
+
+    pub fn get_struct(&self, id: StructId) -> &Struct {
+        self.modules
+            .get(id.0.module.0)
+            .expect("Module not found")
+            .get_struct(id.0.id)
+    }
+
+    pub fn get_var(&self, id: VarId) -> &Var {
+        self.modules
+            .get(id.0.module.0)
+            .expect("Module not found")
+            .get_var(id.0.id)
+    }
+
+    pub fn get_scope(&self, id: ScopeId) -> &Scope {
+        self.modules
+            .get(id.0.module.0)
+            .expect("Module not found")
+            .get_scope(id.0.id)
+    }
+
+    pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
+        let module = self
+            .modules
+            .get_mut(id.0.module.0)
+            .expect("Module not found");
+        module.get_scope_mut(id.0.id)
     }
 }
 
 ////////
 
-pub struct TypeChecker<'data> {
-    p_program: &'data parser::Program,
+pub struct TypeChecker {
     program: Program,
-
-    // stage 1
-    function_bodies_to_check: Vec<(&'data parser::StatementNode, FunctionId)>,
-
-    // stage 2
     errors: Vec<CompilationError>,
+    prelude_id: Option<ModuleId>,
 }
 
-impl<'data> TypeChecker<'data> {
-    pub fn new(p_program: &'data parser::Program) -> Self {
+impl TypeChecker {
+    pub fn new() -> Self {
         TypeChecker {
-            p_program,
             program: Program::new(),
-
-            function_bodies_to_check: vec![],
-
             errors: vec![],
+            prelude_id: None,
         }
     }
 
-    fn add_prelude(&mut self) {
+    fn add_prelude(&mut self) -> ModuleId {
         // TODO: Parse this from file.
+        let (mut prelude, prelude_id) = self.program.add_module();
+        self.prelude_id = Some(prelude_id);
 
-        let mut print_func = Function::new("print".into(), &mut self.program);
+        // print(...): void
+        let mut print_func = Function::new("print".into(), &mut prelude);
         print_func.add_param(
             Var::new(
                 Some(Type::Primitive(Primitive::StaticString)),
                 "fmtstr".into(),
                 false,
             ),
-            &mut self.program,
+            &mut prelude,
         );
-        self.program.add_function(PRELUDE_MODULE, print_func);
+        prelude.add_function(print_func);
+
+        prelude_id
+    }
+
+    pub fn typecheck(mut self, p_module: parser::Module) -> (Program, Vec<CompilationError>) {
+        let prelude_id = self.add_prelude();
+
+        // create main module (this)
+        let (module, main_module_id) = self.program.add_module();
+        module.import(prelude_id);
+
+        let tc = TypeCheckerModule::new(&mut self, main_module_id, p_module.source_path.clone());
+        tc.typecheck(p_module);
+
+        (self.program, self.errors)
+    }
+}
+
+/// Typecheck given parser::Module into a ModuleId.
+pub struct TypeCheckerModule<'tc> {
+    tc: &'tc mut TypeChecker,
+    module: ModuleId,
+    path: PathBuf,
+}
+
+impl<'tc> TypeCheckerModule<'tc> {
+    fn new(tc: &'tc mut TypeChecker, module: ModuleId, path: PathBuf) -> Self {
+        TypeCheckerModule { tc, module, path }
+    }
+
+    fn program_mut(&mut self) -> &mut Program {
+        &mut self.tc.program
+    }
+
+    fn program(&self) -> &Program {
+        &self.tc.program
+    }
+
+    fn this_module(&self) -> &Module {
+        self.program().get_module(self.module)
+    }
+
+    fn this_module_mut(&mut self) -> &mut Module {
+        let m = self.module;
+        self.program_mut().get_module_mut(m)
+    }
+
+    fn lookup_function(&self, name: &str) -> Option<&Function> {
+        // Lookup function in this module and in imported modules
+        // FIXME: Optimize
+        // FIXME: We may want to introduce some namespace support, then
+        // we won't search in imported modules anymore.
+        let tm = self.this_module();
+        tm.functions().find(|f| f.name == name).or_else(|| {
+            tm.imported_modules
+                .iter()
+                .map(|m| self.program().get_module(*m))
+                .filter_map(|m| m.functions().find(|f| f.name == name))
+                .next()
+        })
     }
 
     fn lookup_struct(&self, name: &str) -> Option<&Struct> {
-        // TODO: Optimize this
-        self.program.structs.values().find(|s| s.name == name)
+        // Lookup struct in this module and in imported modules
+        // FIXME: Optimize
+        // FIXME: We may want to introduce some namespace support, then
+        // we won't search in imported modules anymore.
+        let tm = self.this_module();
+        tm.structs().find(|f| f.name == name).or_else(|| {
+            tm.imported_modules
+                .iter()
+                .map(|m| self.program().get_module(*m))
+                .filter_map(|m| m.structs().find(|f| f.name == name))
+                .next()
+        })
     }
 
     fn typecheck_type(
@@ -617,9 +742,10 @@ impl<'data> TypeChecker<'data> {
                             id: struct_.id.unwrap(),
                         })
                     } else {
-                        self.errors.push(CompilationError::new(
+                        self.tc.errors.push(CompilationError::new(
                             format!("Unknown type '{}'", name),
                             range.clone(),
+                            self.path.clone(),
                         ));
                         None
                     }
@@ -635,96 +761,118 @@ impl<'data> TypeChecker<'data> {
         }
     }
 
-    fn typecheck_pass1_structs(&mut self) {
-        for decl in &self.p_program.declarations {
-            match decl {
-                parser::Declaration::Struct { name, fields } => {
-                    let struct_ = Struct {
-                        id: None,
-                        name: name.clone(),
-                        fields: fields
-                            .iter()
-                            .map(|field| Field {
-                                type_: self.typecheck_type(&field.type_),
-                                name: field.name.clone(),
-                            })
-                            .collect(),
-                    };
-                    self.program.add_struct(MAIN_MODULE, struct_);
-                }
-                _ => {}
-            }
+    fn typecheck_imports(&mut self, p_module: &mut parser::Module) {
+        for import in p_module.imports.drain(..) {
+            let parser::Import { name } = import;
+            let Ok(parsed_module) = compiler::parse_module_from_file(
+                &p_module
+                    .source_path
+                    .with_file_name(name.clone())
+                    .with_extension("esl"),
+            ) else {
+                self.tc.errors.push(CompilationError::new(
+                    format!("Failed to import module '{}'", name),
+                    Range { start: 0, end: 0 },
+                    p_module.source_path.clone(),
+                ));
+                continue;
+            };
+
+            let prelude_id = self.tc.prelude_id.unwrap();
+            let (imported_mod, imported_mod_id) = self.program_mut().add_module();
+            imported_mod.import(prelude_id);
+
+            let typechecker = TypeCheckerModule::new(self.tc, imported_mod_id, parsed_module.path);
+            typechecker.typecheck(parsed_module.module);
+            self.this_module_mut().import(imported_mod_id);
         }
     }
 
-    fn typecheck_pass2_function_decls(&mut self) {
-        for decl in &self.p_program.declarations {
-            match decl {
-                parser::Declaration::FunctionImpl {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                } => {
-                    let should_infer_return_type = return_type.is_none();
-                    let rt = return_type
-                        .as_ref()
-                        .and_then(|ty| self.typecheck_type(&ty))
-                        .or_else(|| {
-                            if should_infer_return_type {
-                                if name == "main" {
-                                    Some(Type::Primitive(Primitive::U32))
-                                } else {
-                                    Some(Type::Primitive(Primitive::Void))
-                                }
-                            } else {
-                                None
-                            }
-                        });
-                    let mut function = Function::new(name.clone(), &mut self.program);
-                    function.return_type = rt;
-                    for param in params {
-                        let type_ = self.typecheck_type(&param.type_);
-                        function.add_param(
-                            Var::new(type_, param.name.clone(), false),
-                            &mut self.program,
-                        );
+    fn typecheck_structs(&mut self, p_module: &mut parser::Module) {
+        for decl in &p_module.structs {
+            let parser::Struct { name, fields } = decl;
+            let struct_ = Struct {
+                id: None,
+                name: name.clone(),
+                fields: fields
+                    .iter()
+                    .map(|field| Field {
+                        type_: self.typecheck_type(&field.type_),
+                        name: field.name.clone(),
+                    })
+                    .collect(),
+            };
+            self.this_module_mut().add_struct(struct_);
+        }
+    }
+
+    fn typecheck_function_decls(
+        &mut self,
+        p_module: &mut parser::Module,
+    ) -> Vec<(parser::StatementNode, FunctionId)> {
+        let mut function_bodies_to_check = vec![];
+
+        for decl in p_module.function_impls.drain(..) {
+            let parser::FunctionImpl {
+                name,
+                params,
+                body,
+                return_type,
+            } = decl;
+
+            let should_infer_return_type = return_type.is_none();
+            let rt = return_type
+                .as_ref()
+                .and_then(|ty| self.typecheck_type(&ty))
+                .or_else(|| {
+                    if should_infer_return_type {
+                        if name == "main" {
+                            Some(Type::Primitive(Primitive::U32))
+                        } else {
+                            Some(Type::Primitive(Primitive::Void))
+                        }
+                    } else {
+                        None
                     }
-                    let id = self.program.add_function(MAIN_MODULE, function);
-                    self.function_bodies_to_check.push((body, id));
-                }
-                _ => {}
+                });
+            let mut function = Function::new(name.clone(), self.this_module_mut());
+            function.return_type = rt;
+            for param in params {
+                let type_ = self.typecheck_type(&param.type_);
+                function.add_param(
+                    Var::new(type_, param.name.clone(), false),
+                    self.this_module_mut(),
+                );
             }
+            let id = self.this_module_mut().add_function(function);
+            function_bodies_to_check.push((body, id));
+        }
+        function_bodies_to_check
+    }
+
+    fn typecheck_function_bodies(
+        &mut self,
+        function_bodies_to_check: Vec<(parser::StatementNode, FunctionId)>,
+    ) {
+        for (parsed, id) in function_bodies_to_check {
+            let tc = TypeCheckerExecution::new(self, id);
+            let errors = tc.typecheck(&parsed);
+            self.tc.errors.extend(errors);
         }
     }
 
-    fn typecheck_pass3_function_bodies(&mut self) {
-        let btc = self.function_bodies_to_check.clone(); // Should be ok, this is just a bunch of pointers.
-        for (parsed, id) in btc {
-            let mut tc = TypeCheckerExecution::new(self, id);
-            tc.typecheck(parsed);
-        }
-    }
-
-    pub fn typecheck(mut self) -> (Program, Vec<CompilationError>) {
-        self.add_prelude();
-
-        // pass 1: typecheck structs (to have all types there)
-        self.typecheck_pass1_structs();
-
-        // pass 2: add function declarations
-        self.typecheck_pass2_function_decls();
-
-        // pass 3: typecheck function bodies
-        self.typecheck_pass3_function_bodies();
-
-        (self.program, self.errors)
+    pub fn typecheck(mut self, mut p_module: parser::Module) {
+        self.typecheck_imports(&mut p_module);
+        self.typecheck_structs(&mut p_module);
+        let bodies = self.typecheck_function_decls(&mut p_module);
+        self.typecheck_function_bodies(bodies);
     }
 }
 
 /// Typechecker in execution scopes (e.g functions)
-pub struct TypeCheckerExecution<'tc, 'data> {
-    tc: &'tc mut TypeChecker<'data>,
+pub struct TypeCheckerExecution<'tc, 'tcm> {
+    tcm: &'tcm mut TypeCheckerModule<'tc>,
+    errors: Vec<CompilationError>,
 
     function: FunctionId,
 
@@ -732,18 +880,31 @@ pub struct TypeCheckerExecution<'tc, 'data> {
     loop_depth: usize,
 }
 
-impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
-    pub fn new(tc: &'tc mut TypeChecker<'data>, function: FunctionId) -> Self {
+impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
+    pub fn new(tcm: &'tcm mut TypeCheckerModule<'tc>, function: FunctionId) -> Self {
         TypeCheckerExecution {
-            tc,
+            tcm,
+            errors: vec![],
             function,
             scope_stack: vec![],
             loop_depth: 0,
         }
     }
 
+    fn program(&self) -> &Program {
+        self.tcm.program()
+    }
+
+    fn this_module(&self) -> &Module {
+        self.tcm.this_module()
+    }
+
+    fn this_module_mut(&mut self) -> &mut Module {
+        self.tcm.this_module_mut()
+    }
+
     fn push_scope(&mut self) {
-        let scope = self.tc.program.add_scope(MAIN_MODULE, Scope::new());
+        let scope = self.tcm.this_module_mut().add_scope(Scope::new());
         self.scope_stack.push(scope);
     }
 
@@ -755,15 +916,23 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         *self.scope_stack.last().expect("no scope")
     }
 
+    fn add_var_to_current_scope(&mut self, var: Var) -> VarId {
+        let id: VarId = self.this_module_mut().add_var(var);
+        let scope_id = self.current_scope().0.id;
+        let scope = self.this_module_mut().get_scope_mut(scope_id);
+        scope.vars.push(id);
+        id
+    }
+
     fn is_in_loop(&self) -> bool {
         self.loop_depth > 0
     }
 
     fn lookup_variable(&self, name: String) -> Option<&Var> {
         for scope in self.scope_stack.iter().rev() {
-            let scope = self.tc.program.get_scope(*scope);
+            let scope = self.program().get_scope(*scope);
             for var_id in &scope.vars {
-                let var = self.tc.program.get_var(*var_id);
+                let var = self.program().get_var(*var_id);
                 if var.name == name {
                     return Some(var);
                 }
@@ -788,10 +957,11 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             })
             .collect::<Vec<_>>();
 
-        let Some(function) = self.tc.program.lookup_function(name) else {
-            self.tc.errors.push(CompilationError::new(
+        let Some(function) = self.tcm.lookup_function(name) else {
+            self.errors.push(CompilationError::new(
                 format!("Function with name '{}' not found", name),
                 range.clone(),
+                self.tcm.path.clone(),
             ));
             return Expression::Call {
                 function_id: None,
@@ -809,20 +979,17 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             // just push one by one with increasing
             // (nonsensical) var ids
             for (i, (expr, range)) in typechecked_args.into_iter().enumerate() {
-                let Some(type_) = expr.type_(&self.tc.program) else {
-                    self.tc.errors.push(CompilationError::new(
+                let Some(type_) = expr.type_(&self.program()) else {
+                    self.errors.push(CompilationError::new(
                         format!("Argument {} to print function has invalid type", i),
                         range,
+                        self.tcm.path.clone(),
                     ));
                     continue;
                 };
                 let var = Var::new(Some(type_), format!("arg{}", i), false);
-                let var_id = VarId(Id {
-                    module: PRINT_VARARGS_HACK_MODULE,
-                    id: i,
-                });
-                self.tc.program.add_var(PRINT_VARARGS_HACK_MODULE, var);
-                arguments.insert(var_id, expr);
+                let id = self.this_module_mut().add_var(var);
+                arguments.insert(id, expr);
             }
 
             return Expression::Call {
@@ -831,36 +998,36 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             };
         }
 
-        let params_scope = self.tc.program.get_scope(function.params_scope);
+        let function_id = function.id.unwrap();
+        let params_scope_id = function.params_scope;
+
         for (i, (expr, range)) in typechecked_args.into_iter().enumerate() {
+            let params_scope = self.program().get_scope(params_scope_id);
             let param = *(if let Some(p) = params_scope.vars.get(i) {
                 p
             } else {
-                self.tc.errors.push(CompilationError::new(
+                self.errors.push(CompilationError::new(
                     "Too many arguments".into(),
                     range.clone(),
+                    self.tcm.path.clone(),
                 ));
                 break;
             });
+            let expr_type = expr.type_(&self.program());
+            arguments.insert(param, expr);
 
-            let var = self.tc.program.get_var(param);
-            if var.type_ != expr.type_(&self.tc.program) {
-                self.tc.errors.push(CompilationError::new(
+            let var = self.program().get_var(param);
+            if var.type_ != expr_type {
+                self.errors.push(CompilationError::new(
                     format!("Argument {} has invalid type", i),
                     range.clone(),
+                    self.tcm.path.clone(),
                 ));
             }
-
-            arguments.insert(param, expr);
         }
 
         Expression::Call {
-            function_id: Some(
-                function
-                    .borrow()
-                    .id
-                    .expect("function not yet typechecked (this should be done in pass1)"),
-            ),
+            function_id: Some(function_id),
             arguments,
         }
     }
@@ -891,29 +1058,30 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 if !matches!(left, Type::Primitive(Primitive::U32))
                     || !matches!(right, Type::Primitive(Primitive::U32))
                 {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Invalid types for arithmetic operator".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
             }
             BinOpClass::Comparison => {
                 if left != right {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Comparison operator with different types".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
             }
             BinOpClass::Assignment => {
                 if !self.is_type_convertible(&left, &right) {
-                    self.tc.errors.push(CompilationError::new(
-                        format!(
-                            "Cannot assign '{}' to '{}'",
-                            right.name(&self.tc.program),
-                            left.name(&self.tc.program)
-                        ),
+                    let right_name = right.name(&self.program());
+                    let left_name = left.name(&self.program());
+                    self.errors.push(CompilationError::new(
+                        format!("Cannot assign '{}' to '{}'", right_name, left_name,),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
             }
@@ -921,9 +1089,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 if left != Type::Primitive(Primitive::Bool)
                     || right != Type::Primitive(Primitive::Bool)
                 {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Logical operator with non-bool types".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
             }
@@ -931,9 +1100,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 if left != Type::Primitive(Primitive::U32)
                     || right != Type::Primitive(Primitive::U32)
                 {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Range operator with non-u32 types".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
             }
@@ -951,9 +1121,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             parser::Expression::Call { function, args } => match &function.expression {
                 parser::Expression::Name(name) => self.typecheck_expr_call(&name, args, range),
                 _ => {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Only function names are supported for now".into(),
                         function.range.clone(),
+                        self.tcm.path.clone(),
                     ));
                     Expression::Call {
                         function_id: None,
@@ -966,21 +1137,23 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 let index_tc = self.typecheck_expression(index);
 
                 // index must be u32 for now
-                if let Some(index_type) = index_tc.type_(&self.tc.program) {
+                if let Some(index_type) = index_tc.type_(&self.program()) {
                     if index_type != Type::Primitive(Primitive::U32) {
-                        self.tc.errors.push(CompilationError::new(
+                        self.errors.push(CompilationError::new(
                             "Index must be u32".into(),
                             index.range.clone(),
+                            self.tcm.path.clone(),
                         ));
                     }
                 }
 
                 // indexable must be indexable
-                if let Some(indexable_type) = indexable_tc.type_(&self.tc.program) {
-                    if indexable_type.index_value_type(&self.tc.program).is_none() {
-                        self.tc.errors.push(CompilationError::new(
+                if let Some(indexable_type) = indexable_tc.type_(&self.program()) {
+                    if indexable_type.index_value_type(&self.program()).is_none() {
+                        self.errors.push(CompilationError::new(
                             "Non-indexable type in index operator".into(),
                             indexable.range.clone(),
+                            self.tcm.path.clone(),
                         ));
                     }
                 }
@@ -994,21 +1167,23 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 let object_tc = self.typecheck_expression(object);
 
                 // object must be a struct
-                if let Some(object_type) = object_tc.type_(&self.tc.program) {
+                if let Some(object_type) = object_tc.type_(&self.program()) {
                     match object_type {
                         Type::Struct { id } => {
-                            let struct_ = self.tc.program.get_struct(id);
+                            let struct_ = self.program().get_struct(id);
                             if let None = struct_.resolve_field(member) {
-                                self.tc.errors.push(CompilationError::new(
+                                self.errors.push(CompilationError::new(
                                     "Member access on non-existing field".into(),
                                     range.clone(),
+                                    self.tcm.path.clone(),
                                 ));
                             }
                         }
                         _ => {
-                            self.tc.errors.push(CompilationError::new(
+                            self.errors.push(CompilationError::new(
                                 "Member access on non-struct type".into(),
                                 object.range.clone(),
+                                self.tcm.path.clone(),
                             ));
                         }
                     }
@@ -1022,9 +1197,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 if *value > (u32::MAX as u64) {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         format!("Integer literal {} is too large", value),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
                 Expression::IntLiteral { value: *value }
@@ -1040,9 +1216,10 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         mut_: var.mut_,
                     }
                 } else {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         format!("Variable with name '{}' not found", name),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                     Expression::VarRef {
                         type_: None,
@@ -1064,28 +1241,31 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     match left.value_type() {
                         ValueType::LValue => {}
                         ValueType::ConstLValue => {
-                            self.tc.errors.push(CompilationError::new(
+                            self.errors.push(CompilationError::new(
                                 "Cannot assign to non-mutable value".into(),
                                 range.clone(),
+                                self.tcm.path.clone(),
                             ));
                         }
                         ValueType::RValue => {
-                            self.tc.errors.push(CompilationError::new(
+                            self.errors.push(CompilationError::new(
                                 "Cannot assign to rvalue".into(),
                                 range.clone(),
+                                self.tcm.path.clone(),
                             ));
                         }
                     }
                 }
 
                 if let (Some(left_type), Some(right_type)) =
-                    (left.type_(&self.tc.program), right.type_(&self.tc.program))
+                    (left.type_(&self.program()), right.type_(&self.program()))
                 {
                     self.check_operator_types(*op, left_type, right_type, op_range);
                 } else {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "Invalid types for binary operator".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
 
@@ -1108,19 +1288,17 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                         .collect();
 
                     // Use first element as type hint
-                    let value_type = tc_values
-                        .first()
-                        .map(|v| v.type_(&self.tc.program))
-                        .unwrap();
+                    let value_type = tc_values.first().map(|v| v.type_(&self.program())).unwrap();
 
                     // Check if all values have type convertible to the first one
                     for (i, v) in tc_values.iter().enumerate() {
                         if let Some(value_type) = &value_type {
-                            if let Some(v_type) = v.type_(&self.tc.program) {
+                            if let Some(v_type) = v.type_(&self.program()) {
                                 if !self.is_type_convertible(&value_type, &v_type) {
-                                    self.tc.errors.push(CompilationError::new(
+                                    self.errors.push(CompilationError::new(
                                         format!("Array literal value {} has invalid type", i),
                                         values[i].range.clone(),
+                                        self.tcm.path.clone(),
                                     ));
                                 }
                             }
@@ -1143,10 +1321,11 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         match statement {
             parser::Statement::Expression(expr) => {
                 let expr = self.typecheck_expression(&expr);
-                if !expr.can_be_discarded(&self.tc.program) {
-                    self.tc.errors.push(CompilationError::new(
+                if !expr.can_be_discarded(&self.program()) {
+                    self.errors.push(CompilationError::new(
                         "Unused expression result".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
                 Statement::Expression(expr)
@@ -1170,36 +1349,30 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
 
                 let type_: Option<Type> = type_
                     .as_ref()
-                    .and_then(|ty| self.tc.typecheck_type(&ty))
+                    .and_then(|ty| self.tcm.typecheck_type(&ty))
                     .or(if let Some(init) = &init_value {
-                        init.type_(&self.tc.program)
+                        init.type_(&self.program())
                     } else {
                         None
                     });
 
-                let init_value_type = init_value.as_ref().and_then(|e| e.type_(&self.tc.program));
+                let init_value_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
                 if let (Some(var_type), Some(init_type)) = (&type_, init_value_type) {
                     if !self.is_type_convertible(&var_type, &init_type) {
-                        self.tc.errors.push(CompilationError::new(
+                        self.errors.push(CompilationError::new(
                             format!(
                                 "Cannot convert '{}' to '{}' for variable initialization",
-                                init_type.name(&self.tc.program),
-                                var_type.name(&self.tc.program)
+                                init_type.name(&self.program()),
+                                var_type.name(&self.program())
                             ),
                             range.clone(),
+                            self.tcm.path.clone(),
                         ));
                     }
                 }
 
                 let var = Var::new(type_, name.clone(), *mut_);
-                let func_module = self.function.0.module;
-                let var_id = self.tc.program.add_var(func_module, var);
-
-                self.tc
-                    .program
-                    .get_scope_mut(self.current_scope())
-                    .vars
-                    .push(var_id);
+                let var_id = self.add_var_to_current_scope(var);
 
                 Statement::VarDecl {
                     var: var_id,
@@ -1221,15 +1394,16 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                 body,
             } => {
                 let tc_iterable = self.typecheck_expression(iterable);
-                let iter_type = tc_iterable.type_(&self.tc.program);
+                let iter_type = tc_iterable.type_(&self.program());
                 let iter_value_type: Option<Type> = tc_iterable
-                    .type_(&self.tc.program)
-                    .and_then(|t| t.iter_value_type(&self.tc.program));
+                    .type_(&self.program())
+                    .and_then(|t| t.iter_value_type(&self.program()));
 
                 if !iter_type.is_none() && iter_value_type.is_none() {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "For loop iterable must be an iterable type".into(),
                         iterable.range.clone(),
+                        self.tcm.path.clone(),
                     ));
                 }
 
@@ -1238,15 +1412,7 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
 
                 // iterable var
                 let var = Var::new(iter_value_type, it_var.clone(), false);
-                let func_module = self.function.0.module;
-                let var_id = self.tc.program.add_var(func_module, var);
-                eprintln!("iterable var id: {:?}", var_id);
-
-                self.tc
-                    .program
-                    .get_scope_mut(self.current_scope())
-                    .vars
-                    .push(var_id);
+                let var_id = self.add_var_to_current_scope(var);
 
                 let body = self.typecheck_statement(body);
 
@@ -1268,13 +1434,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     self.typecheck_expression(condition),
                     condition.range.clone(),
                 );
-                let condition_type = condition.type_(&self.tc.program);
+                let condition_type = condition.type_(&self.program());
                 if condition_type.is_some()
                     && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
                 {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "If condition must be of type bool".into(),
                         cond_range,
+                        self.tcm.path.clone(),
                     ));
                 }
                 let then_block = self.typecheck_statement(then_block);
@@ -1289,18 +1456,20 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
             }
             parser::Statement::Break => {
                 if !self.is_in_loop() {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "'break' outside of a loop".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ))
                 }
                 Statement::Break
             }
             parser::Statement::Continue => {
                 if !self.is_in_loop() {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "'continue' outside of a loop".into(),
                         range.clone(),
+                        self.tcm.path.clone(),
                     ))
                 }
                 Statement::Continue
@@ -1310,13 +1479,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
                     self.typecheck_expression(condition),
                     condition.range.clone(),
                 );
-                let condition_type = condition.type_(&self.tc.program);
+                let condition_type = condition.type_(&self.program());
                 if condition_type.is_some()
                     && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
                 {
-                    self.tc.errors.push(CompilationError::new(
+                    self.errors.push(CompilationError::new(
                         "While condition must be of type bool".into(),
                         cond_range,
+                        self.tcm.path.clone(),
                     ));
                 }
                 self.push_scope();
@@ -1332,13 +1502,16 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
         }
     }
 
-    fn typecheck(&mut self, stmt: &parser::StatementNode) {
+    fn typecheck(mut self, stmt: &parser::StatementNode) -> Vec<CompilationError> {
         self.scope_stack
-            .push(self.tc.program.get_function(self.function).params_scope);
+            .push(self.program().get_function(self.function).params_scope);
 
         let stmt = self.typecheck_statement(stmt);
-        self.tc.program.get_function_mut(self.function).body = Some(stmt);
+        let function_id: usize = self.function.0.id;
+        self.this_module_mut().get_function_mut(function_id).body = Some(stmt);
 
         self.scope_stack.pop();
+
+        self.errors
     }
 }

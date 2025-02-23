@@ -1,1 +1,1 @@
-CompilationError { message: "Argument 0 has invalid type", range: 45..51 }
+CompilationError { message: "Argument 0 has invalid type", range: 45..51, path: "../../tests/functions/passing_argument_of_invalid_type.esl" }

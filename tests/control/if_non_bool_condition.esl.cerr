@@ -1,1 +1,1 @@
-CompilationError { message: "If condition must be of type bool", range: 73..74 }
+CompilationError { message: "If condition must be of type bool", range: 73..74, path: "../../tests/control/if_non_bool_condition.esl" }

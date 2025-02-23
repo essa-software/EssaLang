@@ -1,1 +1,1 @@
-CompilationError { message: "Unknown type 'Bar'", range: 22..25 }
+CompilationError { message: "Unknown type 'Bar'", range: 22..25, path: "../../tests/typechecker/nonexisting_type_field.esl" }

@@ -1,1 +1,1 @@
-CompilationError { message: "'break' outside of a loop", range: 18..23 }
+CompilationError { message: "'break' outside of a loop", range: 18..23, path: "../../tests/control/break_not_in_loop.esl" }

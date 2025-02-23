@@ -1,2 +1,2 @@
-CompilationError { message: "Expected ']' after array literal", range: 39..40 }
-CompilationError { message: "Expected '}'", range: 39..40 }
+CompilationError { message: "Expected ']' after array literal", range: 39..40, path: "../../tests/syntax/expr_list_not_closed.esl" }
+CompilationError { message: "Expected '}'", range: 39..40, path: "../../tests/syntax/expr_list_not_closed.esl" }

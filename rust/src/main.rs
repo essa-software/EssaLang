@@ -1,20 +1,16 @@
 pub mod codegen;
+pub mod compiler;
 pub mod error;
 pub mod lexer;
 pub mod parser;
 pub mod sema;
 
-use std::{
-    fs::{self, File},
-    io::Read,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use argparse::{ArgumentParser, Store, StoreTrue};
 use codegen::CodeGen;
-use sema::TypeChecker;
 
-struct CompileArgs {
+pub struct CompileArgs {
     machine_readable_errors: bool,
 }
 
@@ -23,32 +19,26 @@ struct CompileArgs {
 fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
     eprintln!("Running file: {:?}", path);
 
-    let source: Vec<u8> = {
-        let mut source_file = File::open(path).expect("Failed to open file");
-        let mut source = Vec::new();
-        source_file.read_to_end(&mut source)?;
-        source
-    };
+    let mut main_module = compiler::parse_module_from_file(path)?;
 
-    let parser = parser::Parser::new(&source)?;
-    let (program, mut errors) = parser.parse();
+    let typechecker = sema::TypeChecker::new();
+    let (program, typechecker_errors) = typechecker.typecheck(main_module.module);
 
-    let typechecker = TypeChecker::new(&program);
-    let (program, typechecker_errors) = typechecker.typecheck();
+    main_module.errors.extend(typechecker_errors);
 
-    errors.extend(typechecker_errors);
-
-    if !errors.is_empty() {
+    if !main_module.errors.is_empty() {
         if args.machine_readable_errors {
             eprintln!("Errors:");
-            for error in errors {
+            for error in main_module.errors {
                 // Note: This is the only thing printed on stdout in the
                 // whole program. (The correct program prints nothing)
                 println!("{:?}", error);
             }
         } else {
-            for error in errors {
-                error.print(&path.to_string_lossy(), &source);
+            for error in main_module.errors {
+                // FIXME: don't read file every time
+                let source = compiler::read_file(&error.path)?;
+                error.print(&source);
             }
         }
         return Ok(false);

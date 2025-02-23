@@ -1,1 +1,1 @@
-CompilationError { message: "Cannot assign 'static_string' to 'u32'", range: 35..36 }
+CompilationError { message: "Cannot assign 'static_string' to 'u32'", range: 35..36, path: "../../tests/typechecker/not_matching_types_assignment.esl" }

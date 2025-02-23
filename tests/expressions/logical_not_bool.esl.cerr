@@ -1,2 +1,2 @@
-CompilationError { message: "Logical operator with non-bool types", range: 28..30 }
-CompilationError { message: "Logical operator with non-bool types", range: 48..50 }
+CompilationError { message: "Logical operator with non-bool types", range: 28..30, path: "../../tests/expressions/logical_not_bool.esl" }
+CompilationError { message: "Logical operator with non-bool types", range: 48..50, path: "../../tests/expressions/logical_not_bool.esl" }

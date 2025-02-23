@@ -1,5 +1,5 @@
 use core::str;
-use std::{ops::Range, str::Utf8Error};
+use std::{ops::Range, path::PathBuf, str::Utf8Error};
 
 use crate::{error::CompilationError, lexer};
 
@@ -239,37 +239,51 @@ pub struct FieldDecl {
     pub range: Range<usize>,
 }
 
+// Declarations
+
 #[derive(Debug)]
-pub enum Declaration {
-    FunctionImpl {
-        name: String,
-        params: Vec<FunctionParam>,
-        return_type: Option<TypeNode>,
-        body: StatementNode,
-    },
-    Struct {
-        name: String,
-        fields: Vec<FieldDecl>,
-    },
+pub struct FunctionImpl {
+    pub name: String,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeNode>,
+    pub body: StatementNode,
 }
 
 #[derive(Debug)]
-pub struct Program {
-    pub declarations: Vec<Declaration>,
+pub struct Import {
+    pub name: String,
+}
+
+#[derive(Debug)]
+pub struct Struct {
+    pub name: String,
+    pub fields: Vec<FieldDecl>,
+}
+
+// Module
+
+#[derive(Debug)]
+pub struct Module {
+    pub source_path: PathBuf,
+    pub imports: Vec<Import>,
+    pub structs: Vec<Struct>,
+    pub function_impls: Vec<FunctionImpl>,
 }
 
 ////
 
 pub struct Parser<'a> {
     input: &'a [u8],
+    source_path: PathBuf,
     iter: lexer::TokenIterator<'a>,
     errors: Vec<CompilationError>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a [u8]) -> Result<Self, Utf8Error> {
+    pub fn new(source_path: PathBuf, input: &'a [u8]) -> Result<Self, Utf8Error> {
         Ok(Self {
             input,
+            source_path,
             iter: lexer::TokenIterator::new(input)?,
             errors: vec![],
         })
@@ -291,6 +305,10 @@ impl<'a> Parser<'a> {
         self.peek().map(|t| t.range.end).unwrap_or(0)
     }
 
+    fn path(&self) -> PathBuf {
+        self.source_path.clone()
+    }
+
     // Consume next token, and return error if it doesn't match
     // the predicate
     pub fn expect(
@@ -310,6 +328,7 @@ impl<'a> Parser<'a> {
                         format!("Expected {}", more_info)
                     },
                     next.range.clone(),
+                    self.path(),
                 ));
                 None
             }
@@ -321,6 +340,7 @@ impl<'a> Parser<'a> {
                     format!("Expected {}", more_info)
                 },
                 self.input.len()..self.input.len() + 1,
+                self.path(),
             ));
             None
         }
@@ -445,6 +465,7 @@ impl<'a> Parser<'a> {
                     self.errors.push(CompilationError::new(
                         "EOF while reading expression list".into(),
                         self.input.len()..self.input.len() + 1,
+                        self.path(),
                     ));
                     break;
                 }
@@ -503,6 +524,7 @@ impl<'a> Parser<'a> {
                 self.errors.push(CompilationError::new(
                     "Expected expression".into(),
                     next.range.clone(),
+                    self.path(),
                 ));
                 None
             }
@@ -770,6 +792,7 @@ impl<'a> Parser<'a> {
                         self.errors.push(CompilationError::new(
                             "Expected 'else' block or another 'if'".into(),
                             next.range.clone(),
+                            self.path(),
                         ));
                         None
                     }
@@ -887,6 +910,7 @@ impl<'a> Parser<'a> {
                 self.errors.push(CompilationError::new(
                     "Expected type".into(),
                     next.range.clone(),
+                    self.path(),
                 ));
                 let _ = self.consume(); //whatever
                 None
@@ -895,7 +919,7 @@ impl<'a> Parser<'a> {
     }
 
     // function-impl ::= "func" name "(" ")" [ ":" type ] "{" statement ... "}"
-    pub fn consume_function_impl(&mut self) -> Option<Declaration> {
+    pub fn consume_function_impl(&mut self) -> Option<FunctionImpl> {
         // "func"
         let _ = self.consume();
 
@@ -929,6 +953,7 @@ impl<'a> Parser<'a> {
                                 self.errors.push(CompilationError::new(
                                     "Expected ',' or ')'".into(),
                                     next.range.clone(),
+                                    self.path(),
                                 ));
                                 let _ = self.consume(); //whatever
                             }
@@ -943,6 +968,7 @@ impl<'a> Parser<'a> {
                         self.errors.push(CompilationError::new(
                             "Expected parameter name or ')'".into(),
                             next.range.clone(),
+                            self.path(),
                         ));
                         let _ = self.consume(); //whatever
                     }
@@ -967,7 +993,7 @@ impl<'a> Parser<'a> {
 
         let body = self.consume_block();
 
-        Some(Declaration::FunctionImpl {
+        Some(FunctionImpl {
             name: name.slice_str(&self.input).unwrap().into(),
             params,
             return_type,
@@ -975,8 +1001,24 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // import-decl ::= "import" name
+    pub fn consume_import_decl(&mut self) -> Option<Import> {
+        // "import"
+        let _ = self.consume();
+
+        // name
+        let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "import name")?;
+
+        // ';'
+        let _ = self.expect_token(&lexer::TokenType::Semicolon);
+
+        Some(Import {
+            name: name.slice_str(&self.input).unwrap().into(),
+        })
+    }
+
     // struct-decl ::= "struct" name "{" [name: type]* "}"
-    pub fn consume_struct_decl(&mut self) -> Option<Declaration> {
+    pub fn consume_struct_decl(&mut self) -> Option<Struct> {
         // "struct"
         let _ = self.consume();
 
@@ -1020,40 +1062,57 @@ impl<'a> Parser<'a> {
         // "}"
         let _ = self.expect_token(&lexer::TokenType::CurlyClose);
 
-        Some(Declaration::Struct {
+        Some(Struct {
             name: name.slice_str(&self.input).unwrap().into(),
             fields,
         })
     }
 
-    pub fn consume_declaration(&mut self) -> Option<Declaration> {
-        let next = self.peek()?;
-        match next.type_ {
-            lexer::TokenType::KeywordFunc => self.consume_function_impl(),
-            lexer::TokenType::KeywordStruct => self.consume_struct_decl(),
-            _ => {
-                self.errors.push(CompilationError::new(
-                    "Expected declaration".into(),
-                    next.range.clone(),
-                ));
-                let _ = self.consume(); //whatever
-                None
-            }
-        }
-    }
+    pub fn consume_declaration(&mut self) {}
 
-    pub fn parse(mut self) -> (Program, Vec<CompilationError>) {
-        let mut declarations = vec![];
+    pub fn parse(mut self) -> (Module, Vec<CompilationError>) {
+        let mut imports = vec![];
+        let mut structs = vec![];
+        let mut function_impls = vec![];
         loop {
-            if self.peek().is_none() {
+            let Some(next) = self.peek() else {
                 break;
-            }
-            let decl = self.consume_declaration();
-            if let Some(decl) = decl {
-                declarations.push(decl);
+            };
+            match next.type_ {
+                lexer::TokenType::KeywordImport => {
+                    if let Some(a) = self.consume_import_decl() {
+                        imports.push(a);
+                    }
+                }
+                lexer::TokenType::KeywordStruct => {
+                    if let Some(a) = self.consume_struct_decl() {
+                        structs.push(a);
+                    }
+                }
+                lexer::TokenType::KeywordFunc => {
+                    if let Some(a) = self.consume_function_impl() {
+                        function_impls.push(a);
+                    }
+                }
+                _ => {
+                    self.errors.push(CompilationError::new(
+                        "Expected declaration".into(),
+                        next.range.clone(),
+                        self.path(),
+                    ));
+                    let _ = self.consume(); //whatever
+                }
             }
         }
 
-        (Program { declarations }, self.errors)
+        (
+            Module {
+                source_path: self.source_path,
+                imports,
+                structs,
+                function_impls,
+            },
+            self.errors,
+        )
     }
 }

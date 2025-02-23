@@ -1,2 +1,2 @@
-CompilationError { message: "Index must be u32", range: 49..55 }
-CompilationError { message: "Unused expression result", range: 45..57 }
+CompilationError { message: "Index must be u32", range: 49..55, path: "../../tests/arrays/array_index_not_int.esl" }
+CompilationError { message: "Unused expression result", range: 45..57, path: "../../tests/arrays/array_index_not_int.esl" }

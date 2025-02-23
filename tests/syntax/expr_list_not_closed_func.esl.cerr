@@ -1,2 +1,2 @@
-CompilationError { message: "Expected ')' after argument list", range: 32..33 }
-CompilationError { message: "Expected '}'", range: 32..33 }
+CompilationError { message: "Expected ')' after argument list", range: 32..33, path: "../../tests/syntax/expr_list_not_closed_func.esl" }
+CompilationError { message: "Expected '}'", range: 32..33, path: "../../tests/syntax/expr_list_not_closed_func.esl" }

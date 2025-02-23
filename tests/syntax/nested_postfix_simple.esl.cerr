@@ -1,0 +1,1 @@
+CompilationError { message: "Only function names are supported for now", range: 19..25, path: "../../tests/syntax/nested_postfix_simple.esl" }

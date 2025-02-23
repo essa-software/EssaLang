@@ -1,1 +1,1 @@
-CompilationError { message: "Only function names are supported for now", range: 19..36 }
+CompilationError { message: "Only function names are supported for now", range: 19..36, path: "../../tests/syntax/nested_postfix.esl" }

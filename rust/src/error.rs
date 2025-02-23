@@ -1,12 +1,14 @@
 use std::{
     io::{BufRead, Cursor, Seek},
     ops::{Range, RangeInclusive},
+    path::PathBuf,
 };
 
 #[derive(Debug)]
 pub struct CompilationError {
     pub message: String,
     pub range: Range<usize>,
+    pub path: PathBuf,
 }
 
 // These are 0-based.
@@ -70,11 +72,15 @@ fn intersection(range1: Range<usize>, range2: Range<usize>) -> Option<Range<usiz
 }
 
 impl CompilationError {
-    pub fn new(message: String, range: Range<usize>) -> Self {
-        Self { message, range }
+    pub fn new(message: String, range: Range<usize>, path: PathBuf) -> Self {
+        Self {
+            message,
+            range,
+            path,
+        }
     }
 
-    pub fn print(&self, input_filename: &str, input: &[u8]) {
+    pub fn print(&self, input: &[u8]) {
         let LineColumn {
             line: start_line,
             column: start_column,
@@ -98,7 +104,7 @@ impl CompilationError {
         eprintln!(
             "{FMT_BOLD}{FMT_RED}error{FMT_RESET}: {FMT_BOLD}{}{FMT_RESET}\n  {FMT_BLUE}{}:{}:{}{FMT_RESET}",
             self.message,
-            input_filename,
+            self.path.to_string_lossy(),
             start_line + 1,
             start_column + 1,
         );

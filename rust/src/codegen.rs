@@ -24,7 +24,6 @@ impl sema::Type {
             sema::Type::Primitive(sema::Primitive::Void) => FunctionReturnMethod::None,
             sema::Type::Primitive(_) => FunctionReturnMethod::Return,
             sema::Type::Array { inner: _, size: _ } => todo!(),
-            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
                 inner: _,
                 mut_elements: _,
@@ -101,7 +100,6 @@ impl<'data> CodeGen<'data> {
                 self.emit_type(inner)?;
                 write!(self.out, "[{}]", size)?;
             }
-            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
                 inner: _,
                 mut_elements: _,
@@ -145,7 +143,6 @@ impl<'data> CodeGen<'data> {
                     !matches!(value_type, sema::ValueType::RValue),
                 ))
             }
-            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
                 inner: _,
                 mut_elements: _,
@@ -781,23 +778,31 @@ impl<'data> CodeGen<'data> {
 
     pub fn emit_program(&mut self) -> IoResult<()> {
         self.emit_header()?;
-        for struct_ in self.program.structs() {
-            let struct_name = format!("struct{}", struct_.id.unwrap().0.mangle());
-            writeln!(self.out, "typedef struct _{} {{", struct_name)?;
-            for field in struct_.fields.iter() {
-                self.emit_type(&field.type_.as_ref().unwrap())?;
-                writeln!(self.out, " {};", field.name)?;
-            }
-            writeln!(self.out, "}} {};", struct_name)?;
-        }
-        for func in self.program.functions() {
-            self.emit_function_decl(func)?;
-        }
-        for func in self.program.functions() {
-            if func.body.is_some() {
-                self.emit_function_impl(func)?;
+
+        for module in self.program.modules() {
+            for struct_ in module.structs() {
+                let struct_name = format!("struct{}", struct_.id.unwrap().0.mangle());
+                writeln!(self.out, "typedef struct _{} {{", struct_name)?;
+                for field in struct_.fields.iter() {
+                    self.emit_type(&field.type_.as_ref().unwrap())?;
+                    writeln!(self.out, " {};", field.name)?;
+                }
+                writeln!(self.out, "}} {};", struct_name)?;
             }
         }
+        for module in self.program.modules() {
+            for func in module.functions() {
+                self.emit_function_decl(func)?;
+            }
+        }
+        for module in self.program.modules() {
+            for func in module.functions() {
+                if func.body.is_some() {
+                    self.emit_function_impl(func)?;
+                }
+            }
+        }
+
         self.emit_footer()?;
         Ok(())
     }

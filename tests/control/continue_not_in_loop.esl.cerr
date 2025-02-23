@@ -1,1 +1,1 @@
-CompilationError { message: "'continue' outside of a loop", range: 18..26 }
+CompilationError { message: "'continue' outside of a loop", range: 18..26, path: "../../tests/control/continue_not_in_loop.esl" }
