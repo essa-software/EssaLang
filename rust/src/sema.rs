@@ -392,6 +392,36 @@ impl Expression {
             _ => ValueType::RValue,
         }
     }
+
+    pub fn can_be_discarded(&self, program: &Program) -> bool {
+        match self {
+            Expression::Call {
+                function_id,
+                arguments: _,
+            } => match function_id {
+                // only functions returning void
+                Some(fid) => {
+                    matches!(
+                        {
+                            if let Some(rt) = &program.get_function(*fid).return_type {
+                                rt
+                            } else {
+                                return true;
+                            }
+                        },
+                        Type::Primitive(Primitive::Void)
+                    )
+                }
+                None => true,
+            },
+            Expression::BinaryOp {
+                op,
+                left: _,
+                right: _,
+            } if matches!(op.class(), BinOpClass::Assignment) => true,
+            _ => false,
+        }
+    }
 }
 
 //// Struct
@@ -1112,7 +1142,14 @@ impl<'tc, 'data> TypeCheckerExecution<'tc, 'data> {
     ) -> Statement {
         match statement {
             parser::Statement::Expression(expr) => {
-                Statement::Expression(self.typecheck_expression(&expr))
+                let expr = self.typecheck_expression(&expr);
+                if !expr.can_be_discarded(&self.tc.program) {
+                    self.tc.errors.push(CompilationError::new(
+                        "Unused expression result".into(),
+                        range.clone(),
+                    ));
+                }
+                Statement::Expression(expr)
             }
             parser::Statement::Block(stmts) => {
                 self.push_scope();

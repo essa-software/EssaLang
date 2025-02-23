@@ -1,12 +1,4 @@
-[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
-   9 |     [31mf[m[31mo[m[31mo[m[31m([m[31m)[m;
-           ^^^^^ [31mThis expression cannot be discarded[m
-[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
-  10 |     [31m0[m[31m [m[31m=[m[31m=[m[31m [m[31m0[m;
-           ^^^^^^ [31mThis expression cannot be discarded[m
-[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
-  11 |     [31m1[m[31m [m[31m+[m[31m [m[31m1[m;
-           ^^^^^ [31mThis expression cannot be discarded[m
-[90mcan_be_discarded.esl: [m[1;31mError:[m This expression cannot be discarded
-  12 |     [31mt[m[31mr[m[31mu[m[31me[m[31m [m[31m&[m[31m&[m[31m [m[31mt[m[31mr[m[31mu[m[31me[m;
-           ^^^^^^^^^^^^ [31mThis expression cannot be discarded[m
+CompilationError { message: "Unused expression result", range: 108..111 }
+CompilationError { message: "Unused expression result", range: 116..123 }
+CompilationError { message: "Unused expression result", range: 128..134 }
+CompilationError { message: "Unused expression result", range: 139..152 }
