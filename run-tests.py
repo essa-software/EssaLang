@@ -12,6 +12,11 @@ parser.add_argument(
     "--update",
     help="update expectations for matching tests with actual outputs",
 )
+parser.add_argument(
+    "--update-all",
+    help="update expectations for all tests with actual outputs",
+    action="store_true",
+)
 args = parser.parse_args()
 
 ROOT = Path(__file__).parent
@@ -182,7 +187,10 @@ def update_test(test_path: Path, env_dir_id: int):
             f.write(err)
 
 
-if args.update:
+if args.update_all:
+    for idx, test_path in enumerate(Path(TESTS_DIR).rglob("*.esl")):
+        update_test(test_path, idx)
+elif args.update:
     update_test(TESTS_DIR / Path(args.update), 0)
 else:
     MAX_THREADS = 1
