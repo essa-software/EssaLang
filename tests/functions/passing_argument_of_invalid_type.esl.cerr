@@ -1,1 +1,1 @@
-CompilationError { message: "Argument 0 has invalid type", range: 45..51, path: "../../tests/functions/passing_argument_of_invalid_type.esl" }
+CompilationError { message: "Cannot convert 'static_string' to 'u32' for argument 0", range: 45..51, path: "../../tests/functions/passing_argument_of_invalid_type.esl" }

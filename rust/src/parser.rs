@@ -172,6 +172,9 @@ pub enum Expression {
     StringLiteral {
         value: String,
     },
+    CharLiteral {
+        value: char,
+    },
     ArrayLiteral {
         values: Vec<ExpressionNode>,
     },
@@ -242,11 +245,11 @@ pub struct FieldDecl {
 // Declarations
 
 #[derive(Debug)]
-pub struct FunctionImpl {
+pub struct FunctionDecl {
     pub name: String,
     pub params: Vec<FunctionParam>,
     pub return_type: Option<TypeNode>,
-    pub body: StatementNode,
+    pub body: Option<StatementNode>,
 }
 
 #[derive(Debug)]
@@ -267,7 +270,7 @@ pub struct Module {
     pub source_path: PathBuf,
     pub imports: Vec<Import>,
     pub structs: Vec<Struct>,
-    pub function_impls: Vec<FunctionImpl>,
+    pub functions: Vec<FunctionDecl>,
 }
 
 ////
@@ -520,6 +523,22 @@ impl<'a> Parser<'a> {
                 expression: Expression::StringLiteral { value: text },
                 range: next.range,
             }),
+            lexer::TokenType::CharLiteral(text) => {
+                if text.len() != 1 {
+                    self.errors.push(CompilationError::new(
+                        "Char literal must be exactly one character long".into(),
+                        next.range.clone(),
+                        self.path(),
+                    ));
+                    return None;
+                }
+                Some(ExpressionNode {
+                    expression: Expression::CharLiteral {
+                        value: text.chars().next().unwrap(),
+                    },
+                    range: next.range,
+                })
+            }
             _ => {
                 self.errors.push(CompilationError::new(
                     "Expected expression".into(),
@@ -919,7 +938,21 @@ impl<'a> Parser<'a> {
     }
 
     // function-impl ::= "func" name "(" ")" [ ":" type ] "{" statement ... "}"
-    pub fn consume_function_impl(&mut self) -> Option<FunctionImpl> {
+    // function-impl ::= "extern" "func" name "(" ")" [ ":" type ] ";" // no body
+    pub fn consume_function_decl(&mut self) -> Option<FunctionDecl> {
+        // maybe "extern"
+        let extern_;
+        if let Some(next) = self.peek() {
+            if matches!(next.type_, lexer::TokenType::KeywordExtern) {
+                let _ = self.consume();
+                extern_ = true;
+            } else {
+                extern_ = false;
+            }
+        } else {
+            extern_ = false;
+        }
+
         // "func"
         let _ = self.consume();
 
@@ -991,14 +1024,29 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let body = self.consume_block();
+        eprintln!(
+            "function {} extern: {}",
+            name.slice_str(&self.input).unwrap(),
+            extern_
+        );
 
-        Some(FunctionImpl {
-            name: name.slice_str(&self.input).unwrap().into(),
-            params,
-            return_type,
-            body,
-        })
+        if extern_ {
+            let _ = self.expect_token(&lexer::TokenType::Semicolon);
+            Some(FunctionDecl {
+                name: name.slice_str(&self.input).unwrap().into(),
+                params,
+                return_type,
+                body: None,
+            })
+        } else {
+            let body = self.consume_block();
+            Some(FunctionDecl {
+                name: name.slice_str(&self.input).unwrap().into(),
+                params,
+                return_type,
+                body: Some(body),
+            })
+        }
     }
 
     // import-decl ::= "import" name
@@ -1073,7 +1121,7 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> (Module, Vec<CompilationError>) {
         let mut imports = vec![];
         let mut structs = vec![];
-        let mut function_impls = vec![];
+        let mut functions = vec![];
         loop {
             let Some(next) = self.peek() else {
                 break;
@@ -1089,9 +1137,9 @@ impl<'a> Parser<'a> {
                         structs.push(a);
                     }
                 }
-                lexer::TokenType::KeywordFunc => {
-                    if let Some(a) = self.consume_function_impl() {
-                        function_impls.push(a);
+                lexer::TokenType::KeywordFunc | lexer::TokenType::KeywordExtern => {
+                    if let Some(a) = self.consume_function_decl() {
+                        functions.push(a);
                     }
                 }
                 _ => {
@@ -1110,7 +1158,7 @@ impl<'a> Parser<'a> {
                 source_path: self.source_path,
                 imports,
                 structs,
-                function_impls,
+                functions,
             },
             self.errors,
         )

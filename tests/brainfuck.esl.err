@@ -1,3 +1,0 @@
-[90mbrainfuck.esl: [m[1;31mError:[m Expected ';', got '.'
-   1 | import sys[31m.[mstderr; //[as stderr];
-                 ^ [31mExpected ';', got '.'[m

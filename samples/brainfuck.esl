@@ -1,73 +1,116 @@
-func main() {
-    let code = input();
-    let code_size = str_size(code);
+import sys.stderr; //[as stderr];
+import fs;
 
-    mut memory: [30000]u32 = [];
+// RVO (Return Value Optimization) example:
+// `-> arg` says that return value is passed as argument
+// so that is is not copied or even moved. The dereference 
+// of a first argument will be used as return type.
+function zero(retval: *[30000]u8) -> arg {
+    mem.set(retval, 0);
+}
+// alternative syntax
+function zero(return retval: *[30000]u8) {
+    mem.set(retval, 0);
+}
+// or just
+function zero(return: *[30000]u8) {
+    mem.set(return, 0);
+}
 
-    mut ip = 0;
-    mut ptr = 0;
+func main(args: []string) {
+    // Blocks are expressions so that you can handle the
+    // error easily.
+    let input = {
+        // get() will return optional pointer to string.
+        // ?? - none coalescing, will return LHS if it is not None, otherwise RHS.
+        let input_filename = args.get(1) ?? { // This requires uniform call syntax
+            stderr.println("usage: brainfuck <source|->");
+            return 1;
+        };
 
-    while (ip < code_size) {
-        let opcode = code[ip];
+        // Other ways to access array:
+        let input_filename = &args[1];              // Potential (non-obvious) runtime crash on overflow
+        let input_filename = &args[1]!;             // Potential runtime crash on overflow, but this is now explicit
+        let input_filename = try args.try_get(1);   // Cursed and smells like dynamic languages with their ArrayOutOfBoundsExceptions
+        let input_filename = args.get(1);           // error: cannot convert ?*string to *string
+        let input_filename = &unsafe args[1];       // Optimized version that UBs on overflow
 
-        if (opcode == '+') {
-            memory[ptr] += 1;
-        } else if (opcode == '-') {
-            memory[ptr] -= 1;
-        } else if (opcode == '<') {
-            if (ptr == 0) {
-                ptr = 29999;
-            } else {
-                ptr -= 1;
-            }
-        } else if (opcode == '>') {
-            ptr += 1;
-            if (ptr >= 30000) {
-                ptr = 0;
-            }
-        } else if (opcode == '.') {
-            print("{} ", memory[ptr]);
-        } else if (opcode == ',') {
-            // TODO
-        } else if (opcode == '[') {
-            if (memory[ptr] == 0) {
-                mut i = ip;
-                mut depth = 1;
-                while (i < code_size - 1) {
-                    i += 1;
-                    if (code[i] == '[') {
-                        depth += 1;
-                    }
-                    else if (code[i] == ']') {
-                        depth -= 1;
-                        if (depth == 0) {
-                            break;
-                        }
-                    }
-                }
-                ip = i + 1;
-            }
-        } else if (opcode == ']') {
-            if (memory[ptr] != 0) {
-                mut i = ip;
-                mut depth = 1;
-                while (i > 0) {
-                    i -= 1;
-                    if (code[i] == ']') {
-                        depth += 1;
-                    }
-                    else if (code[i] == '[') {
-                        depth -= 1;
-                        if (depth == 0) {
-                            break;
-                        }
-                    }
-                }
-                ip = i;
-            }
+        // The result of the statement will be used as evaluation result of the
+        // block. (It is an error when no value is given here)
+        if (input_filename == "-") {
+            yield sys.stdin;
         } else {
-            // Ignore all the other cases. Maybe needs explicit keyword but not necessarily (e.g Python uses "pass")
+            fs.open(*input_filename, Read) catch(e) {
+                stderr.println("failed to open file: {}", e);
+                return 1;
+            };
         }
-        ip += 1; // This also may overflow.
+
+        // let foo = 1; // error: the last statement of a block must yield a value.
+    };
+
+    let code = input.read_all() catch(e) {
+        stderr.println("failed to read file: {}", e);
+        return 1;
+    };
+
+    // Version with RVO. More explicit and adds more possibilities like doing
+    // mut random_ints: [128]i32 = fill_random();
+    mut memory: [30000]u8 = zero();
+    // Version with initializers (C++ - like)
+    mut memory: [30000]u8 = {};
+
+    // size it equivalent of size_t (obviously)
+    mut ip: size = 0;
+    mut ptr: size = 0;
+
+    while (ip < code.size()) {
+        let opcode: u8 = code[ip]!; // '!' means that this may abort / UB
+
+        // Match is taken from rust, it must be exhaustive (handle all cases).
+        match (opcode) {
+            '+': {
+                // Wrapping??
+                wrapping_add(&memory[ptr]!, 1); // Looks like PHP moment too much
+                memory[ptr]!.wrapping_add(1);   // May be long (in comparison to +%=), requires uniform call syntax
+                memory[ptr]! +%= 1;             // Zig
+                memory[ptr]! += 1;              // C++ (wraps by default)
+                memory[ptr]! +!= 1;             // Abort on overflow (too many '!' imo)
+            };
+            '-': {
+                // Let's stay with c++ way of doing that for now as it is the most
+                // readable and obvious (until it DOES overflow)
+                memory[ptr]!--;
+            };
+            '<': {
+                // Wrapping with arbitrary range. Example of keyword arguments.
+                ptr.wrapping_sub(1, range: 0..memory.size());
+
+            };
+            '>': {
+                // Wrapping with arbitrary range. Example of keyword arguments.
+                ptr.wrapping_add(1, range: 0..memory.size());
+            };
+            '.': {
+                
+                ignore sys.stdout.write<u8>(memory[ptr]!);
+            };
+            ',': {
+                memory[ptr]! = sys.stdin.read<u8>() catch {
+                    stderr.println("failed to read stdin: {}", e);
+                    return 1;
+                };
+            };
+            '[': {
+                // TODO
+            };
+            ']': {
+                // TODO  
+            };
+            else: {}; // Ignore all the other cases. Maybe needs explicit keyword but not necessarily (e.g Python uses "pass")
+        }
+        ip++; // This also may overflow.
     }
+
+    // Do we need a return at the end?
 }

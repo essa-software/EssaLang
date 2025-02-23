@@ -1,4 +1,12 @@
-use std::{collections::HashMap, ops::Range, path::PathBuf};
+use std::{
+    collections::HashMap,
+    env::{current_dir, current_exe},
+    ops::Range,
+    os,
+    path::PathBuf,
+};
+
+use dirs::executable_dir;
 
 use crate::{
     compiler,
@@ -40,6 +48,7 @@ pub enum Primitive {
     Void,
     U32,
     Bool,
+    Char,
     String,
     StaticString,
     Range,
@@ -70,6 +79,7 @@ impl Type {
             Type::Primitive(Primitive::Void) => "void".into(),
             Type::Primitive(Primitive::U32) => "u32".into(),
             Type::Primitive(Primitive::Bool) => "bool".into(),
+            Type::Primitive(Primitive::Char) => "char".into(),
             Type::Primitive(Primitive::String) => "string".into(),
             Type::Primitive(Primitive::StaticString) => "static_string".into(),
             Type::Primitive(Primitive::Range) => "range".into(),
@@ -94,6 +104,7 @@ impl Type {
             Type::Primitive(Primitive::Void) => "void".into(),
             Type::Primitive(Primitive::U32) => "u32".into(),
             Type::Primitive(Primitive::Bool) => "bool".into(),
+            Type::Primitive(Primitive::Char) => "char".into(),
             Type::Primitive(Primitive::String) => "string".into(),
             Type::Primitive(Primitive::StaticString) => "static_string".into(),
             Type::Primitive(Primitive::Range) => "range".into(),
@@ -116,6 +127,7 @@ impl Type {
     pub fn iter_value_type(&self, _program: &Program) -> Option<Type> {
         match self {
             Type::Primitive(Primitive::Range) => Some(Type::Primitive(Primitive::U32)),
+            Type::Primitive(Primitive::StaticString) => Some(Type::Primitive(Primitive::Char)),
             Type::Array { inner, .. } => Some(*inner.clone()),
             _ => None,
         }
@@ -281,6 +293,9 @@ pub enum Expression {
     StringLiteral {
         value: String,
     },
+    CharLiteral {
+        value: char,
+    },
     ArrayLiteral {
         value_type: Option<Type>,
         values: Vec<Expression>,
@@ -353,6 +368,7 @@ impl Expression {
                     })
                 }
             }
+            Expression::CharLiteral { value: _ } => Some(Type::Primitive(Primitive::Char)),
         }
     }
 
@@ -628,27 +644,32 @@ impl TypeChecker {
     }
 
     fn add_prelude(&mut self) -> ModuleId {
-        // TODO: Parse this from file.
-        let (mut prelude, prelude_id) = self.program.add_module();
-        self.prelude_id = Some(prelude_id);
+        let parsed_module = match compiler::parse_module_from_file(
+            // We are in ./rust/target/debug/elc
+            // Prelude is in ./../lib/prelude.esl
+            current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("../../../lib/prelude.esl")
+                .as_path(),
+        ) {
+            Ok(parsed_module) => parsed_module,
+            Err(e) => {
+                panic!("Failed to parse prelude: {:?}", e);
+            }
+        };
 
-        // print(...): void
-        let mut print_func = Function::new("print".into(), &mut prelude);
-        print_func.add_param(
-            Var::new(
-                Some(Type::Primitive(Primitive::StaticString)),
-                "fmtstr".into(),
-                false,
-            ),
-            &mut prelude,
-        );
-        prelude.add_function(print_func);
+        let (_, prelude_mod_id) = self.program.add_module();
 
-        prelude_id
+        let typechecker = TypeCheckerModule::new(self, prelude_mod_id, parsed_module.path);
+        typechecker.typecheck(parsed_module.module);
+        prelude_mod_id
     }
 
     pub fn typecheck(mut self, p_module: parser::Module) -> (Program, Vec<CompilationError>) {
         let prelude_id = self.add_prelude();
+        self.prelude_id = Some(prelude_id);
 
         // create main module (this)
         let (module, main_module_id) = self.program.add_module();
@@ -731,6 +752,7 @@ impl<'tc> TypeCheckerModule<'tc> {
             parser::Type::Simple(name) => match name.as_str() {
                 "void" => Some(Type::Primitive(Primitive::Void)),
                 "u32" => Some(Type::Primitive(Primitive::U32)),
+                "char" => Some(Type::Primitive(Primitive::Char)),
                 "bool" => Some(Type::Primitive(Primitive::Bool)),
                 "string" => Some(Type::Primitive(Primitive::String)),
                 "static_string" => Some(Type::Primitive(Primitive::StaticString)),
@@ -812,8 +834,8 @@ impl<'tc> TypeCheckerModule<'tc> {
     ) -> Vec<(parser::StatementNode, FunctionId)> {
         let mut function_bodies_to_check = vec![];
 
-        for decl in p_module.function_impls.drain(..) {
-            let parser::FunctionImpl {
+        for decl in p_module.functions.drain(..) {
+            let parser::FunctionDecl {
                 name,
                 params,
                 body,
@@ -845,7 +867,9 @@ impl<'tc> TypeCheckerModule<'tc> {
                 );
             }
             let id = self.this_module_mut().add_function(function);
-            function_bodies_to_check.push((body, id));
+            if let Some(body) = body {
+                function_bodies_to_check.push((body, id));
+            }
         }
         function_bodies_to_check
     }
@@ -1017,12 +1041,19 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             arguments.insert(param, expr);
 
             let var = self.program().get_var(param);
-            if var.type_ != expr_type {
-                self.errors.push(CompilationError::new(
-                    format!("Argument {} has invalid type", i),
-                    range.clone(),
-                    self.tcm.path.clone(),
-                ));
+            if let (Some(param), Some(expr)) = (var.type_.clone(), expr_type) {
+                if !self.is_type_convertible(&param, &expr) {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Cannot convert '{}' to '{}' for argument {}",
+                            expr.name(&self.program()),
+                            param.name(&self.program()),
+                            i
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
             }
         }
 
@@ -1068,7 +1099,11 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             BinOpClass::Comparison => {
                 if left != right {
                     self.errors.push(CompilationError::new(
-                        "Comparison operator with different types".into(),
+                        format!(
+                            "Cannot compare different types ('{}' and '{}')",
+                            left.name(self.program()),
+                            right.name(self.program())
+                        ),
                         range.clone(),
                         self.tcm.path.clone(),
                     ));
@@ -1151,7 +1186,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 if let Some(indexable_type) = indexable_tc.type_(&self.program()) {
                     if indexable_type.index_value_type(&self.program()).is_none() {
                         self.errors.push(CompilationError::new(
-                            "Non-indexable type in index operator".into(),
+                            format!(
+                                "'{}' is not indexable",
+                                indexable_type.name(&self.program())
+                            ),
                             indexable.range.clone(),
                             self.tcm.path.clone(),
                         ));
@@ -1311,6 +1349,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                     }
                 }
             }
+            parser::Expression::CharLiteral { value } => Expression::CharLiteral { value: *value },
         }
     }
 

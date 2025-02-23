@@ -16,6 +16,7 @@ pub enum TokenType {
     KeywordBreak,
     KeywordContinue,
     KeywordElse,
+    KeywordExtern,
     KeywordFalse,
     KeywordFor,
     KeywordFunc,
@@ -54,6 +55,7 @@ pub enum TokenType {
     ParenOpen,
     Semicolon,
     StringLiteral(String),
+    CharLiteral(String),
     Garbage,
 }
 
@@ -71,6 +73,7 @@ impl Display for TokenType {
             TokenType::KeywordBreak => f.write_str("'break'"),
             TokenType::KeywordContinue => f.write_str("'continue'"),
             TokenType::KeywordElse => f.write_str("'else'"),
+            TokenType::KeywordExtern => f.write_str("'extern'"),
             TokenType::KeywordFalse => f.write_str("'false'"),
             TokenType::KeywordFor => f.write_str("'for'"),
             TokenType::KeywordFunc => f.write_str("'func'"),
@@ -109,6 +112,7 @@ impl Display for TokenType {
             TokenType::ParenOpen => f.write_str("'('"),
             TokenType::Semicolon => f.write_str("';'"),
             TokenType::StringLiteral(l) => write!(f, "\"{}\"", l),
+            TokenType::CharLiteral(l) => write!(f, "'{}'", l),
         }
     }
 }
@@ -357,6 +361,7 @@ impl<'a> TokenIterator<'a> {
                     "break" => Some(self.token(TokenType::KeywordBreak, start)),
                     "continue" => Some(self.token(TokenType::KeywordContinue, start)),
                     "else" => Some(self.token(TokenType::KeywordElse, start)),
+                    "extern" => Some(self.token(TokenType::KeywordExtern, start)),
                     "false" => Some(self.token(TokenType::KeywordFalse, start)),
                     "for" => Some(self.token(TokenType::KeywordFor, start)),
                     "func" => Some(self.token(TokenType::KeywordFunc, start)),
@@ -379,6 +384,14 @@ impl<'a> TokenIterator<'a> {
                 let name = self.read_while(|c| c != '"');
                 self.read_one();
                 Some(self.token(TokenType::StringLiteral(name.into()), start))
+            }
+            // char literal
+            '\'' => {
+                self.read_one();
+                // TODO: escape sequences
+                let name = self.read_while(|c| c != '\'');
+                self.read_one();
+                Some(self.token(TokenType::CharLiteral(name.into()), start))
             }
             _ => {
                 self.read_one();

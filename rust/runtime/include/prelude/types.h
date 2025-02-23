@@ -7,9 +7,12 @@
 
 _BEGIN_DECLS
 
-typedef uint32_t esl_u32;
-typedef size_t esl_usize;
 typedef bool esl_bool;
+typedef size_t esl_usize;
+typedef struct _esl_char {
+    uint32_t cp;
+} esl_char;
+typedef uint32_t esl_u32;
 
 typedef char const* esl_static_string;
 

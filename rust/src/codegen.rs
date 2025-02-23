@@ -33,9 +33,9 @@ impl sema::Type {
     }
 }
 
-fn escape_c(str: &String) -> String {
+fn escape_c(str: &str) -> String {
     // TODO
-    str.clone()
+    str.into()
 }
 
 #[derive(Clone)]
@@ -81,6 +81,9 @@ impl<'data> CodeGen<'data> {
             sema::Type::Primitive(sema::Primitive::U32) => {
                 self.out.write_all("esl_u32".as_bytes())?
             }
+            sema::Type::Primitive(sema::Primitive::Char) => {
+                self.out.write_all("esl_char".as_bytes())?
+            }
             sema::Type::Primitive(sema::Primitive::Bool) => {
                 self.out.write_all("esl_bool".as_bytes())?
             }
@@ -124,7 +127,7 @@ impl<'data> CodeGen<'data> {
                         write!(self.out, " *{}", name)?;
                     }
                     sema::ValueType::ConstLValue => {
-                        write!(self.out, " const *{}", name)?;
+                        write!(self.out, " /*const l-value*/ *{}", name)?;
                     }
                     sema::ValueType::RValue => {
                         write!(self.out, " {}", name)?;
@@ -316,6 +319,67 @@ impl<'data> CodeGen<'data> {
         }
     }
 
+    // Returns tmp var with indexing result
+    fn emit_index_access(
+        &mut self,
+        indexable: &sema::Expression,
+        index: &sema::Expression,
+    ) -> IoResult<TmpVar> {
+        let index_tmp_var = self.emit_expression_eval(index)?.unwrap();
+        let indexable_tmp_var = self.emit_expression_eval(indexable)?.unwrap();
+
+        let indexable_type = indexable.type_(self.program).unwrap();
+
+        match indexable_type {
+            sema::Type::Primitive(sema::Primitive::StaticString) => {
+                let out_tmp_var = self.emit_tmp_var(
+                    &sema::Type::Primitive(sema::Primitive::Char),
+                    "index",
+                    sema::ValueType::RValue,
+                )?;
+                // bounds check
+                writeln!(
+                    self.out,
+                    "    if ({} >= str_size({})) {{",
+                    index_tmp_var.access(),
+                    indexable_tmp_var.access()
+                )?;
+                writeln!(self.out, "        _esl_panic(\"index out of bounds\");")?;
+                writeln!(self.out, "    }}")?;
+                writeln!(
+                    self.out,
+                    // FIXME: This is *very* wrong as it doesn't care about utf8 and stuff
+                    "    {} = (esl_char) {{ .cp = {}[{}] }};",
+                    out_tmp_var.access(),
+                    indexable_tmp_var.access(),
+                    index_tmp_var.access()
+                )?;
+                Ok(out_tmp_var)
+            }
+            sema::Type::Array { inner, size } => {
+                let out_tmp_var = self.emit_tmp_var(&inner, "index", indexable.value_type())?;
+                // bounds check
+                writeln!(
+                    self.out,
+                    "    if ({} >= {}) {{",
+                    index_tmp_var.access(),
+                    size
+                )?;
+                writeln!(self.out, "        _esl_panic(\"index out of bounds\");")?;
+                writeln!(self.out, "    }}")?;
+                writeln!(
+                    self.out,
+                    "    {} = &{}[{}];",
+                    out_tmp_var.access_ptr(),
+                    indexable_tmp_var.access(),
+                    index_tmp_var.access()
+                )?;
+                Ok(out_tmp_var)
+            }
+            _ => panic!("invalid indexable type"),
+        }
+    }
+
     // Emit ESL expression evaluation as C statements.
     // Returns local var name with result if applicable.
     // Emits *pointer* if expr is a (const) lvalue.
@@ -388,43 +452,7 @@ impl<'data> CodeGen<'data> {
                 }
             }
             sema::Expression::Index { indexable, index } => {
-                let index_tmp_var = self.emit_expression_eval(index)?.unwrap();
-                let indexable_tmp_var = self.emit_expression_eval(indexable)?.unwrap();
-                let out_tmp_var = self.emit_tmp_var(
-                    &indexable
-                        .type_(self.program)
-                        .unwrap()
-                        .iter_value_type(self.program)
-                        .unwrap(),
-                    "index",
-                    expr.value_type(),
-                )?;
-                // Note: out_tmp_var is lvalue so it's always a ptr.
-                assert!(out_tmp_var.is_ptr);
-                let indexable_type = indexable.type_(self.program).unwrap();
-
-                // bounds check
-                writeln!(
-                    self.out,
-                    "    if({} >= {}) {{",
-                    index_tmp_var.access(),
-                    match &indexable_type {
-                        sema::Type::Array { inner: _, size } => size.to_string(),
-                        _ => todo!(),
-                    },
-                )?;
-                writeln!(self.out, "        _esl_panic(\"index out of bounds\");")?;
-                writeln!(self.out, "    }}")?;
-
-                // access itself
-                writeln!(
-                    self.out,
-                    "    {} = &({})[{}];",
-                    out_tmp_var.access_ptr(),
-                    indexable_tmp_var.access(),
-                    index_tmp_var.access()
-                )?;
-                Ok(Some(out_tmp_var))
+                Ok(Some(self.emit_index_access(indexable, index)?))
             }
             sema::Expression::MemberAccess { object, member } => {
                 let object_tmp_var = self.emit_expression_eval(object)?.unwrap();
@@ -499,6 +527,21 @@ impl<'data> CodeGen<'data> {
                     )?;
                 }
                 Ok(Some(tmp_var))
+            }
+            sema::Expression::CharLiteral { value } => {
+                let tmp_var = self.emit_tmp_var(
+                    &sema::Type::Primitive(sema::Primitive::Char),
+                    "char",
+                    sema::ValueType::RValue,
+                )?;
+                // FIXME: escape
+                writeln!(
+                    self.out,
+                    "{} = (esl_char) {{ .cp = {} }};",
+                    tmp_var.access(),
+                    *value as u32
+                )?;
+                return Ok(Some(tmp_var));
             }
         }
     }

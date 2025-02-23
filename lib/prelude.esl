@@ -1,4 +1,4 @@
 extern func print(): void;
 extern func input(): string;
 // FIXME: Remove this once we support methods/traits/???
-extern func str_size(s: string): u32;
+extern func str_size(s: static_string): u32;
