@@ -611,7 +611,6 @@ impl<'a> Parser<'a> {
                 ops.iter()
                     .enumerate()
                     .fold((0, 0), |(max_idx, max_prec), (idx, (op, _))| {
-                        eprintln!("  ops: {:?}", ops);
                         let prec = op.precedence();
                         if prec > max_prec {
                             (idx, prec)
@@ -622,8 +621,6 @@ impl<'a> Parser<'a> {
 
             // remove the operator
             let (op, range) = ops.remove(idx);
-
-            eprintln!("  op: {:?} at {:?}", op, range);
 
             // build a new binary expression
             let left = args.remove(idx);
@@ -832,7 +829,6 @@ impl<'a> Parser<'a> {
     // statement ::= var-decl | expression ';' | block | return-statement | if-statement
     pub fn consume_statement(&mut self) -> Option<StatementNode> {
         let next = self.peek()?;
-        // eprintln!("  next token in consume_statement: {:?}", next);
         match next.type_ {
             lexer::TokenType::CurlyClose => panic!("somebody didn't consume '}}'"),
             lexer::TokenType::CurlyOpen => Some(self.consume_block()),
@@ -1032,7 +1028,6 @@ impl<'a> Parser<'a> {
 
     pub fn consume_declaration(&mut self) -> Option<Declaration> {
         let next = self.peek()?;
-        eprintln!("next token in consume_declaration: {:?}", next);
         match next.type_ {
             lexer::TokenType::KeywordFunc => self.consume_function_impl(),
             lexer::TokenType::KeywordStruct => self.consume_struct_decl(),
