@@ -23,13 +23,13 @@ impl sema::Type {
         match self {
             sema::Type::Primitive(sema::Primitive::Void) => FunctionReturnMethod::None,
             sema::Type::Primitive(_) => FunctionReturnMethod::Return,
-            sema::Type::Array { inner, size } => todo!(),
-            sema::Type::Function { function } => todo!(),
+            sema::Type::Array { inner: _, size: _ } => todo!(),
+            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
-                inner,
-                mut_elements,
+                inner: _,
+                mut_elements: _,
             } => todo!(),
-            sema::Type::Struct { id } => FunctionReturnMethod::FirstArg,
+            sema::Type::Struct { id: _ } => FunctionReturnMethod::FirstArg,
         }
     }
 }
@@ -101,10 +101,10 @@ impl<'data> CodeGen<'data> {
                 self.emit_type(inner)?;
                 write!(self.out, "[{}]", size)?;
             }
-            sema::Type::Function { function } => todo!(),
+            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
-                inner,
-                mut_elements,
+                inner: _,
+                mut_elements: _,
             } => todo!(),
             sema::Type::Struct { id } => write!(self.out, "struct{}", id.0.mangle())?,
         };
@@ -145,10 +145,10 @@ impl<'data> CodeGen<'data> {
                     !matches!(value_type, sema::ValueType::RValue),
                 ))
             }
-            sema::Type::Function { function } => todo!(),
+            sema::Type::Function { function: _ } => todo!(),
             sema::Type::Slice {
-                inner,
-                mut_elements,
+                inner: _,
+                mut_elements: _,
             } => todo!(),
         }
     }

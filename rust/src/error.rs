@@ -80,7 +80,7 @@ impl CompilationError {
             column: start_column,
         } = offset_to_line_column(input, self.range.start);
 
-        let print_colors = true;
+        let _print_colors = true;
 
         const FMT_RED: &str = "\x1b[31m";
         const FMT_BLUE: &str = "\x1b[36m";
@@ -89,7 +89,7 @@ impl CompilationError {
 
         let LineColumn {
             line: end_line,
-            column: end_column,
+            column: _end_column,
         } = offset_to_line_column(input, self.range.end);
 
         let lines_range = start_line..=end_line;
