@@ -161,6 +161,10 @@ def run_test(test_path: Path, env_dir_id: int):
         fail(test_path, "expected runtime error but got success")
         return
 
+    if out != expected_out:
+        fail(test_path, "got different output than expected")
+        return
+
     pass_(test_path, compiler_time)
 
 
