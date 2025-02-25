@@ -1,3 +1,1 @@
-[90mmethod_outside_struct.esl: [m[1;31mError:[m 'this' may be a parameter only for methods
-   1 | func bar([31mt[m[31mh[m[31mi[m[31ms[m) { }
-                ^^^^ [31m'this' may be a parameter only for methods[m
+CompilationError { message: "Cannot add 'this' argument outside of struct", range: 9..13, path: "../../tests/structs/method_outside_struct.esl" }

@@ -66,10 +66,14 @@ impl TmpVar {
 
 impl<'data> CodeGen<'data> {
     fn mangled_function_name(&self, func: &sema::Function) -> String {
+        let struct_prefix = func
+            .struct_
+            .map(|id| format!("$s${}$", self.program.get_struct(id).name.clone()))
+            .unwrap_or("".into());
         if func.name == "main" {
             "$$esl_main".into()
         } else {
-            func.name.clone()
+            struct_prefix + func.name.clone().as_str()
         }
     }
 
@@ -411,9 +415,10 @@ impl<'data> CodeGen<'data> {
 
                 // Emit function call
                 let return_method = func.return_type.as_ref().unwrap().function_return_method();
+                let c_function_name = self.mangled_function_name(&func);
                 match return_method {
                     FunctionReturnMethod::None => {
-                        write!(self.out, "{}(", func.name)?;
+                        write!(self.out, "{}(", c_function_name)?;
                         write!(
                             self.out,
                             "{}",
@@ -433,7 +438,7 @@ impl<'data> CodeGen<'data> {
                             sema::ValueType::RValue,
                         )?;
                         write!(self.out, "{} = ", tmp_var.access())?;
-                        write!(self.out, "{}(", func.name)?;
+                        write!(self.out, "{}(", c_function_name)?;
                         write!(
                             self.out,
                             "{}",
@@ -792,7 +797,7 @@ impl<'data> CodeGen<'data> {
         writeln!(
             self.out,
             "/* function {} (ID={}, params scope ID={})*/",
-            function.name,
+            self.mangled_function_name(function),
             function.id().0.mangle(),
             function.params_scope.0.mangle()
         )?;
@@ -881,6 +886,8 @@ impl<'data> CodeGen<'data> {
             for func in module.functions() {
                 if func.body.is_some() {
                     self.emit_function_impl(func)?;
+                } else {
+                    writeln!(self.out, "/* function {} is external */", func.name)?;
                 }
             }
         }

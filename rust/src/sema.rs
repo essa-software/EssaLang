@@ -1,12 +1,7 @@
 use std::{
-    collections::HashMap,
-    env::{current_dir, current_exe},
-    ops::Range,
-    os,
+    backtrace::Backtrace, collections::HashMap, env::current_exe, fmt::Display, ops::Range,
     path::PathBuf,
 };
-
-use dirs::executable_dir;
 
 use crate::{
     compiler,
@@ -434,6 +429,7 @@ pub struct Struct {
     pub id: Option<StructId>,
     pub name: String,
     pub fields: Vec<Field>,
+    pub methods: Vec<FunctionId>,
 }
 
 impl Struct {
@@ -498,6 +494,10 @@ impl Module {
 
     pub fn get_struct(&self, id: usize) -> &Struct {
         self.structs.get(id).expect("Struct not found")
+    }
+
+    pub fn get_struct_mut(&mut self, id: usize) -> &mut Struct {
+        self.structs.get_mut(id).expect("Struct not found")
     }
 
     pub fn add_struct(&mut self, mut struct_: Struct) -> StructId {
@@ -687,11 +687,17 @@ pub struct TypeCheckerModule<'tc> {
     tc: &'tc mut TypeChecker,
     module: ModuleId,
     path: PathBuf,
+    self_struct: Option<StructId>,
 }
 
 impl<'tc> TypeCheckerModule<'tc> {
     fn new(tc: &'tc mut TypeChecker, module: ModuleId, path: PathBuf) -> Self {
-        TypeCheckerModule { tc, module, path }
+        TypeCheckerModule {
+            tc,
+            module,
+            path,
+            self_struct: None,
+        }
     }
 
     fn program_mut(&mut self) -> &mut Program {
@@ -711,19 +717,38 @@ impl<'tc> TypeCheckerModule<'tc> {
         self.program_mut().get_module_mut(m)
     }
 
-    fn lookup_function(&self, name: &str) -> Option<&Function> {
+    fn lookup_function(&self, call: &FunctionCall) -> Option<&Function> {
         // Lookup function in this module and in imported modules
         // FIXME: Optimize
         // FIXME: We may want to introduce some namespace support, then
         // we won't search in imported modules anymore.
         let tm = self.this_module();
-        tm.functions().find(|f| f.name == name).or_else(|| {
-            tm.imported_modules
-                .iter()
-                .map(|m| self.program().get_module(*m))
-                .filter_map(|m| m.functions().find(|f| f.name == name))
-                .next()
-        })
+        fn is_global_func_with_name(f: &Function, name: &str) -> bool {
+            f.struct_.is_none() && f.name == name
+        }
+        match call {
+            FunctionCall::Global(func_name) => tm
+                .functions()
+                .find(|f| is_global_func_with_name(f, func_name))
+                .or_else(|| {
+                    tm.imported_modules
+                        .iter()
+                        .map(|m| self.program().get_module(*m))
+                        .filter_map(|m| {
+                            m.functions()
+                                .find(|f| is_global_func_with_name(f, func_name))
+                        })
+                        .next()
+                }),
+            FunctionCall::Method(struct_id, method_name) => {
+                let struct_ = self.program().get_struct(*struct_id);
+                struct_
+                    .methods
+                    .iter()
+                    .map(|&fid| self.program().get_function(fid))
+                    .find(|f| f.name == *method_name)
+            }
+        }
     }
 
     fn lookup_struct(&self, name: &str) -> Option<&Struct> {
@@ -757,6 +782,19 @@ impl<'tc> TypeCheckerModule<'tc> {
                 "string" => Some(Type::Primitive(Primitive::String)),
                 "static_string" => Some(Type::Primitive(Primitive::StaticString)),
                 "range" => Some(Type::Primitive(Primitive::Range)),
+                "Self" => {
+                    let Some(struct_) = self.self_struct else {
+                        self.tc.errors.push(CompilationError::new(
+                            // FIXME: This error message might be confusing when
+                            // using Self explicitly
+                            "Cannot add 'this' argument outside of struct".into(),
+                            range.clone(),
+                            self.path.clone(),
+                        ));
+                        return None;
+                    };
+                    Some(Type::Struct { id: struct_ })
+                }
                 _ => {
                     let struct_ = self.lookup_struct(name);
                     if let Some(struct_) = struct_ {
@@ -810,22 +848,95 @@ impl<'tc> TypeCheckerModule<'tc> {
         }
     }
 
-    fn typecheck_structs(&mut self, p_module: &mut parser::Module) {
-        for decl in &p_module.structs {
-            let parser::Struct { name, fields } = decl;
+    fn typecheck_structs(
+        &mut self,
+        p_module: &mut parser::Module,
+    ) -> Vec<(parser::StatementNode, FunctionId)> {
+        let mut function_bodies_to_check = vec![];
+        for decl in p_module.structs.drain(..) {
+            let parser::Struct {
+                name,
+                fields,
+                methods,
+            } = decl;
+
             let struct_ = Struct {
                 id: None,
                 name: name.clone(),
-                fields: fields
-                    .iter()
-                    .map(|field| Field {
-                        type_: self.typecheck_type(&field.type_),
-                        name: field.name.clone(),
-                    })
-                    .collect(),
+                fields: vec![],  // to be filled later
+                methods: vec![], // to be filled later
             };
-            self.this_module_mut().add_struct(struct_);
+
+            let struct_id = self.this_module_mut().add_struct(struct_);
+            self.self_struct = Some(struct_id);
+
+            let methods: Vec<_> = methods
+                .into_iter()
+                .map(|method| {
+                    let (body, id) = self.typecheck_function_decl(method);
+                    if let Some(body) = body {
+                        function_bodies_to_check.push((body, id));
+                    }
+                    id
+                })
+                .collect();
+
+            let fields = fields
+                .iter()
+                .map(|field| Field {
+                    type_: self.typecheck_type(&field.type_),
+                    name: field.name.clone(),
+                })
+                .collect();
+
+            let struct_ = self.this_module_mut().get_struct_mut(struct_id.0.id);
+            struct_.methods = methods;
+            struct_.fields = fields;
+
+            self.self_struct = None;
         }
+        function_bodies_to_check
+    }
+
+    fn typecheck_function_decl(
+        &mut self,
+        decl: parser::FunctionDecl,
+    ) -> (Option<parser::StatementNode>, FunctionId) {
+        let parser::FunctionDecl {
+            name,
+            params,
+            body,
+            return_type,
+        } = decl;
+
+        let should_infer_return_type = return_type.is_none();
+        let rt = return_type
+            .as_ref()
+            .and_then(|ty| self.typecheck_type(&ty))
+            .or_else(|| {
+                if should_infer_return_type {
+                    if name == "main" {
+                        Some(Type::Primitive(Primitive::U32))
+                    } else {
+                        Some(Type::Primitive(Primitive::Void))
+                    }
+                } else {
+                    None
+                }
+            });
+        let mut function = Function::new(name.clone(), self.this_module_mut());
+        function.struct_ = self.self_struct;
+        function.return_type = rt;
+        for param in params {
+            let type_ = self.typecheck_type(&param.type_);
+            eprintln!("adding param: {:?} type={:?}", param.name, type_);
+            function.add_param(
+                Var::new(type_, param.name.clone(), false),
+                self.this_module_mut(),
+            );
+        }
+        let id = self.this_module_mut().add_function(function);
+        body.map(|body| (Some(body), id)).unwrap_or((None, id))
     }
 
     fn typecheck_function_decls(
@@ -835,41 +946,10 @@ impl<'tc> TypeCheckerModule<'tc> {
         let mut function_bodies_to_check = vec![];
 
         for decl in p_module.functions.drain(..) {
-            let parser::FunctionDecl {
-                name,
-                params,
-                body,
-                return_type,
-            } = decl;
-
-            let should_infer_return_type = return_type.is_none();
-            let rt = return_type
-                .as_ref()
-                .and_then(|ty| self.typecheck_type(&ty))
-                .or_else(|| {
-                    if should_infer_return_type {
-                        if name == "main" {
-                            Some(Type::Primitive(Primitive::U32))
-                        } else {
-                            Some(Type::Primitive(Primitive::Void))
-                        }
-                    } else {
-                        None
-                    }
-                });
-            let mut function = Function::new(name.clone(), self.this_module_mut());
-            function.return_type = rt;
-            for param in params {
-                let type_ = self.typecheck_type(&param.type_);
-                function.add_param(
-                    Var::new(type_, param.name.clone(), false),
-                    self.this_module_mut(),
-                );
-            }
-            let id = self.this_module_mut().add_function(function);
-            if let Some(body) = body {
-                function_bodies_to_check.push((body, id));
-            }
+            let (Some(body), id) = self.typecheck_function_decl(decl) else {
+                continue;
+            };
+            function_bodies_to_check.push((body, id));
         }
         function_bodies_to_check
     }
@@ -887,8 +967,8 @@ impl<'tc> TypeCheckerModule<'tc> {
 
     pub fn typecheck(mut self, mut p_module: parser::Module) {
         self.typecheck_imports(&mut p_module);
-        self.typecheck_structs(&mut p_module);
-        let bodies = self.typecheck_function_decls(&mut p_module);
+        let mut bodies = self.typecheck_structs(&mut p_module);
+        bodies.extend(self.typecheck_function_decls(&mut p_module));
         self.typecheck_function_bodies(bodies);
     }
 }
@@ -902,6 +982,24 @@ pub struct TypeCheckerExecution<'tc, 'tcm> {
 
     scope_stack: Vec<ScopeId>,
     loop_depth: usize,
+}
+
+#[derive(Debug)]
+enum FunctionCall {
+    Global(String),
+    Method(StructId, String),
+}
+
+impl FunctionCall {
+    fn to_string(&self, program: &Program) -> String {
+        match self {
+            FunctionCall::Global(name) => name.clone(),
+            FunctionCall::Method(struct_id, name) => {
+                let struct_ = program.get_struct(*struct_id);
+                format!("{}::{}", struct_.name, name)
+            }
+        }
+    }
 }
 
 impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
@@ -952,7 +1050,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         self.loop_depth > 0
     }
 
-    fn lookup_variable(&self, name: String) -> Option<&Var> {
+    fn lookup_variable(&self, name: &str) -> Option<&Var> {
         for scope in self.scope_stack.iter().rev() {
             let scope = self.program().get_scope(*scope);
             for var_id in &scope.vars {
@@ -965,14 +1063,13 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         None
     }
 
-    fn typecheck_expr_call(
+    fn typecheck_expr_call<'a>(
         &mut self,
-        name: &String,
-        parsed_args: &Vec<parser::FunctionArg>,
+        call: FunctionCall,
+        parsed_args: impl Iterator<Item = &'a parser::FunctionArg>,
         range: &Range<usize>,
     ) -> Expression {
         let typechecked_args = parsed_args
-            .iter()
             .map(|arg| {
                 (
                     self.typecheck_expression(&arg.value),
@@ -981,9 +1078,9 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             })
             .collect::<Vec<_>>();
 
-        let Some(function) = self.tcm.lookup_function(name) else {
+        let Some(function) = self.tcm.lookup_function(&call) else {
             self.errors.push(CompilationError::new(
-                format!("Function with name '{}' not found", name),
+                format!("Function '{}' not found", call.to_string(self.program())),
                 range.clone(),
                 self.tcm.path.clone(),
             ));
@@ -992,6 +1089,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 arguments: HashMap::new(),
             };
         };
+        eprintln!(
+            "lookup_function({:?}) = {:?} {:?} {:?}",
+            call, function.id, function.name, function.struct_
+        );
         let mut arguments = HashMap::new();
         // For now we just go in order.
         // TODO: handle kwargs.
@@ -1145,6 +1246,27 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
+    fn typecheck_name(&mut self, name: &str, range: &Range<usize>) -> Expression {
+        if let Some(var) = self.lookup_variable(name) {
+            Expression::VarRef {
+                type_: var.type_.clone(),
+                var_id: Some(var.id.expect("var without id")),
+                mut_: var.mut_,
+            }
+        } else {
+            self.errors.push(CompilationError::new(
+                format!("Variable with name '{}' not found", name),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+            Expression::VarRef {
+                type_: None,
+                var_id: None,
+                mut_: true, // avoid more errors if someone tries to write to this
+            }
+        }
+    }
+
     fn typecheck_expression(
         &mut self,
         parser::ExpressionNode {
@@ -1154,7 +1276,47 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
     ) -> Expression {
         match expr {
             parser::Expression::Call { function, args } => match &function.expression {
-                parser::Expression::Name(name) => self.typecheck_expr_call(&name, args, range),
+                parser::Expression::Name(name) => {
+                    self.typecheck_expr_call(FunctionCall::Global(name.clone()), args.iter(), range)
+                }
+                parser::Expression::MemberAccess { object, member } => {
+                    // Desugar object.method(a,b,c) to method(object, a, b, c)
+                    let object_tc = self.typecheck_expression(object);
+                    let struct_id = match object_tc.type_(self.program()) {
+                        Some(Type::Struct { id }) => id,
+                        Some(_) => {
+                            self.errors.push(CompilationError::new(
+                                "Member access on non-struct type".into(),
+                                range.clone(),
+                                self.tcm.path.clone(),
+                            ));
+                            return Expression::Call {
+                                function_id: None,
+                                arguments: HashMap::new(),
+                            };
+                        }
+                        None => todo!(),
+                    };
+
+                    // create iterator which first yields `object`
+                    // and then rest of args
+                    let object_arg = parser::FunctionArg {
+                        param: None,
+                        value: parser::ExpressionNode {
+                            // FIXME: Avoid cloning
+                            expression: object.expression.clone(),
+                            range: range.clone(),
+                        },
+                    };
+
+                    let iter = std::iter::once(&object_arg).chain(args.iter());
+
+                    self.typecheck_expr_call(
+                        FunctionCall::Method(struct_id, member.clone()),
+                        iter,
+                        range,
+                    )
+                }
                 _ => {
                     self.errors.push(CompilationError::new(
                         "Only function names are supported for now".into(),
@@ -1246,26 +1408,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             parser::Expression::StringLiteral { value } => Expression::StringLiteral {
                 value: value.clone(),
             },
-            parser::Expression::Name(name) => {
-                if let Some(var) = self.lookup_variable(name.clone()) {
-                    Expression::VarRef {
-                        type_: var.type_.clone(),
-                        var_id: Some(var.id.expect("var without id")),
-                        mut_: var.mut_,
-                    }
-                } else {
-                    self.errors.push(CompilationError::new(
-                        format!("Variable with name '{}' not found", name),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                    Expression::VarRef {
-                        type_: None,
-                        var_id: None,
-                        mut_: true, // avoid more errors if someone tries to write to this
-                    }
-                }
-            }
+            parser::Expression::Name(name) => self.typecheck_name(name, range),
             parser::Expression::BinaryOp {
                 op,
                 op_range,
@@ -1350,6 +1493,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 }
             }
             parser::Expression::CharLiteral { value } => Expression::CharLiteral { value: *value },
+            parser::Expression::This => self.typecheck_name("this", range),
         }
     }
 

@@ -15,7 +15,7 @@ pub struct TypeNode {
     pub range: Range<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionArg {
     pub param: Option<String>, // for kwargs
     pub value: ExpressionNode,
@@ -149,7 +149,7 @@ impl BinaryOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Call {
         function: Box<ExpressionNode>,
@@ -185,9 +185,10 @@ pub enum Expression {
         right: Box<ExpressionNode>,
     },
     Name(String),
+    This,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExpressionNode {
     pub expression: Expression,
     pub range: Range<usize>,
@@ -261,6 +262,7 @@ pub struct Import {
 pub struct Struct {
     pub name: String,
     pub fields: Vec<FieldDecl>,
+    pub methods: Vec<FunctionDecl>,
 }
 
 // Module
@@ -517,6 +519,10 @@ impl<'a> Parser<'a> {
             }),
             lexer::TokenType::KeywordFalse => Some(ExpressionNode {
                 expression: Expression::BoolLiteral { value: false },
+                range: next.range,
+            }),
+            lexer::TokenType::KeywordThis => Some(ExpressionNode {
+                expression: Expression::This,
                 range: next.range,
             }),
             lexer::TokenType::StringLiteral(text) => Some(ExpressionNode {
@@ -972,25 +978,21 @@ impl<'a> Parser<'a> {
                         let _ = self.consume();
                         break;
                     }
+                    lexer::TokenType::KeywordThis => {
+                        let _ = self.consume();
+                        params.push(FunctionParam {
+                            name: "this".into(),
+                            type_: TypeNode {
+                                type_: Type::Simple("Self".into()),
+                                range: next.range.clone(),
+                            },
+                            range: next.range.clone(),
+                        });
+                    }
                     lexer::TokenType::Name(name) => {
                         let _ = self.consume();
                         let _ = self.expect_token(&lexer::TokenType::Colon);
                         let type_ = self.consume_type()?;
-                        let next = self.peek()?;
-                        match next.type_ {
-                            lexer::TokenType::Comma => {
-                                let _ = self.consume();
-                            }
-                            lexer::TokenType::ParenClose => {}
-                            _ => {
-                                self.errors.push(CompilationError::new(
-                                    "Expected ',' or ')'".into(),
-                                    next.range.clone(),
-                                    self.path(),
-                                ));
-                                let _ = self.consume(); //whatever
-                            }
-                        }
                         params.push(FunctionParam {
                             name: name.into(),
                             type_,
@@ -1000,6 +1002,23 @@ impl<'a> Parser<'a> {
                     _ => {
                         self.errors.push(CompilationError::new(
                             "Expected parameter name or ')'".into(),
+                            next.range.clone(),
+                            self.path(),
+                        ));
+                        let _ = self.consume(); //whatever
+                        continue;
+                    }
+                }
+
+                let next = self.peek()?;
+                match next.type_ {
+                    lexer::TokenType::Comma => {
+                        let _ = self.consume();
+                    }
+                    lexer::TokenType::ParenClose => {}
+                    _ => {
+                        self.errors.push(CompilationError::new(
+                            "Expected ',' or ')'".into(),
                             next.range.clone(),
                             self.path(),
                         ));
@@ -1076,8 +1095,9 @@ impl<'a> Parser<'a> {
         // "{"
         let _ = self.expect_token(&lexer::TokenType::CurlyOpen);
 
-        // fields
+        // fields / methods
         let mut fields = vec![];
+        let mut methods = vec![];
         loop {
             let next = self.peek();
             if let Some(next) = next {
@@ -1088,8 +1108,20 @@ impl<'a> Parser<'a> {
                 break;
             }
 
+            // maybe method?
+            if let Some(next) = self.peek() {
+                if matches!(next.type_, lexer::TokenType::KeywordFunc) {
+                    let method = self.consume_function_decl()?;
+                    methods.push(method);
+                    continue;
+                }
+            }
+
             // field name
-            let name = self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "field name")?;
+            let name = self.expect(
+                |t| matches!(t, lexer::TokenType::Name(_)),
+                "field or method declaration",
+            )?;
 
             // ":"
             let _ = self.expect_token(&lexer::TokenType::Colon);
@@ -1113,6 +1145,7 @@ impl<'a> Parser<'a> {
         Some(Struct {
             name: name.slice_str(&self.input).unwrap().into(),
             fields,
+            methods,
         })
     }
 
