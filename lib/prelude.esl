@@ -2,3 +2,35 @@ extern func print(): void;
 extern func input(): string;
 // FIXME: Remove this once we support methods/traits/???
 extern func str_size(s: static_string): u32;
+
+// File
+
+extern func file_open(path: static_string): u32; // returns fd
+// FIXME: We don't have any kind of buffers really, so we can only read
+// byte by byte...
+// FIXME: Error handling/Optionals
+extern func file_getchar(fd: u32): u32;
+extern func file_close(fd: u32): void;
+
+struct File {
+    fd: u32;
+
+    // FIXME: This should happen automatically, with destructors.
+    func close(this) {
+        file_close(this.fd);
+    }
+
+    // FIXME: This should return u8
+    // FIXME: Error handling/Optionals
+    func read_byte(this): u32 {
+        return file_getchar(this.fd);
+    }
+}
+
+// Open a file for reading.
+// TODO: static methods
+func File_open(path: static_string): File {
+    mut file: File = [];
+    file.fd = file_open(path);
+    return file;
+}

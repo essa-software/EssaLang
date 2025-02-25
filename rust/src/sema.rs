@@ -1304,7 +1304,13 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         Some(Type::Struct { id }) => id,
                         Some(_) => {
                             self.errors.push(CompilationError::new(
-                                "Member access on non-struct type".into(),
+                                format!(
+                                    "Method call on non-struct type '{}'",
+                                    object_tc
+                                        .type_(self.program())
+                                        .unwrap()
+                                        .name(self.program())
+                                ),
                                 range.clone(),
                                 self.tcm.path.clone(),
                             ));
@@ -1399,7 +1405,13 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         }
                         _ => {
                             self.errors.push(CompilationError::new(
-                                "Member access on non-struct type".into(),
+                                format!(
+                                    "Field access on non-struct type '{}'",
+                                    object_tc
+                                        .type_(self.program())
+                                        .unwrap()
+                                        .name(self.program())
+                                ),
                                 object.range.clone(),
                                 self.tcm.path.clone(),
                             ));
