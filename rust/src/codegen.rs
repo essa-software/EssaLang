@@ -28,7 +28,7 @@ impl sema::Type {
                 inner: _,
                 mut_elements: _,
             } => todo!(),
-            sema::Type::Struct { id: _ } => FunctionReturnMethod::FirstArg,
+            sema::Type::Struct { id: _ } => FunctionReturnMethod::Return,
         }
     }
 }
@@ -408,7 +408,7 @@ impl<'data> CodeGen<'data> {
                 for arg in &scope.vars {
                     let argval = arguments
                         .get(&arg)
-                        .expect("argument list refers to non-existent param id");
+                        .expect("missing argument for function call");
                     let var = self.emit_expression_eval(argval)?;
                     arg_tmps.push(var.expect("void expr passed as function argument"));
                 }

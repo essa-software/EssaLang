@@ -1,0 +1,1 @@
+CompilationError { message: "Missing argument 'arg' in call to 'test'", range: 44..50, path: "../../tests/typechecker/missing_function_arg.esl" }

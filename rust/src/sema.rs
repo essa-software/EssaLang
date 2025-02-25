@@ -1158,6 +1158,24 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             }
         }
 
+        // Check if all required arguments were provided
+        // FIXME: get rid of clone (shouldn't be a big deal for now)
+        let params_scope_vars = self.program().get_scope(params_scope_id).vars.clone();
+        for var_id in &params_scope_vars {
+            if !arguments.contains_key(var_id) {
+                let var = self.program().get_var(*var_id);
+                self.errors.push(CompilationError::new(
+                    format!(
+                        "Missing argument '{}' in call to '{}'",
+                        var.name,
+                        call.to_string(self.program())
+                    ),
+                    range.clone(),
+                    self.tcm.path.clone(),
+                ));
+            }
+        }
+
         Expression::Call {
             function_id: Some(function_id),
             arguments,

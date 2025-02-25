@@ -1,0 +1,7 @@
+func test(arg: u32) {
+
+}
+
+func main() {
+    test();
+}
