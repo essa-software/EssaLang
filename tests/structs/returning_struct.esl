@@ -1,0 +1,15 @@
+struct Foo {
+    field: u32;
+}
+
+// FIXME: "Foo" should be inferrable
+func new_foo(): Foo {
+    mut foo: Foo = [];
+    foo.field = 1234;
+    return foo;
+}
+
+func main() {
+    let foo = new_foo();
+    print("{}", foo.field);
+}
