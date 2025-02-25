@@ -1,0 +1,8 @@
+struct Foo {
+    field: u32;
+}
+
+func main() {
+    let foo: Foo = [];
+    foo.field = 1234;
+}

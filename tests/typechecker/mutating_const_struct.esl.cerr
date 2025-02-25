@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot assign to non-mutable value", range: 73..89, path: "../../tests/typechecker/mutating_const_struct.esl" }

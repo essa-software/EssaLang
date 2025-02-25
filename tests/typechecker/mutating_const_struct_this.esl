@@ -1,0 +1,12 @@
+struct Foo {
+    field: u32;
+
+    func set_field(this, field: u32) {
+        this.field = field;
+    }
+}
+
+func main() {
+    let foo: Foo = [];
+    foo.set_field(1234);
+}
