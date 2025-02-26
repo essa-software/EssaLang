@@ -2,8 +2,6 @@ struct Foo {
     field: u32;
 
     func new(): Foo {
-        // FIXME: Direct `return []` fails in C compiler because it
-        //        tries to return the <empty array> object directly
         mut v: Foo = [];
         v.field = 1234;
         return v;

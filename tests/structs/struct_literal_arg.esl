@@ -1,0 +1,10 @@
+struct Foo {
+}
+
+func handle_foo(foo: Foo) {
+}
+
+func main() {
+    handle_foo([]);
+    print("PASS");
+}

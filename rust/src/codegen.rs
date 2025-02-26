@@ -1,5 +1,7 @@
 use std::{collections::HashMap, io::Write};
 
+use scopeguard::defer;
+
 use crate::{parser, sema};
 
 pub struct CodeGen<'data> {
@@ -8,6 +10,7 @@ pub struct CodeGen<'data> {
     tmp_var_counter: usize,
     local_var_counter: usize,
     variable_names: HashMap<sema::id::VarId, TmpVar>,
+    current_function: Option<sema::id::FunctionId>,
 }
 
 type IoResult<T> = std::result::Result<T, std::io::Error>;
@@ -412,8 +415,13 @@ impl<'data> CodeGen<'data> {
                     let argval = arguments
                         .get(&arg)
                         .expect("missing argument for function call");
-                    let var = self.emit_expression_eval(argval)?;
-                    arg_tmps.push(var.expect("void expr passed as function argument"));
+                    let var = self.emit_expression_eval(argval)?.unwrap();
+                    let var = self.emit_type_conversion(
+                        &var,
+                        &argval.type_(self.program).unwrap(),
+                        &self.program.get_var(*arg).type_.as_ref().unwrap(),
+                    )?;
+                    arg_tmps.push(var);
                 }
 
                 // Emit function call
@@ -585,6 +593,32 @@ impl<'data> CodeGen<'data> {
         }
     }
 
+    fn emit_type_conversion(
+        &mut self,
+        from_var: &TmpVar,
+        from_type: &sema::Type,
+        to_type: &sema::Type,
+    ) -> IoResult<TmpVar> {
+        if from_type == to_type {
+            return Ok(from_var.clone());
+        }
+        match (from_type, to_type) {
+            // Empty Array to Struct (default initialization hack)
+            (sema::Type::Primitive(sema::Primitive::EmptyArray), sema::Type::Struct { id: _ }) => {
+                // just create a tmpvar for this struct and return it
+                let tmp_var = self.emit_tmp_var(to_type, "struct_init", sema::ValueType::RValue)?;
+                Ok(tmp_var)
+            }
+            _ => {
+                panic!(
+                    "invalid type conversion from {} to {}",
+                    from_type.mangle(self.program),
+                    to_type.mangle(self.program)
+                )
+            }
+        }
+    }
+
     // Emit iterator construction for an expression, return
     // (iterable, iterator)
     fn emit_iterator_new(&mut self, iterable: &sema::Expression) -> IoResult<(TmpVar, TmpVar)> {
@@ -726,7 +760,23 @@ impl<'data> CodeGen<'data> {
                 // TODO: handle return by first arg
                 if let Some(expr) = expression {
                     let tmp_var = self.emit_expression_eval(expr)?;
-                    write!(self.out, "return {};", tmp_var.unwrap().access())?;
+                    // conversion to return type
+                    let return_type = self
+                        .program
+                        .get_function(self.current_function.unwrap())
+                        .return_type
+                        .as_ref()
+                        .unwrap();
+                    if *return_type != expr.type_(self.program).unwrap() {
+                        let converted_tmp_var = self.emit_type_conversion(
+                            &tmp_var.unwrap(),
+                            &expr.type_(&self.program).unwrap(),
+                            return_type,
+                        )?;
+                        writeln!(self.out, "return {};", converted_tmp_var.access())?;
+                    } else {
+                        write!(self.out, "return {};", tmp_var.unwrap().access())?;
+                    }
                 } else {
                     writeln!(self.out, "return;")?;
                 }
@@ -888,7 +938,10 @@ impl<'data> CodeGen<'data> {
         for module in self.program.modules() {
             for func in module.functions() {
                 if func.body.is_some() {
-                    self.emit_function_impl(func)?;
+                    self.current_function = Some(func.id());
+                    let e = self.emit_function_impl(func);
+                    self.current_function = None;
+                    e?;
                 } else {
                     writeln!(self.out, "/* function {} is external */", func.name)?;
                 }
@@ -906,6 +959,7 @@ impl<'data> CodeGen<'data> {
             variable_names: HashMap::new(),
             local_var_counter: 0,
             tmp_var_counter: 0,
+            current_function: None,
         }
     }
 }

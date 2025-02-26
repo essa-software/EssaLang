@@ -1,0 +1,11 @@
+struct Foo {
+}
+
+func Foo_new(): Foo {
+    return [];
+}
+
+func main() {
+    let f = Foo_new();
+    print("PASS");
+}
