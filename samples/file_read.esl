@@ -1,5 +1,5 @@
 func main() {
-    let file = File_open("/dev/urandom");
+    let file = File::open("/dev/urandom");
     for (let i of 0..100) {
         print("{} ", file.read_byte());
     }

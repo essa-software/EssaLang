@@ -15,6 +15,12 @@ extern func file_close(fd: u32): void;
 struct File {
     fd: u32;
 
+    func open(path: static_string): File {
+        mut file: File = [];
+        file.fd = file_open(path);
+        return file;
+    }
+
     // FIXME: This should happen automatically, with destructors.
     func close(this) {
         file_close(this.fd);
@@ -25,12 +31,4 @@ struct File {
     func read_byte(this): u32 {
         return file_getchar(this.fd);
     }
-}
-
-// Open a file for reading.
-// TODO: static methods
-func File_open(path: static_string): File {
-    mut file: File = [];
-    file.fd = file_open(path);
-    return file;
 }
