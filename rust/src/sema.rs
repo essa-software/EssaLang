@@ -659,6 +659,7 @@ impl TypeChecker {
                 panic!("Failed to parse prelude: {:?}", e);
             }
         };
+        self.errors.extend(parsed_module.errors);
 
         let (_, prelude_mod_id) = self.program.add_module();
 
@@ -837,6 +838,8 @@ impl<'tc> TypeCheckerModule<'tc> {
                 ));
                 continue;
             };
+
+            self.tc.errors.extend(parsed_module.errors);
 
             let prelude_id = self.tc.prelude_id.unwrap();
             let (imported_mod, imported_mod_id) = self.program_mut().add_module();

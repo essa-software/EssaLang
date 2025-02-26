@@ -1,1 +1,3 @@
+CompilationError { message: "Expected declaration", range: 0..4, path: "../../tests/imports/unparseable_module.esl" }
+CompilationError { message: "Expected declaration", range: 5..12, path: "../../tests/imports/unparseable_module.esl" }
 CompilationError { message: "Cannot assign to rvalue", range: 17..22, path: "../../tests/imports/invalid_module.esl" }
