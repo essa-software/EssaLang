@@ -1,42 +1,19 @@
-use std::{
-    backtrace::Backtrace, collections::HashMap, env::current_exe, fmt::Display, ops::Range,
-    path::PathBuf,
-};
+mod decl_scope;
+pub mod id;
+
+use std::{collections::HashMap, env::current_exe, ops::Range, path::PathBuf};
+
+use decl_scope::DeclScope;
+use id::{DeclScopeId, FunctionId, Id, ModuleId, ScopeId, StructId, VarId};
 
 use crate::{
     compiler,
     error::CompilationError,
     parser::{self, BinOpClass},
+    types,
 };
 
-//// IDs
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ModuleId(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id {
-    module: ModuleId,
-    id: usize,
-}
-
-impl Id {
-    pub fn mangle(&self) -> String {
-        format!("{}_{}", self.module.0, self.id)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FunctionId(pub Id);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StructId(pub Id);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ScopeId(pub Id);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VarId(pub Id);
+//// Type
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Primitive {
@@ -49,8 +26,6 @@ pub enum Primitive {
     Range,
     EmptyArray,
 }
-
-//// Type
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -178,7 +153,10 @@ impl Scope {
 
 pub struct Function {
     id: Option<FunctionId>,
+    // If Some, the Function is a non-static method of the given sturct
+    // i.e can be called (only) with `object.method()`
     pub struct_: Option<StructId>,
+    pub decl_scope: DeclScopeId,
     pub name: String,
     pub params_scope: ScopeId,
     pub body: Option<Statement>, // none = extern function
@@ -186,13 +164,18 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(name: String, module: &mut Module) -> Self {
+    pub fn new(name: String, decl_scope: DeclScopeId, module: &mut Module) -> Self {
         // create params scope
         let params_scope = module.add_scope(Scope::new());
+        eprintln!(
+            "Creating params scope: {:?} for function {}",
+            params_scope, name
+        );
 
         Function {
             id: None,
             struct_: None,
+            decl_scope,
             name,
             params_scope,
             body: None,
@@ -206,7 +189,7 @@ impl Function {
 
     pub fn add_param(&mut self, var: Var, module: &mut Module) {
         let id = module.add_var(var);
-        let scope = module.get_scope_mut(self.params_scope.0.id);
+        let scope = module.get_scope_mut(self.params_scope.0.id_in_module());
         scope.vars.push(id);
     }
 
@@ -427,6 +410,10 @@ pub struct Field {
 #[derive(Debug)]
 pub struct Struct {
     pub id: Option<StructId>,
+    // Decl scope the struct is in
+    pub parent_decl_scope: DeclScopeId,
+    // Decl scope the struct's methods and nested structs are in
+    pub struct_decl_scope: DeclScopeId,
     pub name: String,
     pub fields: Vec<Field>,
     pub methods: Vec<FunctionId>,
@@ -446,20 +433,26 @@ pub struct Module {
     structs: Vec<Struct>,
     vars: Vec<Var>,
     scopes: Vec<Scope>,
-
-    imported_modules: Vec<ModuleId>,
+    decl_scopes: Vec<DeclScope>,
+    top_level_decl_scope: Option<DeclScopeId>,
+    // Decl scopes from other modules which should be searched too
+    foreign_decl_scopes: Vec<DeclScopeId>,
 }
 
 impl Module {
     pub fn new(id: ModuleId) -> Self {
-        Module {
+        let mut m = Module {
             id,
             functions: Vec::new(),
             structs: Vec::new(),
             vars: Vec::new(),
             scopes: Vec::new(),
-            imported_modules: Vec::new(),
-        }
+            decl_scopes: Vec::new(),
+            top_level_decl_scope: None,
+            foreign_decl_scopes: Vec::new(),
+        };
+        m.top_level_decl_scope = Some(m.add_decl_scope());
+        m
     }
 
     ////
@@ -477,11 +470,11 @@ impl Module {
     }
 
     pub fn add_function(&mut self, mut function: Function) -> FunctionId {
-        let id = FunctionId(Id {
-            module: self.id,
-            id: self.functions.len(),
-        });
+        let id = FunctionId(Id::new(self.id, self.functions.len()));
         function.id = Some(id);
+        // add to decl scope
+        self.get_decl_scope_mut(function.decl_scope.0.id_in_module())
+            .add_function(function.name.clone(), id);
         self.functions.push(function);
         id
     }
@@ -501,12 +494,10 @@ impl Module {
     }
 
     pub fn add_struct(&mut self, mut struct_: Struct) -> StructId {
-        let id = StructId(Id {
-            module: self.id,
-            id: self.structs.len(),
-        });
+        let id = StructId(Id::new(self.id, self.structs.len()));
         struct_.id = Some(id);
-        eprintln!("Adding struct: {:?}", struct_);
+        self.get_decl_scope_mut(struct_.parent_decl_scope.0.id_in_module())
+            .add_struct(struct_.name.clone(), id);
         self.structs.push(struct_);
         id
     }
@@ -518,10 +509,7 @@ impl Module {
     }
 
     pub fn add_var(&mut self, mut var: Var) -> VarId {
-        let id = VarId(Id {
-            module: self.id,
-            id: self.vars.len(),
-        });
+        let id = VarId(Id::new(self.id, self.vars.len()));
         var.id = Some(id);
         self.vars.push(var);
         id
@@ -538,10 +526,7 @@ impl Module {
     }
 
     pub fn add_scope(&mut self, mut scope: Scope) -> ScopeId {
-        let id = ScopeId(Id {
-            module: self.id,
-            id: self.scopes.len(),
-        });
+        let id = ScopeId(Id::new(self.id, self.scopes.len()));
         scope.id = Some(id);
         self.scopes.push(scope);
         id
@@ -549,8 +534,38 @@ impl Module {
 
     ////
 
-    pub fn import(&mut self, imported: ModuleId) {
-        self.imported_modules.push(imported);
+    pub fn get_decl_scope(&self, id: usize) -> &DeclScope {
+        self.decl_scopes.get(id).expect("DeclScope not found")
+    }
+
+    pub fn get_decl_scope_mut(&mut self, id: usize) -> &mut DeclScope {
+        self.decl_scopes.get_mut(id).expect("DeclScope not found")
+    }
+
+    pub fn add_decl_scope(&mut self) -> DeclScopeId {
+        let id = DeclScopeId(Id::new(self.id, self.decl_scopes.len()));
+        self.decl_scopes.push(DeclScope::new(id));
+        id
+    }
+
+    pub fn add_child_decl_scope(&mut self, name: String, parent: DeclScopeId) -> DeclScopeId {
+        let id = self.add_decl_scope();
+        let parent = self.get_decl_scope_mut(parent.0.id_in_module());
+        parent.add_child_scope(name, id);
+        id
+    }
+
+    pub fn top_level_decl_scope(&self) -> &DeclScope {
+        self.get_decl_scope(self.top_level_decl_scope.unwrap().0.id_in_module())
+    }
+
+    pub fn top_level_decl_scope_mut(&mut self) -> &mut DeclScope {
+        self.get_decl_scope_mut(self.top_level_decl_scope.unwrap().0.id_in_module())
+    }
+
+    // Copy declaration scopes etc, from a given module
+    pub fn flat_import(&mut self, imported: DeclScopeId) {
+        self.foreign_decl_scopes.push(imported);
     }
 }
 
@@ -591,38 +606,45 @@ impl Program {
 
     pub fn get_function(&self, id: FunctionId) -> &Function {
         self.modules
-            .get(id.0.module.0)
+            .get(id.0.module_id().0)
             .expect("Module not found")
-            .get_function(id.0.id)
+            .get_function(id.0.id_in_module())
     }
 
     pub fn get_struct(&self, id: StructId) -> &Struct {
         self.modules
-            .get(id.0.module.0)
+            .get(id.0.module_id().0)
             .expect("Module not found")
-            .get_struct(id.0.id)
+            .get_struct(id.0.id_in_module())
     }
 
     pub fn get_var(&self, id: VarId) -> &Var {
         self.modules
-            .get(id.0.module.0)
+            .get(id.0.module_id().0)
             .expect("Module not found")
-            .get_var(id.0.id)
+            .get_var(id.0.id_in_module())
     }
 
     pub fn get_scope(&self, id: ScopeId) -> &Scope {
         self.modules
-            .get(id.0.module.0)
+            .get(id.0.module_id().0)
             .expect("Module not found")
-            .get_scope(id.0.id)
+            .get_scope(id.0.id_in_module())
     }
 
     pub fn get_scope_mut(&mut self, id: ScopeId) -> &mut Scope {
         let module = self
             .modules
-            .get_mut(id.0.module.0)
+            .get_mut(id.0.module_id().0)
             .expect("Module not found");
-        module.get_scope_mut(id.0.id)
+        module.get_scope_mut(id.0.id_in_module())
+    }
+
+    pub fn get_decl_scope(&self, id: DeclScopeId) -> &DeclScope {
+        self.modules
+            .get(id.0.module_id().0)
+            .expect("Module not found")
+            .get_decl_scope(id.0.id_in_module())
     }
 }
 
@@ -671,10 +693,15 @@ impl TypeChecker {
     pub fn typecheck(mut self, p_module: parser::Module) -> (Program, Vec<CompilationError>) {
         let prelude_id = self.add_prelude();
         self.prelude_id = Some(prelude_id);
+        let prelude_decl_scope_id = self
+            .program
+            .get_module(prelude_id)
+            .top_level_decl_scope()
+            .id();
 
         // create main module (this)
         let (module, main_module_id) = self.program.add_module();
-        module.import(prelude_id);
+        module.flat_import(prelude_decl_scope_id);
 
         let tc = TypeCheckerModule::new(&mut self, main_module_id, p_module.source_path.clone());
         tc.typecheck(p_module);
@@ -718,31 +745,30 @@ impl<'tc> TypeCheckerModule<'tc> {
         self.program_mut().get_module_mut(m)
     }
 
+    fn lookup_foreign_function(&self, func_name: &types::ScopedName) -> Option<&Function> {
+        self.this_module()
+            .foreign_decl_scopes
+            .iter()
+            .find_map(|sid| {
+                let scope = self.program().get_decl_scope(*sid);
+                scope
+                    .lookup_function_rec(func_name, self.program())
+                    .map(|id| self.program().get_function(id))
+            })
+    }
+
     fn lookup_function(&self, call: &FunctionCall) -> Option<&Function> {
-        // Lookup function in this module and in imported modules
-        // FIXME: Optimize
-        // FIXME: We may want to introduce some namespace support, then
-        // we won't search in imported modules anymore.
-        let tm = self.this_module();
-        fn is_global_func_with_name(f: &Function, name: &str) -> bool {
-            f.struct_.is_none() && f.name == name
-        }
         match call {
-            FunctionCall::Global(func_name) => tm
-                .functions()
-                .find(|f| is_global_func_with_name(f, func_name))
-                .or_else(|| {
-                    tm.imported_modules
-                        .iter()
-                        .map(|m| self.program().get_module(*m))
-                        .filter_map(|m| {
-                            m.functions()
-                                .find(|f| is_global_func_with_name(f, func_name))
-                        })
-                        .next()
-                }),
+            FunctionCall::Global(func_name) => {
+                let tm = self.this_module();
+                tm.top_level_decl_scope()
+                    .lookup_function_rec(func_name, self.program())
+                    .map(|id| self.program().get_function(id))
+                    .or_else(|| self.lookup_foreign_function(func_name))
+            }
             FunctionCall::Method(struct_id, method_name) => {
                 let struct_ = self.program().get_struct(*struct_id);
+                // FIXME: Optimize
                 struct_
                     .methods
                     .iter()
@@ -752,19 +778,30 @@ impl<'tc> TypeCheckerModule<'tc> {
         }
     }
 
-    fn lookup_struct(&self, name: &str) -> Option<&Struct> {
-        // Lookup struct in this module and in imported modules
-        // FIXME: Optimize
-        // FIXME: We may want to introduce some namespace support, then
-        // we won't search in imported modules anymore.
+    fn lookup_foreign_struct(&self, name: &types::ScopedName) -> Option<&Struct> {
+        eprintln!(
+            "Module lookup foreign struct {} in {} foreign scopes",
+            name,
+            self.this_module().foreign_decl_scopes.len()
+        );
+        self.this_module()
+            .foreign_decl_scopes
+            .iter()
+            .find_map(|sid| {
+                let scope = self.program().get_decl_scope(*sid);
+                scope
+                    .lookup_struct_rec(name, self.program())
+                    .map(|id| self.program().get_struct(id))
+            })
+    }
+
+    fn lookup_struct(&self, name: &types::ScopedName) -> Option<&Struct> {
+        eprintln!("Module lookup struct {}", name);
         let tm = self.this_module();
-        tm.structs().find(|f| f.name == name).or_else(|| {
-            tm.imported_modules
-                .iter()
-                .map(|m| self.program().get_module(*m))
-                .filter_map(|m| m.structs().find(|f| f.name == name))
-                .next()
-        })
+        tm.top_level_decl_scope()
+            .lookup_struct_rec(name, self.program())
+            .map(|id| self.program().get_struct(id))
+            .or_else(|| self.lookup_foreign_struct(name))
     }
 
     fn typecheck_type(
@@ -797,7 +834,9 @@ impl<'tc> TypeCheckerModule<'tc> {
                     Some(Type::Struct { id: struct_ })
                 }
                 _ => {
-                    let struct_ = self.lookup_struct(name);
+                    // TODO: Support structs in namespaces (in parser)
+                    let struct_ = self.lookup_struct(&types::ScopedName::new(vec![name.clone()]));
+
                     if let Some(struct_) = struct_ {
                         Some(Type::Struct {
                             id: struct_.id.unwrap(),
@@ -842,12 +881,20 @@ impl<'tc> TypeCheckerModule<'tc> {
             self.tc.errors.extend(parsed_module.errors);
 
             let prelude_id = self.tc.prelude_id.unwrap();
+            let prelude_decl_scope_id = self
+                .program()
+                .get_module(prelude_id)
+                .top_level_decl_scope()
+                .id();
             let (imported_mod, imported_mod_id) = self.program_mut().add_module();
-            imported_mod.import(prelude_id);
+            imported_mod.flat_import(prelude_decl_scope_id);
+            let imported_tlds_id = imported_mod.top_level_decl_scope().id();
 
             let typechecker = TypeCheckerModule::new(self.tc, imported_mod_id, parsed_module.path);
             typechecker.typecheck(parsed_module.module);
-            self.this_module_mut().import(imported_mod_id);
+            self.this_module_mut()
+                .top_level_decl_scope_mut()
+                .add_child_scope(name.clone(), imported_tlds_id);
         }
     }
 
@@ -863,8 +910,15 @@ impl<'tc> TypeCheckerModule<'tc> {
                 methods,
             } = decl;
 
+            let tlds_id = self.this_module().top_level_decl_scope().id();
+            let struct_decl_scope = self
+                .this_module_mut()
+                .add_child_decl_scope(name.clone(), tlds_id);
+
             let struct_ = Struct {
                 id: None,
+                parent_decl_scope: tlds_id,
+                struct_decl_scope,
                 name: name.clone(),
                 fields: vec![],  // to be filled later
                 methods: vec![], // to be filled later
@@ -892,7 +946,9 @@ impl<'tc> TypeCheckerModule<'tc> {
                 })
                 .collect();
 
-            let struct_ = self.this_module_mut().get_struct_mut(struct_id.0.id);
+            let struct_ = self
+                .this_module_mut()
+                .get_struct_mut(struct_id.0.id_in_module());
             struct_.methods = methods;
             struct_.fields = fields;
 
@@ -927,12 +983,18 @@ impl<'tc> TypeCheckerModule<'tc> {
                     None
                 }
             });
-        let mut function = Function::new(name.clone(), self.this_module_mut());
+
+        let scope = self
+            .self_struct
+            .map(|s| self.program().get_struct(s).struct_decl_scope)
+            .unwrap_or(self.this_module().top_level_decl_scope().id());
+
+        let mut function = Function::new(name.clone(), scope, self.this_module_mut());
         function.struct_ = self.self_struct;
         function.return_type = rt;
+
         for param in params {
             let type_ = self.typecheck_type(&param.type_);
-            eprintln!("adding param: {:?} type={:?}", param.name, type_);
             function.add_param(
                 Var::new(type_, param.name.clone(), false),
                 self.this_module_mut(),
@@ -969,6 +1031,7 @@ impl<'tc> TypeCheckerModule<'tc> {
     }
 
     pub fn typecheck(mut self, mut p_module: parser::Module) {
+        eprintln!("!!! Typecheck Module: {:?}", self.path);
         self.typecheck_imports(&mut p_module);
         let mut bodies = self.typecheck_structs(&mut p_module);
         bodies.extend(self.typecheck_function_decls(&mut p_module));
@@ -989,14 +1052,14 @@ pub struct TypeCheckerExecution<'tc, 'tcm> {
 
 #[derive(Debug)]
 enum FunctionCall {
-    Global(String),
+    Global(types::ScopedName),
     Method(StructId, String),
 }
 
 impl FunctionCall {
     fn to_string(&self, program: &Program) -> String {
         match self {
-            FunctionCall::Global(name) => name.clone(),
+            FunctionCall::Global(name) => name.clone().to_string(),
             FunctionCall::Method(struct_id, name) => {
                 let struct_ = program.get_struct(*struct_id);
                 format!("{}::{}", struct_.name, name)
@@ -1043,7 +1106,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
     fn add_var_to_current_scope(&mut self, var: Var) -> VarId {
         let id: VarId = self.this_module_mut().add_var(var);
-        let scope_id = self.current_scope().0.id;
+        let scope_id = self.current_scope().0.id_in_module();
         let scope = self.this_module_mut().get_scope_mut(scope_id);
         scope.vars.push(id);
         id
@@ -1081,6 +1144,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             })
             .collect::<Vec<_>>();
 
+        eprintln!("Typechecking call to {}", call.to_string(self.program()));
         let Some(function) = self.tcm.lookup_function(&call) else {
             self.errors.push(CompilationError::new(
                 format!("Function '{}' not found", call.to_string(self.program())),
@@ -1092,10 +1156,9 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 arguments: HashMap::new(),
             };
         };
-        eprintln!(
-            "lookup_function({:?}) = {:?} {:?} {:?}",
-            call, function.id, function.name, function.struct_
-        );
+
+        eprintln!("Looked up function: {:?}", function.name);
+
         let mut arguments = HashMap::new();
         // For now we just go in order.
         // TODO: handle kwargs.
@@ -1128,6 +1191,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
         let function_id = function.id.unwrap();
         let params_scope_id = function.params_scope;
+        eprintln!(
+            "Function params scope: {:?} (name={})",
+            params_scope_id, function.name
+        );
 
         for (i, (expr, range)) in typechecked_args.into_iter().enumerate() {
             let params_scope = self.program().get_scope(params_scope_id);
@@ -1135,7 +1202,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 p
             } else {
                 self.errors.push(CompilationError::new(
-                    "Too many arguments".into(),
+                    format!(
+                        "Too many arguments in call to '{}'",
+                        call.to_string(self.program())
+                    ),
                     range.clone(),
                     self.tcm.path.clone(),
                 ));
@@ -1267,16 +1337,33 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
-    fn typecheck_name(&mut self, name: &str, range: &Range<usize>) -> Expression {
-        if let Some(var) = self.lookup_variable(name) {
-            Expression::VarRef {
-                type_: var.type_.clone(),
-                var_id: Some(var.id.expect("var without id")),
-                mut_: var.mut_,
+    fn typecheck_variable_name(
+        &mut self,
+        name: &types::ScopedName,
+        range: &Range<usize>,
+    ) -> Expression {
+        if let Some(name) = name.leaf() {
+            if let Some(var) = self.lookup_variable(name) {
+                Expression::VarRef {
+                    type_: var.type_.clone(),
+                    var_id: Some(var.id.expect("var without id")),
+                    mut_: var.mut_,
+                }
+            } else {
+                self.errors.push(CompilationError::new(
+                    format!("Variable with name '{}' not found", name),
+                    range.clone(),
+                    self.tcm.path.clone(),
+                ));
+                Expression::VarRef {
+                    type_: None,
+                    var_id: None,
+                    mut_: true, // avoid more errors if someone tries to write to this
+                }
             }
         } else {
             self.errors.push(CompilationError::new(
-                format!("Variable with name '{}' not found", name),
+                format!("Scoped variables are not yet supported"),
                 range.clone(),
                 self.tcm.path.clone(),
             ));
@@ -1441,7 +1528,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             parser::Expression::StringLiteral { value } => Expression::StringLiteral {
                 value: value.clone(),
             },
-            parser::Expression::Name(name) => self.typecheck_name(name, range),
+            parser::Expression::Name(name) => self.typecheck_variable_name(name, range),
             parser::Expression::BinaryOp {
                 op,
                 op_range,
@@ -1526,7 +1613,9 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 }
             }
             parser::Expression::CharLiteral { value } => Expression::CharLiteral { value: *value },
-            parser::Expression::This => self.typecheck_name("this", range),
+            parser::Expression::This => {
+                self.typecheck_variable_name(&types::ScopedName::new(vec!["this".into()]), range)
+            }
         }
     }
 
@@ -1723,7 +1812,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             .push(self.program().get_function(self.function).params_scope);
 
         let stmt = self.typecheck_statement(stmt);
-        let function_id: usize = self.function.0.id;
+        let function_id: usize = self.function.0.id_in_module();
         self.this_module_mut().get_function_mut(function_id).body = Some(stmt);
 
         self.scope_stack.pop();

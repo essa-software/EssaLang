@@ -1,7 +1,7 @@
 use core::str;
 use std::{ops::Range, path::PathBuf, str::Utf8Error};
 
-use crate::{error::CompilationError, lexer};
+use crate::{error::CompilationError, lexer, types};
 
 #[derive(Debug)]
 pub enum Type {
@@ -184,7 +184,7 @@ pub enum Expression {
         left: Box<ExpressionNode>,
         right: Box<ExpressionNode>,
     },
-    Name(String),
+    Name(types::ScopedName),
     This,
 }
 
@@ -506,10 +506,31 @@ impl<'a> Parser<'a> {
                     range: next.range.start..end.range.end,
                 })
             }
-            lexer::TokenType::Name(name) => Some(ExpressionNode {
-                expression: Expression::Name(name),
-                range: next.range,
-            }),
+            lexer::TokenType::Name(name) => {
+                let mut components = vec![name.into()];
+                // Maybe there are more components (::)
+                loop {
+                    let next = self.peek();
+                    if let Some(next) = next {
+                        if matches!(next.type_, lexer::TokenType::ColonColon) {
+                            let _ = self.consume();
+                            let next = self.expect(
+                                |t| matches!(t, lexer::TokenType::Name(_)),
+                                "name after '::'",
+                            )?;
+                            components.push(next.slice_str(&self.input).unwrap().into());
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                Some(ExpressionNode {
+                    expression: Expression::Name(types::ScopedName::new(components)),
+                    range: next.range,
+                })
+            }
             lexer::TokenType::Integer(text) => Some(ExpressionNode {
                 expression: Expression::IntLiteral { value: text },
                 range: next.range,

@@ -9,6 +9,7 @@ pub enum TokenType {
     BraceClose,
     BraceOpen,
     Colon,
+    ColonColon,
     Comma,
     CurlyClose,
     CurlyOpen,
@@ -66,6 +67,7 @@ impl Display for TokenType {
             TokenType::BraceClose => f.write_str("']'"),
             TokenType::BraceOpen => f.write_str("'['"),
             TokenType::Colon => f.write_str("':'"),
+            TokenType::ColonColon => f.write_str("'::'"),
             TokenType::Comma => f.write_str("','"),
             TokenType::CurlyClose => f.write_str("'}'"),
             TokenType::CurlyOpen => f.write_str("'{'"),
@@ -241,6 +243,10 @@ impl<'a> TokenIterator<'a> {
             }
             ':' => {
                 self.read_one();
+                if self.peek() == Some(':') {
+                    self.read_one();
+                    return Some(self.token(TokenType::ColonColon, start));
+                }
                 Some(self.token(TokenType::Colon, start))
             }
             ',' => {

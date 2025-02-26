@@ -7,7 +7,7 @@ pub struct CodeGen<'data> {
     program: &'data sema::Program,
     tmp_var_counter: usize,
     local_var_counter: usize,
-    variable_names: HashMap<sema::VarId, TmpVar>,
+    variable_names: HashMap<sema::id::VarId, TmpVar>,
 }
 
 type IoResult<T> = std::result::Result<T, std::io::Error>;
@@ -204,7 +204,10 @@ impl<'data> CodeGen<'data> {
         Ok(arg_var_name)
     }
 
-    fn emit_print_call(&mut self, args: &HashMap<sema::VarId, sema::Expression>) -> IoResult<()> {
+    fn emit_print_call(
+        &mut self,
+        args: &HashMap<sema::id::VarId, sema::Expression>,
+    ) -> IoResult<()> {
         writeln!(self.out, "    /*print()*/")?;
 
         if args.is_empty() {
