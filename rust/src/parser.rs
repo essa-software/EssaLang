@@ -321,9 +321,10 @@ impl<'a> Parser<'a> {
         predicate: impl Fn(&lexer::TokenType) -> bool,
         more_info: &str,
     ) -> Option<lexer::Token> {
-        let next = self.consume();
+        let next = self.peek();
         if let Some(next) = next {
             if predicate(&next.type_) {
+                self.consume();
                 return Some(next);
             } else {
                 self.errors.push(CompilationError::new(
@@ -1043,12 +1044,6 @@ impl<'a> Parser<'a> {
             None
         };
 
-        eprintln!(
-            "function {} extern: {}",
-            name.slice_str(&self.input).unwrap(),
-            extern_
-        );
-
         if extern_ {
             let _ = self.expect_token(&lexer::TokenType::Semicolon);
             Some(FunctionDecl {
@@ -1100,21 +1095,19 @@ impl<'a> Parser<'a> {
         let mut methods = vec![];
         loop {
             let next = self.peek();
-            if let Some(next) = next {
+            if let Some(next) = &next {
                 if matches!(next.type_, lexer::TokenType::CurlyClose) {
                     break;
                 }
-            } else {
-                break;
-            }
 
-            // maybe method?
-            if let Some(next) = self.peek() {
+                // maybe method?
                 if matches!(next.type_, lexer::TokenType::KeywordFunc) {
                     let method = self.consume_function_decl()?;
                     methods.push(method);
                     continue;
                 }
+            } else {
+                break;
             }
 
             // field name
@@ -1130,7 +1123,7 @@ impl<'a> Parser<'a> {
             let type_ = self.consume_type()?;
 
             // ";"
-            let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), ";");
+            let _ = self.expect(|t| matches!(t, lexer::TokenType::Semicolon), "';'");
 
             fields.push(FieldDecl {
                 name: name.slice_str(&self.input).unwrap().into(),
