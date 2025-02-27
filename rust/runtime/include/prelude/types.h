@@ -22,8 +22,9 @@ typedef struct _esl_string {
 } esl_string;
 
 typedef struct _esl_range {
-    esl_usize _start;
-    esl_usize _end;
+    // FIXME: Change to usize
+    esl_u32 _begin;
+    esl_u32 _end;
 } esl_range;
 
 _END_DECLS

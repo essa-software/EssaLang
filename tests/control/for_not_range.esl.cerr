@@ -1,2 +1,1 @@
 CompilationError { message: "For loop iterable must be an iterable type", range: 69..70, path: "../../tests/control/for_not_range.esl" }
-CompilationError { message: "Argument 1 to print function has invalid type", range: 94..95, path: "../../tests/control/for_not_range.esl" }

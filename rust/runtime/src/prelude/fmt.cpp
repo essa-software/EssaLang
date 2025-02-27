@@ -39,6 +39,6 @@ void _esl_print_u32(void const* data) {
 
 void _esl_print_range(void const* data) {
     esl_range const* range = (esl_range const*)data;
-    printf("%zu..%zu", range->_start, range->_end);
+    printf("%zu..%zu", range->_begin, range->_end);
 }
 }

@@ -9,7 +9,7 @@ use id::{DeclScopeId, FunctionId, Id, ModuleId, ScopeId, StructId, VarId};
 use crate::{
     compiler,
     error::CompilationError,
-    parser::{self, BinOpClass},
+    parser::{self, BinOpClass, BinaryOp},
     types,
 };
 
@@ -229,11 +229,6 @@ pub enum Statement {
         init: Option<Expression>,
     },
     Return(Option<Expression>),
-    For {
-        it_var: VarId,
-        iterable: Expression,
-        body: Box<Statement>,
-    },
     If {
         condition: Expression,
         then_block: Box<Statement>,
@@ -249,6 +244,10 @@ pub enum Statement {
 
 //// Expressions
 
+const RANGE_BEGIN: &str = "_begin";
+const RANGE_END: &str = "_end";
+
+#[derive(Debug)]
 pub enum Expression {
     Call {
         function_id: Option<FunctionId>,
@@ -278,11 +277,7 @@ pub enum Expression {
         value_type: Option<Type>,
         values: Vec<Expression>,
     },
-    VarRef {
-        type_: Option<Type>,
-        var_id: Option<VarId>,
-        mut_: bool,
-    },
+    VarRef(Option<VarId>),
     BinaryOp {
         op: parser::BinaryOp,
         left: Box<Expression>,
@@ -311,10 +306,22 @@ impl Expression {
             }
             Expression::MemberAccess { object, member } => {
                 let object_type = object.type_(program)?;
+                eprintln!(
+                    "Member access on on object of type {:?}: '{}'",
+                    object_type, member
+                );
                 match object_type {
                     Type::Struct { id } => {
                         let struct_ = program.get_struct(id);
                         struct_.resolve_field(member).and_then(|f| f.type_.clone())
+                    }
+                    Type::Primitive(Primitive::Range) => {
+                        // Hacky special-case: range.begin, range.end
+                        let tp = match member.as_str() {
+                            RANGE_BEGIN | RANGE_END => Some(Type::Primitive(Primitive::U32)),
+                            _ => None,
+                        };
+                        tp
                     }
                     _ => None,
                 }
@@ -322,7 +329,7 @@ impl Expression {
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
-            Expression::VarRef { type_, .. } => type_.clone(),
+            Expression::VarRef(var_id) => var_id.and_then(|id| program.get_var(id).type_.clone()),
             Expression::BinaryOp {
                 op,
                 left: _,
@@ -350,20 +357,22 @@ impl Expression {
         }
     }
 
-    pub fn value_type(&self) -> ValueType {
+    pub fn value_type(&self, program: &Program) -> ValueType {
         match self {
-            Expression::VarRef { mut_, .. } => {
-                if *mut_ {
-                    ValueType::LValue
-                } else {
-                    ValueType::ConstLValue
-                }
-            }
+            Expression::VarRef(var_id) => var_id
+                .map(|id| {
+                    if program.get_var(id).mut_ {
+                        ValueType::LValue
+                    } else {
+                        ValueType::ConstLValue
+                    }
+                })
+                .unwrap_or(ValueType::LValue),
             Expression::Index {
                 indexable,
                 index: _,
-            } => indexable.value_type(),
-            Expression::MemberAccess { object, member: _ } => object.value_type(),
+            } => indexable.value_type(program),
+            Expression::MemberAccess { object, member: _ } => object.value_type(program),
             _ => ValueType::RValue,
         }
     }
@@ -1083,21 +1092,25 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         self.tcm.program()
     }
 
-    fn this_module(&self) -> &Module {
-        self.tcm.this_module()
-    }
-
     fn this_module_mut(&mut self) -> &mut Module {
         self.tcm.this_module_mut()
     }
 
-    fn push_scope(&mut self) {
+    fn push_scope(&mut self) -> ScopeId {
         let scope = self.tcm.this_module_mut().add_scope(Scope::new());
         self.scope_stack.push(scope);
+        scope
     }
 
     fn pop_scope(&mut self) {
         self.scope_stack.pop();
+    }
+
+    fn with_scope<Ret>(&mut self, callback: impl FnOnce(&mut Self) -> Ret) -> Ret {
+        self.push_scope();
+        let ret = callback(self);
+        self.pop_scope();
+        ret
     }
 
     fn current_scope(&self) -> ScopeId {
@@ -1344,22 +1357,14 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
     ) -> Expression {
         if let Some(name) = name.leaf() {
             if let Some(var) = self.lookup_variable(name) {
-                Expression::VarRef {
-                    type_: var.type_.clone(),
-                    var_id: Some(var.id.expect("var without id")),
-                    mut_: var.mut_,
-                }
+                Expression::VarRef(Some(var.id.expect("var without id")))
             } else {
                 self.errors.push(CompilationError::new(
                     format!("Variable with name '{}' not found", name),
                     range.clone(),
                     self.tcm.path.clone(),
                 ));
-                Expression::VarRef {
-                    type_: None,
-                    var_id: None,
-                    mut_: true, // avoid more errors if someone tries to write to this
-                }
+                Expression::VarRef(None)
             }
         } else {
             self.errors.push(CompilationError::new(
@@ -1367,11 +1372,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 range.clone(),
                 self.tcm.path.clone(),
             ));
-            Expression::VarRef {
-                type_: None,
-                var_id: None,
-                mut_: true, // avoid more errors if someone tries to write to this
-            }
+            Expression::VarRef(None)
         }
     }
 
@@ -1493,6 +1494,19 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                                 ));
                             }
                         }
+                        Type::Primitive(Primitive::Range) => {
+                            // Hacky special-case: range.begin, range.end
+                            if member != RANGE_BEGIN && member != RANGE_END {
+                                self.errors.push(CompilationError::new(
+                                    format!(
+                                        "Range has only '{}' and '{}' fields",
+                                        RANGE_BEGIN, RANGE_END
+                                    ),
+                                    range.clone(),
+                                    self.tcm.path.clone(),
+                                ));
+                            }
+                        }
                         _ => {
                             self.errors.push(CompilationError::new(
                                 format!(
@@ -1539,7 +1553,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 let right = self.typecheck_expression(right);
 
                 if matches!(op.class(), BinOpClass::Assignment) {
-                    match left.value_type() {
+                    match left.value_type(self.program()) {
                         ValueType::LValue => {}
                         ValueType::ConstLValue => {
                             self.errors.push(CompilationError::new(
@@ -1617,6 +1631,231 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 self.typecheck_variable_name(&types::ScopedName::new(vec!["this".into()]), range)
             }
         }
+    }
+
+    fn generate_iterator_new_call(&self, iterable_var: VarId) -> Expression {
+        let iterable_type = self.program().get_var(iterable_var).type_.clone().unwrap();
+        match iterable_type {
+            Type::Array { inner: _, size: _ } => Expression::IntLiteral { value: 0 },
+            Type::Primitive(Primitive::Range) => {
+                // range.begin
+                Expression::MemberAccess {
+                    object: Box::new(Expression::VarRef(Some(iterable_var))),
+                    member: RANGE_BEGIN.into(),
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn generate_iterator_has_next_call(
+        &self,
+        iterable_var: VarId,
+        iterator_var: VarId,
+    ) -> Expression {
+        let iterable_type = self.program().get_var(iterable_var).type_.clone().unwrap();
+        match iterable_type {
+            Type::Array { inner: _, size } => {
+                // iterator < size
+                Expression::BinaryOp {
+                    op: BinaryOp::CmpLess,
+                    left: Box::new(Expression::VarRef(Some(iterator_var))),
+                    right: Box::new(Expression::IntLiteral { value: size as u64 }),
+                }
+            }
+            Type::Primitive(Primitive::Range) => {
+                // iterator < range.end
+                Expression::BinaryOp {
+                    op: BinaryOp::CmpLess,
+                    left: Box::new(Expression::VarRef(Some(iterator_var))),
+                    right: Box::new(Expression::MemberAccess {
+                        object: Box::new(Expression::VarRef(Some(iterable_var))),
+                        member: RANGE_END.into(),
+                    }),
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
+    // Generate statements that will dereference iterator into `it_var`
+    // and increment `iterator_var`
+    // (basically `it_var = iterator_next(&iterator_var)` but we can't
+    //  express this in the language yet because of lack of references)
+    fn generate_iterator_next_statements(
+        &self,
+        iterable_var: VarId,
+        it_var: VarId,
+        iterator_var: VarId,
+    ) -> Vec<Statement> {
+        let mut statements = vec![];
+
+        let iterable_type = self.program().get_var(iterable_var).type_.clone().unwrap();
+
+        match iterable_type {
+            Type::Primitive(Primitive::Range) => {
+                // it_var = iterator_var
+                statements.push(Statement::Expression(Expression::BinaryOp {
+                    op: BinaryOp::Assignment,
+                    left: Box::new(Expression::VarRef(Some(it_var))),
+                    right: Box::new(Expression::VarRef(Some(iterator_var))),
+                }));
+
+                // iterator_var += 1
+                statements.push(Statement::Expression(Expression::BinaryOp {
+                    op: BinaryOp::AssAdd,
+                    left: Box::new(Expression::VarRef(Some(iterator_var))),
+                    right: Box::new(Expression::IntLiteral { value: 1 }),
+                }));
+            }
+            Type::Array { inner: _, size: _ } => {
+                // it_var = iterable_var[iterator_var]
+                statements.push(Statement::Expression(Expression::BinaryOp {
+                    op: BinaryOp::Assignment,
+                    left: Box::new(Expression::VarRef(Some(it_var))),
+                    right: Box::new(Expression::Index {
+                        indexable: Box::new(Expression::VarRef(Some(iterable_var))),
+                        index: Box::new(Expression::VarRef(Some(iterator_var))),
+                    }),
+                }));
+
+                // iterator_var += 1
+                statements.push(Statement::Expression(Expression::BinaryOp {
+                    op: BinaryOp::AssAdd,
+                    left: Box::new(Expression::VarRef(Some(iterator_var))),
+                    right: Box::new(Expression::IntLiteral { value: 1 }),
+                }));
+            }
+            _ => todo!(),
+        }
+
+        statements
+    }
+
+    fn typecheck_for_statement(
+        &mut self,
+        it_var: &str,
+        iterable: &parser::ExpressionNode,
+        body: &parser::StatementNode,
+    ) -> Statement {
+        // Desugar
+        // ```
+        // for (let it_var of iterable) { body }
+        // ```
+        // into
+        // ```
+        // {
+        //     let _iterable = iterable;
+        //     let _iterator = <iterator>(_iterable);
+        //     while (<has_next>(_iterator)) {
+        //         let _it_var = <next>(_iterator);
+        //         body;
+        //     }
+        // }
+        // ```
+
+        const ITERABLE: &str = "_$iterable";
+        const ITERATOR: &str = "_$iterator";
+
+        // {
+        self.with_scope(|self_| {
+            let mut statements = vec![];
+
+            // let _iterable = iterable;
+            let iterable_tc = self_.typecheck_expression(iterable);
+            let iter_value_type: Option<Type> = iterable_tc
+                .type_(&self_.program())
+                .and_then(|t| t.iter_value_type(&self_.program()));
+
+            let iterable_var = {
+                match iterable_tc {
+                    // Workaround for missing references... just refer
+                    // to variables directly.
+                    Expression::VarRef(Some(var_id)) => var_id,
+                    _ => {
+                        let Some(iterable_type) = iterable_tc.type_(&self_.program()) else {
+                            return Statement::Block(vec![]);
+                        };
+
+                        if iter_value_type.is_none() {
+                            self_.errors.push(CompilationError::new(
+                                "For loop iterable must be an iterable type".into(),
+                                iterable.range.clone(),
+                                self_.tcm.path.clone(),
+                            ));
+                            return Statement::Block(vec![]);
+                        }
+
+                        let iterable_var = self_.add_var_to_current_scope(Var::new(
+                            Some(iterable_type.clone()),
+                            ITERABLE.into(),
+                            false,
+                        ));
+
+                        statements.push(Statement::VarDecl {
+                            var: iterable_var,
+                            init: Some(iterable_tc),
+                        });
+                        iterable_var
+                    }
+                }
+            };
+
+            // let _iterator = <iterator_new>(_iterable);
+            let iterator_init_tc = self_.generate_iterator_new_call(iterable_var);
+
+            let iterator_var = self_.add_var_to_current_scope(Var::new(
+                Some(Type::Primitive(Primitive::U32)),
+                ITERATOR.into(),
+                true,
+            ));
+
+            statements.push(Statement::VarDecl {
+                var: iterator_var,
+                init: Some(iterator_init_tc),
+            });
+
+            // while (<has_next>(_iterator)) {
+            let while_ = self_.with_scope(|self_| {
+                let mut iteration_statements = vec![];
+
+                // <has_next>(_iterator)
+                let iterator_has_next_tc =
+                    self_.generate_iterator_has_next_call(iterable_var, iterator_var);
+
+                // let _it_var = <next>(_iterator);
+                let it_var = self_.add_var_to_current_scope(Var::new(
+                    iter_value_type.clone(),
+                    it_var.into(),
+                    false,
+                ));
+                iteration_statements.push(Statement::VarDecl {
+                    var: it_var,
+                    init: None,
+                });
+
+                let iterator_next_stmts =
+                    self_.generate_iterator_next_statements(iterable_var, it_var, iterator_var);
+
+                iteration_statements.extend(iterator_next_stmts);
+
+                // body;
+                self_.loop_depth += 1;
+                // (The only part controlled by user code)
+                iteration_statements.push(self_.typecheck_statement(body));
+                self_.loop_depth -= 1;
+
+                Statement::While {
+                    condition: iterator_has_next_tc,
+                    body: Box::new(Statement::Block(iteration_statements)),
+                }
+            });
+            // }
+
+            statements.push(while_);
+
+            Statement::Block(statements)
+        })
     }
 
     fn typecheck_statement(
@@ -1697,39 +1936,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 it_var,
                 iterable,
                 body,
-            } => {
-                let tc_iterable = self.typecheck_expression(iterable);
-                let iter_type = tc_iterable.type_(&self.program());
-                let iter_value_type: Option<Type> = tc_iterable
-                    .type_(&self.program())
-                    .and_then(|t| t.iter_value_type(&self.program()));
-
-                if !iter_type.is_none() && iter_value_type.is_none() {
-                    self.errors.push(CompilationError::new(
-                        "For loop iterable must be an iterable type".into(),
-                        iterable.range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
-
-                self.push_scope();
-                self.loop_depth += 1;
-
-                // iterable var
-                let var = Var::new(iter_value_type, it_var.clone(), false);
-                let var_id = self.add_var_to_current_scope(var);
-
-                let body = self.typecheck_statement(body);
-
-                self.loop_depth -= 1;
-                self.pop_scope();
-
-                Statement::For {
-                    it_var: var_id,
-                    iterable: tc_iterable,
-                    body: Box::new(body),
-                }
-            }
+            } => self.typecheck_for_statement(it_var, iterable, body),
             parser::Statement::If {
                 condition,
                 then_block,

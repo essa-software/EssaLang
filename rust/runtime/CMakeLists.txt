@@ -4,7 +4,6 @@ project(esl-runtime)
 add_library(eslrt
     src/prelude/file.cpp
     src/prelude/fmt.cpp
-    src/prelude/iter.cpp
     src/prelude/ops.cpp
     src/prelude/panic.cpp
     src/prelude/string.cpp

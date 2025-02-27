@@ -1,7 +1,5 @@
 use std::{collections::HashMap, io::Write};
 
-use scopeguard::defer;
-
 use crate::{parser, sema};
 
 pub struct CodeGen<'data> {
@@ -298,6 +296,8 @@ impl<'data> CodeGen<'data> {
         let left_type = left.type_(self.program).unwrap().mangle(self.program);
         let right_type = right.type_(self.program).unwrap().mangle(self.program);
 
+        writeln!(self.out, "// operator: {}", op.mangle())?;
+
         let is_assignment = matches!(op.class(), parser::BinOpClass::Assignment);
         if is_assignment {
             // op(lhs, rhs)
@@ -367,7 +367,8 @@ impl<'data> CodeGen<'data> {
                 Ok(out_tmp_var)
             }
             sema::Type::Array { inner, size } => {
-                let out_tmp_var = self.emit_tmp_var(&inner, "index", indexable.value_type())?;
+                let out_tmp_var =
+                    self.emit_tmp_var(&inner, "index", indexable.value_type(&self.program))?;
                 // bounds check
                 writeln!(
                     self.out,
@@ -472,9 +473,11 @@ impl<'data> CodeGen<'data> {
             }
             sema::Expression::MemberAccess { object, member } => {
                 let object_tmp_var = self.emit_expression_eval(object)?.unwrap();
-                let member_type = expr.type_(self.program).unwrap();
+                let Some(member_type) = expr.type_(self.program) else {
+                    panic!("invalid member access expression: {:?}", expr);
+                };
                 let member_tmp_var =
-                    self.emit_tmp_var(&member_type, "member", expr.value_type())?;
+                    self.emit_tmp_var(&member_type, "member", expr.value_type(&self.program))?;
                 writeln!(
                     self.out,
                     "    {} = &({}).{};",
@@ -511,13 +514,16 @@ impl<'data> CodeGen<'data> {
                 writeln!(self.out, "{} = \"{}\";", tmp_var.access(), escape_c(value))?;
                 return Ok(Some(tmp_var));
             }
-            sema::Expression::VarRef { var_id, .. } => {
+            sema::Expression::VarRef(var_id) => {
                 // in most cases we can just refer directly.
                 return Ok(Some(
                     self.variable_names
                         .get(&var_id.expect("invalid var ref"))
                         .cloned()
-                        .unwrap(),
+                        .unwrap_or(TmpVar {
+                            name: format!("INVALID_VAR_ID_{}", var_id.unwrap().0.mangle()),
+                            is_ptr: false,
+                        }),
                 ));
             }
             sema::Expression::BinaryOp { op, left, right } => {
@@ -619,103 +625,6 @@ impl<'data> CodeGen<'data> {
         }
     }
 
-    // Emit iterator construction for an expression, return
-    // (iterable, iterator)
-    fn emit_iterator_new(&mut self, iterable: &sema::Expression) -> IoResult<(TmpVar, TmpVar)> {
-        // Eval iterable
-        let iterable_tmp = self
-            .emit_expression_eval(iterable)?
-            .expect("void for iterable");
-
-        let iterable_type = iterable.type_(self.program).unwrap();
-
-        match &iterable_type {
-            sema::Type::Array { inner: _, size: _ } => {
-                // We'll just iterate "traditionally" i.e `for(size_t i = 0; i < n; i++)`
-                // size_t iter = 0;
-                let iterator = self.emit_tmp_var_c("esl_usize", "array_iter")?;
-                writeln!(self.out, "    {} = 0;", iterator)?;
-                Ok((iterable_tmp, TmpVar::new(iterator, false)))
-            }
-            _ => {
-                let iterable_type_name = iterable_type.mangle(self.program);
-                let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
-
-                // Construct iterator for iterable
-                let iterator_new_func = format!("_{}_new", iterator_type_name);
-                let iterator_tmp = self.emit_tmp_var_c(&iterator_type_name, "iterator")?;
-                writeln!(
-                    self.out,
-                    "    {} = {}({});",
-                    iterator_tmp,
-                    iterator_new_func,
-                    iterable_tmp.access_ptr()
-                )?;
-                Ok((iterable_tmp, TmpVar::new(iterator_tmp, false)))
-            }
-        }
-    }
-
-    // Generate has_next() check for iterator (as C expression (!))
-    fn generate_iterator_has_next_expr(
-        &self,
-        iterable_type: &sema::Type,
-        iterator: &TmpVar,
-    ) -> String {
-        match iterable_type {
-            sema::Type::Array { inner: _, size } => {
-                // iter < size
-                let iter = iterator;
-                format!("{} < {}", iter.access(), size)
-            }
-            _ => {
-                let iterable_type_name = iterable_type.mangle(self.program);
-                let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
-                let iterator_has_next_func = format!("_{}_has_next", iterator_type_name);
-                format!("{}({})", iterator_has_next_func, iterator.access_ptr())
-            }
-        }
-    }
-
-    // Emit next() call (iterator dereference + advance) (as C statement).
-    // Returns tmp var name with the next value.
-    fn emit_iterator_next(
-        &mut self,
-        iterable_type: &sema::Type,
-        iterable: &TmpVar,
-        iterator: &TmpVar,
-    ) -> IoResult<TmpVar> {
-        match iterable_type {
-            sema::Type::Array { inner, size: _ } => {
-                let tmp_var = self.emit_tmp_var(inner, "array_elem", sema::ValueType::RValue)?;
-                writeln!(
-                    self.out,
-                    "    {} = {}[{}++];",
-                    tmp_var.access(),
-                    iterable.access(),
-                    iterator.access()
-                )?;
-                Ok(tmp_var)
-            }
-            _ => {
-                let iterable_type_name = iterable_type.mangle(self.program);
-                let iterator_type_name = format!("esl_iterator__{}", iterable_type_name);
-                let iterator_next_func = format!("_{}_next", iterator_type_name);
-                let value_type = iterable_type.iter_value_type(self.program).unwrap();
-                let tmp_var =
-                    self.emit_tmp_var(&value_type, "array_elem", sema::ValueType::RValue)?;
-                writeln!(
-                    self.out,
-                    "    {} = {}({});",
-                    tmp_var.access(),
-                    iterator_next_func,
-                    iterator.access_ptr()
-                )?;
-                Ok(tmp_var)
-            }
-        }
-    }
-
     // Emit ESL statement as C statements.
     fn emit_statement(&mut self, block: &sema::Statement) -> IoResult<()> {
         match block {
@@ -780,33 +689,6 @@ impl<'data> CodeGen<'data> {
                 } else {
                     writeln!(self.out, "return;")?;
                 }
-            }
-            sema::Statement::For {
-                it_var,
-                iterable,
-                body,
-            } => {
-                let iterable_type = iterable.type_(self.program).unwrap();
-
-                // construct iterator
-                let (iterable_tmp, iterator_tmp) = self.emit_iterator_new(iterable)?;
-
-                // while(iterator.has_next()) { body }
-                writeln!(
-                    self.out,
-                    "    while({}) {{",
-                    self.generate_iterator_has_next_expr(&iterable_type, &iterator_tmp),
-                )?;
-
-                // get next value
-                let it_var_name =
-                    self.emit_iterator_next(&iterable_type, &iterable_tmp, &iterator_tmp)?;
-                self.variable_names.insert(*it_var, it_var_name);
-
-                // emit body
-                self.emit_statement(body)?;
-
-                writeln!(self.out, "    }}")?;
             }
             sema::Statement::If {
                 condition,
