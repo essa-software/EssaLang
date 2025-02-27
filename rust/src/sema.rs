@@ -234,10 +234,7 @@ pub enum Statement {
         then_block: Box<Statement>,
         else_block: Option<Box<Statement>>,
     },
-    While {
-        condition: Expression,
-        body: Box<Statement>,
-    },
+    Loop(Box<Statement>),
     Break,
     Continue,
 }
@@ -1819,9 +1816,21 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             let while_ = self_.with_scope(|self_| {
                 let mut iteration_statements = vec![];
 
-                // <has_next>(_iterator)
+                // if (!<has_next>(_iterator)) break;
                 let iterator_has_next_tc =
                     self_.generate_iterator_has_next_call(iterable_var, iterator_var);
+
+                iteration_statements.push(Statement::If {
+                    // Note: `has_next == false` because we don't support
+                    // negation of bools yet
+                    condition: Expression::BinaryOp {
+                        op: BinaryOp::CmpEquals,
+                        left: Box::new(iterator_has_next_tc),
+                        right: Box::new(Expression::BoolLiteral { value: false }),
+                    },
+                    then_block: Box::new(Statement::Break),
+                    else_block: None,
+                });
 
                 // let _it_var = <next>(_iterator);
                 let it_var = self_.add_var_to_current_scope(Var::new(
@@ -1845,10 +1854,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 iteration_statements.push(self_.typecheck_statement(body));
                 self_.loop_depth -= 1;
 
-                Statement::While {
-                    condition: iterator_has_next_tc,
-                    body: Box::new(Statement::Block(iteration_statements)),
-                }
+                Statement::Loop(Box::new(Statement::Block(iteration_statements)))
             });
             // }
 
@@ -2001,15 +2007,31 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         self.tcm.path.clone(),
                     ));
                 }
-                self.push_scope();
-                self.loop_depth += 1;
-                let body = self.typecheck_statement(body);
-                self.loop_depth -= 1;
-                self.pop_scope();
-                Statement::While {
-                    condition,
-                    body: Box::new(body),
-                }
+
+                // Desugar while(cond) {body} to while(true) { if (!cond) break; body }
+                let iteration_stmt = self.with_scope(|self_| {
+                    self_.loop_depth += 1;
+                    let mut statements = vec![];
+
+                    statements.push(Statement::If {
+                        // Note: `condition == false` because we don't support
+                        // negation of bools yet
+                        condition: Expression::BinaryOp {
+                            op: BinaryOp::CmpEquals,
+                            left: Box::new(condition),
+                            right: Box::new(Expression::BoolLiteral { value: false }),
+                        },
+                        then_block: Box::new(Statement::Break),
+                        else_block: None,
+                    });
+
+                    let body = self_.typecheck_statement(body);
+                    statements.push(body);
+
+                    self_.loop_depth -= 1;
+                    Statement::Block(statements)
+                });
+                Statement::Loop(Box::new(iteration_stmt))
             }
         }
     }
