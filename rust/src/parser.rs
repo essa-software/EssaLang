@@ -1,5 +1,5 @@
 use core::str;
-use std::{ops::Range, path::PathBuf, str::Utf8Error};
+use std::{collections::HashMap, ops::Range, path::PathBuf, str::Utf8Error};
 
 use crate::{error::CompilationError, lexer, types};
 
@@ -177,6 +177,10 @@ pub enum Expression {
     },
     ArrayLiteral {
         values: Vec<ExpressionNode>,
+    },
+    StructLiteral {
+        struct_name: types::ScopedName,
+        fields: HashMap<String, ExpressionNode>,
     },
     BinaryOp {
         op: BinaryOp,
@@ -485,6 +489,52 @@ impl<'a> Parser<'a> {
         expressions
     }
 
+    // { field: value, ... }
+    pub fn consume_struct_literal_without_name(
+        &mut self,
+        struct_name: types::ScopedName,
+    ) -> Option<ExpressionNode> {
+        // expect {
+        let start_token = self.expect_token(&lexer::TokenType::CurlyOpen)?;
+        let start = start_token.range.start;
+        let mut fields: HashMap<String, ExpressionNode> = HashMap::new();
+        loop {
+            let next = self.peek()?;
+            if matches!(next.type_, lexer::TokenType::CurlyClose) {
+                break;
+            }
+
+            // field name
+            let field_name_token =
+                self.expect(|t| matches!(t, lexer::TokenType::Name(_)), "field name")?;
+            let field_name = field_name_token.slice_str(&self.input).unwrap().into();
+
+            // ":"
+            let _ = self.expect_token(&lexer::TokenType::Colon);
+
+            // value
+            let value = self.consume_expression()?;
+
+            fields.insert(field_name, value);
+
+            let next = self.peek()?;
+            if matches!(next.type_, lexer::TokenType::CurlyClose) {
+                break;
+            } else {
+                let _ = self.expect_token(&lexer::TokenType::Comma);
+            }
+        }
+        let end_token = self.expect_token(&lexer::TokenType::CurlyClose)?;
+        let end = end_token.range.end;
+        Some(ExpressionNode {
+            expression: Expression::StructLiteral {
+                struct_name,
+                fields,
+            },
+            range: start..end,
+        })
+    }
+
     pub fn consume_primary_expression(&mut self) -> Option<ExpressionNode> {
         let next = self.consume()?;
         match next.type_ {
@@ -526,10 +576,23 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                Some(ExpressionNode {
-                    expression: Expression::Name(types::ScopedName::new(components)),
-                    range: next.range,
-                })
+
+                let scoped_name = types::ScopedName::new(components);
+
+                // Maybe this is a struct literal ({ field: value, ... })
+                let maybe_curly = self.peek();
+                if let Some(lexer::Token {
+                    type_: lexer::TokenType::CurlyOpen,
+                    ..
+                }) = maybe_curly
+                {
+                    self.consume_struct_literal_without_name(scoped_name)
+                } else {
+                    Some(ExpressionNode {
+                        expression: Expression::Name(scoped_name),
+                        range: next.range,
+                    })
+                }
             }
             lexer::TokenType::Integer(text) => Some(ExpressionNode {
                 expression: Expression::IntLiteral { value: text },

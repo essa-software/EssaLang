@@ -1,6 +1,9 @@
 use std::{collections::HashMap, io::Write};
 
-use crate::{parser, sema};
+use crate::{
+    parser,
+    sema::{self, Type},
+};
 
 pub struct CodeGen<'data> {
     out: &'data mut dyn Write,
@@ -548,6 +551,29 @@ impl<'data> CodeGen<'data> {
                         value_tmp.access()
                     )?;
                 }
+                Ok(Some(tmp_var))
+            }
+            sema::Expression::StructLiteral { struct_id, fields } => {
+                // Struct { field1: expr1, field2: expr2 } -->
+                // structX tmp = {};
+                // tmp.field1 = expr1;
+                // tmp.field2 = expr2;
+                let type_ = Type::Struct {
+                    id: struct_id.unwrap(),
+                };
+                let tmp_var = self.emit_tmp_var(&type_, "struct", sema::ValueType::RValue)?;
+
+                for (field_name, field_expr) in fields {
+                    let field_tmp_var = self.emit_expression_eval(field_expr)?;
+                    writeln!(
+                        self.out,
+                        "    ({}).{} = {};",
+                        tmp_var.access(),
+                        field_name,
+                        field_tmp_var.unwrap().access()
+                    )?;
+                }
+
                 Ok(Some(tmp_var))
             }
             sema::Expression::CharLiteral { value } => {

@@ -1,0 +1,1 @@
+CompilationError { message: "Struct 'Test' has no field named 'yooour'", range: 94..98, path: "../../tests/structs/nonexistent_init_field.esl" }

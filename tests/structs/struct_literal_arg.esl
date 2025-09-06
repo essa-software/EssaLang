@@ -5,6 +5,6 @@ func handle_foo(foo: Foo) {
 }
 
 func main() {
-    handle_foo([]);
+    handle_foo(Foo {});
     print("PASS");
 }

@@ -4,6 +4,6 @@ struct Foo {
 }
 
 func main() {
-    let foo: Foo = [];
+    let foo: Foo = Foo { your: 11 };
     print("{}", foo.mum);
 }

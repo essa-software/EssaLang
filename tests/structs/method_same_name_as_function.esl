@@ -7,7 +7,7 @@ func foo(this_: Foo) {
 }
 
 func main() {
-    let bar: Foo = [];
+    let bar: Foo = Foo {};
     bar.foo();
     foo(bar);
 }

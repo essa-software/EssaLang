@@ -7,7 +7,6 @@ struct Foo {
 }
 
 func main() {
-    mut foo: Foo = [];
-    foo.field = 2137;
+    mut foo: Foo = Foo { field: 2137 };
     foo.bar(52);
 }

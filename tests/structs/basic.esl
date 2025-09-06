@@ -6,8 +6,7 @@ struct Test {
 }
 
 func main() {
-    mut test: Test = [];
-    test.your = 2137;
+    mut test: Test = Test { your: 2137, mum: 111 };
     test.mum = 8888888;
     print("{} {}\n", test.your, test.mum);
 }

@@ -1,0 +1,1 @@
+CompilationError { message: "Not all fields of struct 'Test' were initialized (missing initializers for: 'is_', 'mum', 'thick')", range: 116..130, path: "../../tests/structs/missing_init_field.esl" }

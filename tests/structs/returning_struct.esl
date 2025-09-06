@@ -4,8 +4,7 @@ struct Foo {
 
 // FIXME: "Foo" should be inferrable
 func new_foo(): Foo {
-    mut foo: Foo = [];
-    foo.field = 1234;
+    mut foo: Foo = Foo { field: 1234 };
     return foo;
 }
 

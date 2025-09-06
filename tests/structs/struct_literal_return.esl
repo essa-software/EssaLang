@@ -2,7 +2,7 @@ struct Foo {
 }
 
 func Foo_new(): Foo {
-    return [];
+    return Foo {};
 }
 
 func main() {

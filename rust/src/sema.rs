@@ -1,7 +1,12 @@
 mod decl_scope;
 pub mod id;
 
-use std::{collections::HashMap, env::current_exe, ops::Range, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    env::current_exe,
+    ops::Range,
+    path::PathBuf,
+};
 
 use decl_scope::DeclScope;
 use id::{DeclScopeId, FunctionId, Id, ModuleId, ScopeId, StructId, VarId};
@@ -153,7 +158,7 @@ impl Scope {
 
 pub struct Function {
     id: Option<FunctionId>,
-    // If Some, the Function is a non-static method of the given sturct
+    // If Some, the Function is a non-static method of the given struct
     // i.e can be called (only) with `object.method()`
     pub struct_: Option<StructId>,
     pub decl_scope: DeclScopeId,
@@ -274,6 +279,10 @@ pub enum Expression {
         value_type: Option<Type>,
         values: Vec<Expression>,
     },
+    StructLiteral {
+        struct_id: Option<StructId>,
+        fields: HashMap<String, Expression>,
+    },
     VarRef(Option<VarId>),
     BinaryOp {
         op: parser::BinaryOp,
@@ -350,6 +359,7 @@ impl Expression {
                     })
                 }
             }
+            Expression::StructLiteral { struct_id, .. } => struct_id.map(|id| Type::Struct { id }),
             Expression::CharLiteral { value: _ } => Some(Type::Primitive(Primitive::Char)),
         }
     }
@@ -1265,7 +1275,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
-    fn is_type_convertible(&mut self, to: &Type, from: &Type) -> bool {
+    fn is_type_convertible(&self, to: &Type, from: &Type) -> bool {
         // Special case: EmptyArray can be converted to:
         // - any Array
         // - any struct (default init)
@@ -1621,6 +1631,95 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         value_type,
                         values: tc_values,
                     }
+                }
+            }
+            parser::Expression::StructLiteral {
+                struct_name,
+                fields,
+            } => {
+                // Typecheck field expressions
+                let mut tc_fields = HashMap::new();
+                for field in fields {
+                    let value_tc = self.typecheck_expression(&field.1);
+                    tc_fields.insert(field.0.clone(), (value_tc, field.1.range.clone()));
+                }
+
+                // Check if the struct exists
+                let struct_ = self.tcm.lookup_struct(struct_name);
+                if struct_.is_none() {
+                    self.errors.push(CompilationError::new(
+                        format!("Struct '{}' not found", struct_name),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                    return Expression::StructLiteral {
+                        struct_id: None,
+                        fields: HashMap::new(),
+                    };
+                }
+                let struct_ = struct_.unwrap();
+                let struct_id = struct_.id.unwrap();
+
+                let mut uninitialized_fields = struct_
+                    .fields
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .collect::<HashSet<_>>();
+
+                // Check if the fields make sense in context of the struct
+                for (field_name, (expr, expr_range)) in &tc_fields {
+                    uninitialized_fields.remove(field_name);
+
+                    let field_def = struct_.resolve_field(&field_name);
+                    if field_def.is_none() {
+                        self.errors.push(CompilationError::new(
+                            format!(
+                                "Struct '{}' has no field named '{}'",
+                                struct_.name, field_name
+                            ),
+                            expr_range.clone(),
+                            self.tcm.path.clone(),
+                        ));
+                        continue;
+                    }
+                    let field_def = field_def.unwrap();
+
+                    if let (Some(value_type), Some(field_type)) =
+                        (expr.type_(&self.program()), &field_def.type_)
+                    {
+                        if !self.is_type_convertible(field_type, &value_type) {
+                            self.errors.push(CompilationError::new(
+                                format!(
+                                    "Cannot convert '{}' to '{}' for field '{}'",
+                                    value_type.name(self.program()),
+                                    field_type.name(self.program()),
+                                    field_name
+                                ),
+                                expr_range.clone(),
+                                self.tcm.path.clone(),
+                            ));
+                        }
+                    }
+                }
+
+                // Check if all fields were initialized
+                if !uninitialized_fields.is_empty() {
+                    let mut fields_sorted: Vec<String> = uninitialized_fields.iter().cloned().collect();
+                    fields_sorted.sort();
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Not all fields of struct '{}' were initialized (missing initializers for: '{}')",
+                            struct_.name,
+                            fields_sorted.into_iter().collect::<Vec<_>>().join("', '"),
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+
+                Expression::StructLiteral {
+                    struct_id: Some(struct_id),
+                    fields: tc_fields.into_iter().map(|(k, (v, _))| (k, v)).collect(),
                 }
             }
             parser::Expression::CharLiteral { value } => Expression::CharLiteral { value: *value },

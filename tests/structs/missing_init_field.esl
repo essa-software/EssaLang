@@ -1,0 +1,10 @@
+struct Test {
+    your: u32;
+    mum: u32;
+    is_: u32;
+    thick: u32;
+}
+
+func main() {
+    mut test: Test = Test { your: 2137 };
+}
