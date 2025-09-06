@@ -1,9 +1,13 @@
 extern func print(): void;
 extern func input(): string;
+
+//// Strings
+
 // FIXME: Remove this once we support methods/traits/???
+extern func string_new(lit: static_string): string;
 extern func str_size(s: static_string): u32;
 
-// File
+//// File
 
 extern func file_open(path: static_string): u32; // returns fd
 // FIXME: We don't have any kind of buffers really, so we can only read

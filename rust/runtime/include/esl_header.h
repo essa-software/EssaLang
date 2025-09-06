@@ -5,4 +5,5 @@
 #include <prelude/iter.h>
 #include <prelude/ops.h>
 #include <prelude/panic.h>
+#include <prelude/string.h>
 #include <prelude/types.h>

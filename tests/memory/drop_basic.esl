@@ -1,0 +1,23 @@
+func test(test1: bool, test2: bool) {
+    print("test\n");
+    let dtor0 = string_new("dtor0");
+    for (let i of 0..3) {
+        let dtor1 = string_new("dtor1");
+        if (test1) {
+            let dtor2 = string_new("dtor2");
+            if (test2) {
+                let dtor3 = string_new("dtor3");
+                break;
+            }
+            let dtor4 = string_new("dtor4");
+            continue;
+        }
+        let dtor5 = string_new("dtor5");
+    }
+}
+
+func main() {
+    test(false, false);
+    test(true, false);
+    test(true, true);
+}

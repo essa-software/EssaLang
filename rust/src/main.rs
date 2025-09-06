@@ -6,7 +6,7 @@ pub mod parser;
 pub mod sema;
 pub mod types;
 
-use std::{fs, path::Path};
+use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
 use argparse::{ArgumentParser, Store, StoreTrue};
 use codegen::CodeGen;
@@ -53,12 +53,13 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
         Err(e) => return Err(e.into()),
     }
 
-    let mut tmp_file = tempfile::NamedTempFile::with_suffix_in(".c", BUILD_DIR)?;
-    let mut codegen = CodeGen::new(&mut tmp_file, &program);
+    let tmp_file = tempfile::NamedTempFile::with_suffix_in(".c", BUILD_DIR)?;
+    let tmp_file_path = tmp_file.path().to_path_buf();
+    let mut codegen = CodeGen::new(Rc::new(RefCell::new(tmp_file)), &program);
     codegen.emit_program().expect("codegen failed");
 
     // copy tmp file for debug
-    fs::copy(tmp_file.path(), Path::new(BUILD_DIR).join("out.c"))?;
+    fs::copy(&tmp_file_path, Path::new(BUILD_DIR).join("out.c"))?;
 
     // gcc pass
     let runtime_prefix = dirs::home_dir()
@@ -83,7 +84,7 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
         .arg("-o")
         .arg(Path::new(BUILD_DIR).join("out"))
         // input
-        .arg(tmp_file.path())
+        .arg(tmp_file_path)
         // include dirs
         .arg("-I")
         .arg(runtime_include_path)
