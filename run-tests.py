@@ -55,10 +55,10 @@ def pass_(test_path: Path, compiler_time: float):
     test_name = test_path.relative_to(TESTS_DIR)
     global passed  # noqa: PLW0603 (FIXME)
     passed += 1
-    log_print(
-        f"\033[42m PASS \033[0;34m {test_name} \033[30m"
-        f"({compiler_time / 1e9:.2f}s)\033[m",
-    )
+    # log_print(
+    #     f"\033[42m PASS \033[0;34m {test_name} \033[30m"
+    #     f"({compiler_time / 1e9:.2f}s)\033[m",
+    # )
 
 
 total_start_time = time.perf_counter_ns()
