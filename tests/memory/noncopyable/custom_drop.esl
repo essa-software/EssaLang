@@ -1,0 +1,9 @@
+struct TestDrop {
+    func __drop__(this) {
+    }
+}
+
+func main() {
+    let td1 = TestDrop {};
+    let td2 = td1;
+}

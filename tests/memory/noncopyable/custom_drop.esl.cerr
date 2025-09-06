@@ -1,0 +1,1 @@
+CompilationError { message: "Type 'TestDrop' is not copyable, cannot initialize variable from non-temporary value", range: 98..112, path: "../../tests/memory/noncopyable/custom_drop.esl" }

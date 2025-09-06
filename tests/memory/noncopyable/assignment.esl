@@ -1,0 +1,5 @@
+func main() {
+    let string1 = string_new("test1");
+    mut string2 = string_new("test2");
+    string2 = string1;
+}

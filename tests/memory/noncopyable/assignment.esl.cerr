@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot assign to non-copyable type 'string'", range: 96..113, path: "../../tests/memory/noncopyable/assignment.esl" }

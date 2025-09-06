@@ -112,6 +112,37 @@ impl Type {
         // Currently all iterable types are also indexable.
         self.iter_value_type(_program)
     }
+
+    pub fn is_copyable(&self, program: &Program) -> bool {
+        // All primitives (except string) are copyable
+        if let Type::Primitive(p) = self {
+            if *p == Primitive::String {
+                return false;
+            } else {
+                return true;
+            }
+        }
+        // All structs (except ones with non-copyable fields or containing drop method) are copyable
+        if let Type::Struct { id } = self {
+            let struct_ = program.get_struct(*id);
+            if struct_.drop_method.is_some() {
+                return false;
+            }
+            for field in &struct_.fields {
+                if let Some(field_type) = &field.type_ {
+                    if !field_type.is_copyable(program) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Everything else is NOT copyable
+        return false;
+    }
 }
 
 //// Function
@@ -295,6 +326,7 @@ pub enum Expression {
     },
 }
 
+#[derive(PartialEq, Eq)]
 pub enum ValueType {
     LValue,      // can be read and written to directly
     ConstLValue, // can be read directly but not written to
@@ -1625,6 +1657,22 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                             ));
                         }
                     }
+
+                    // Noncopyable
+                    if let Some(right_type) = right.type_(&self.program()) {
+                        if right.value_type(self.program()) != ValueType::RValue
+                            && !right_type.is_copyable(&self.program())
+                        {
+                            self.errors.push(CompilationError::new(
+                                format!(
+                                    "Cannot assign to non-copyable type '{}'",
+                                    right_type.name(self.program())
+                                ),
+                                range.clone(),
+                                self.tcm.path.clone(),
+                            ));
+                        }
+                    }
                 }
 
                 if let (Some(left_type), Some(right_type)) =
@@ -2054,8 +2102,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         None
                     });
 
-                let init_value_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
-                if let (Some(var_type), Some(init_type)) = (&type_, init_value_type) {
+                let init_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
+                if let (Some(var_type), Some(init_type)) = (&type_, init_type) {
                     if !self.is_type_convertible(&var_type, &init_type) {
                         self.errors.push(CompilationError::new(
                             format!(
@@ -2066,6 +2114,24 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                             range.clone(),
                             self.tcm.path.clone(),
                         ));
+                    }
+
+                    // If rhs is not temporary, we would make a copy - check
+                    // if type is copyable.
+                    if let Some(init_value) = &init_value {
+                        let init_value_type: ValueType = init_value.value_type(self.program());
+                        if init_value_type != ValueType::RValue
+                            && !init_type.is_copyable(self.program())
+                        {
+                            self.errors.push(CompilationError::new(
+                                format!(
+                                    "Type '{}' is not copyable, cannot initialize variable from non-temporary value",
+                                    init_type.name(&self.program())
+                                ),
+                                range.clone(),
+                                self.tcm.path.clone(),
+                            ));
+                        }
                     }
                 }
 

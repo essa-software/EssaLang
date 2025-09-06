@@ -1,0 +1,4 @@
+func main() {
+    let string1: string = string_new("test1");
+    let string2 = string1; // FAILS TO COMPILE
+}

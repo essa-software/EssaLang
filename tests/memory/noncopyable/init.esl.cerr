@@ -1,0 +1,1 @@
+CompilationError { message: "Type 'string' is not copyable, cannot initialize variable from non-temporary value", range: 65..87, path: "../../tests/memory/noncopyable/init.esl" }
