@@ -6,4 +6,3 @@
 - More primitive types (u8,...)
 - Optionals
 - Error handling
-- Struct literals
