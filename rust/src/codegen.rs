@@ -143,7 +143,7 @@ impl<'data> CodeGen<'data> {
     }
 
     // like `int var` or `int var[5]`
-    fn emit_var_decl(
+    fn emit_var_decl_without_drop(
         &mut self,
         type_: &sema::Type,
         name: &str,
@@ -183,6 +183,19 @@ impl<'data> CodeGen<'data> {
         }
     }
 
+    fn emit_var_decl(
+        &mut self,
+        type_: &sema::Type,
+        name: &str,
+        value_type: sema::ValueType,
+    ) -> IoResult<TmpVar> {
+        let tmpvar = self.emit_var_decl_without_drop(type_, name, value_type)?;
+        if let Some(scope) = self.drop_scope_stack.last_mut() {
+            scope.add_tmp_var((tmpvar.clone(), type_.clone()));
+        }
+        Ok(tmpvar)
+    }
+
     fn push_drop_scope(&mut self, type_: DropScopeType) {
         self.drop_scope_stack.push(DropScope {
             tmp_vars: Vec::new(),
@@ -202,6 +215,16 @@ impl<'data> CodeGen<'data> {
         let scope = self.drop_scope_stack.pop().expect("unmatched drop scope");
         self.emit_drop_scope(&scope)?;
         Ok(())
+    }
+
+    /// Removes a tmpvar from all drop scopes because it has been moved.
+    fn mark_tmp_var_as_moved(&mut self, var: &TmpVar) {
+        for scope in self.drop_scope_stack.iter_mut().rev() {
+            if let Some(pos) = scope.tmp_vars.iter().position(|(v, _)| v.name == var.name) {
+                scope.tmp_vars.remove(pos);
+                break;
+            }
+        }
     }
 
     /// Drops tmpvars until a scope of the given type is found.
@@ -248,11 +271,14 @@ impl<'data> CodeGen<'data> {
         let tmpvar = self.emit_var_decl(ty, &name, value_type)?;
         writeln!(self.out(), ";")?;
 
-        if let Some(scope) = self.drop_scope_stack.last_mut() {
-            scope.add_tmp_var((tmpvar.clone(), ty.clone()));
-        }
-
         Ok(tmpvar)
+    }
+
+    fn emit_move(&mut self, from: &TmpVar, to: &str) -> IoResult<()> {
+        writeln!(self.out(), "    {} = {};", to, from.access())?;
+        self.mark_tmp_var_as_moved(from);
+        writeln!(self.out(), "    // moved {}", from.name)?;
+        Ok(())
     }
 
     fn emit_format_arg_eval(&mut self, arg: &sema::Expression) -> IoResult<String> {
@@ -706,12 +732,7 @@ impl<'data> CodeGen<'data> {
             }
             _ => {
                 let tmp_var = self.emit_expression_eval(expr)?;
-                writeln!(
-                    self.out(),
-                    "    {} = {};",
-                    var.access(),
-                    tmp_var.unwrap().access()
-                )
+                self.emit_move(&tmp_var.unwrap(), &var.name)
             }
         }
     }

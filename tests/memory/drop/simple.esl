@@ -1,0 +1,3 @@
+func main() {
+    let dtor0 = string_new("dtor0");
+}
