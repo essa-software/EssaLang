@@ -3,5 +3,4 @@ func main() {
     for (let i of 0..100) {
         print("{} ", file.read_byte());
     }
-    file.close();
 }

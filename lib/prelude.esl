@@ -19,12 +19,16 @@ extern func file_close(fd: u32): void;
 struct File {
     fd: u32;
 
+    func __drop__(this) {
+        this.close();
+    }
+
     func open(path: static_string): File {
         mut file: File = File { fd: file_open(path) };
         return file;
     }
 
-    // FIXME: This should happen automatically, with destructors.
+    // FIXME: Guard against double-close (would require support for `mut this`)
     func close(this) {
         file_close(this.fd);
     }
