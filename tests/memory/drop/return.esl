@@ -1,0 +1,14 @@
+struct TestDrop {
+    func __drop__(this) {
+        print("Drop!\n");
+    }
+}
+
+func foo(): TestDrop {
+    return TestDrop {};
+}
+
+func main() {
+    let td = foo();
+    print("Test\n");
+}

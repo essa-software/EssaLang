@@ -294,7 +294,8 @@ impl<'data> CodeGen<'data> {
             match arg.type_(self.program) {
                 Some(sema::Type::Primitive(sema::Primitive::Bool)) => "_esl_print_bool",
                 Some(sema::Type::Primitive(sema::Primitive::Range)) => "_esl_print_range",
-                Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_static_string",
+                Some(sema::Type::Primitive(sema::Primitive::StaticString)) =>
+                    "_esl_print_static_string",
                 Some(sema::Type::Primitive(sema::Primitive::String)) => "_esl_print_string",
                 Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
                 _ => todo!(),
@@ -838,11 +839,14 @@ impl<'data> CodeGen<'data> {
                             &expr.type_(&self.program).unwrap(),
                             return_type,
                         )?;
+                        self.mark_tmp_var_as_moved(&converted_tmp_var);
                         self.emit_drop_all_scopes()?;
                         writeln!(self.out(), "return {};", converted_tmp_var.access())?;
                     } else {
+                        let tmp_var = tmp_var.unwrap();
+                        self.mark_tmp_var_as_moved(&tmp_var);
                         self.emit_drop_all_scopes()?;
-                        write!(self.out(), "return {};", tmp_var.unwrap().access())?;
+                        write!(self.out(), "return {};", &tmp_var.access())?;
                     }
                 } else {
                     self.emit_drop_all_scopes()?;
