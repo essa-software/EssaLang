@@ -501,6 +501,16 @@ impl<'data> CodeGen<'data> {
             Type::Primitive(sema::Primitive::String) => {
                 writeln!(self.out(), "    string_drop({});", var.access())?;
             }
+            Type::Struct { id } => {
+                // If it has `__drop__()`
+                let struct_ = self.program.get_struct(id);
+                if let Some(drop) = struct_.drop_method {
+                    // Emit simplified to avoid recursion in drop scopes
+                    let fnname = self.mangled_function_name(self.program.get_function(drop));
+                    // FIXME: reference!!
+                    writeln!(self.out(), "    {}({});", fnname, var.access())?;
+                }
+            }
             _ => { /*noop */ }
         }
         Ok(())

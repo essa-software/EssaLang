@@ -1,0 +1,17 @@
+struct TestDrop {
+    id: u32;
+
+    func __drop__(this) {
+        print("Drop! {}\n", this.id);
+    }
+}
+
+func main() {
+    print("Construct TestDrop 1\n");
+    mut td1: TestDrop = TestDrop { id: 1 };
+
+    print("Construct TestDrop 2\n");
+    mut td2: TestDrop = TestDrop { id: 2 };
+
+    print("Before drop\n");
+}

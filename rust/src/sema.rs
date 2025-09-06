@@ -437,6 +437,9 @@ pub struct Struct {
     pub name: String,
     pub fields: Vec<Field>,
     pub methods: Vec<FunctionId>,
+
+    // special methods
+    pub drop_method: Option<FunctionId>,
 }
 
 impl Struct {
@@ -920,6 +923,36 @@ impl<'tc> TypeCheckerModule<'tc> {
         }
     }
 
+    fn lookup_special_method(&mut self, struct_id: StructId, name: &str) -> Option<FunctionId> {
+        let func = self.lookup_function(&FunctionCall::Method(struct_id, name.into()))?;
+        let params_scope = self.program().get_scope(func.params_scope);
+        // there should be only the 'self' param with type Struct(struct_id)
+        if params_scope.vars.len() != 1 {
+            self.tc.errors.push(CompilationError::new(
+                format!(
+                    "Special method '{}' should have exactly one 'self' parameter",
+                    name
+                ),
+                Range { start: 0, end: 0 },
+                self.path.clone(),
+            ));
+            return None;
+        }
+        let self_param = self.program().get_var(params_scope.vars[0]);
+        if self_param.type_ != Some(Type::Struct { id: struct_id }) {
+            self.tc.errors.push(CompilationError::new(
+                format!(
+                    "Special method '{}' 'self' parameter should have type of the struct",
+                    name
+                ),
+                Range { start: 0, end: 0 },
+                self.path.clone(),
+            ));
+            return None;
+        }
+        Some(func.id())
+    }
+
     fn typecheck_structs(
         &mut self,
         p_module: &mut parser::Module,
@@ -944,11 +977,13 @@ impl<'tc> TypeCheckerModule<'tc> {
                 name: name.clone(),
                 fields: vec![],  // to be filled later
                 methods: vec![], // to be filled later
+                drop_method: None,
             };
 
             let struct_id = self.this_module_mut().add_struct(struct_);
             self.self_struct = Some(struct_id);
 
+            // methods
             let methods: Vec<_> = methods
                 .into_iter()
                 .map(|method| {
@@ -960,6 +995,7 @@ impl<'tc> TypeCheckerModule<'tc> {
                 })
                 .collect();
 
+            // fields
             let fields = fields
                 .iter()
                 .map(|field| Field {
@@ -973,6 +1009,13 @@ impl<'tc> TypeCheckerModule<'tc> {
                 .get_struct_mut(struct_id.0.id_in_module());
             struct_.methods = methods;
             struct_.fields = fields;
+
+            // special methods
+            let drop_method = self.lookup_special_method(struct_id, "__drop__");
+            let struct_ = self
+                .this_module_mut()
+                .get_struct_mut(struct_id.0.id_in_module());
+            struct_.drop_method = drop_method;
 
             self.self_struct = None;
         }
@@ -1709,7 +1752,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
                 // Check if all fields were initialized
                 if !uninitialized_fields.is_empty() {
-                    let mut fields_sorted: Vec<String> = uninitialized_fields.iter().cloned().collect();
+                    let mut fields_sorted: Vec<String> =
+                        uninitialized_fields.iter().cloned().collect();
                     fields_sorted.sort();
                     self.errors.push(CompilationError::new(
                         format!(
