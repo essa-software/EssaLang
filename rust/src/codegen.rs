@@ -548,6 +548,7 @@ impl<'data> CodeGen<'data> {
                         &argval.type_(self.program).unwrap(),
                         &self.program.get_var(*arg).type_.as_ref().unwrap(),
                     )?;
+                    self.mark_tmp_var_as_moved(&var);
                     arg_tmps.push(var);
                 }
 
@@ -920,6 +921,8 @@ impl<'data> CodeGen<'data> {
         assert!(function.body.is_some());
         self.emit_type(&function.return_type.as_ref().expect("invalid type"))?;
 
+        self.push_drop_scope(DropScopeType::Normal); // Params scope
+
         write!(self.out(), " {}(", self.mangled_function_name(&function))?;
         let scope = self.program.get_scope(function.params_scope);
         for (i, param) in scope.vars.iter().enumerate() {
@@ -934,11 +937,17 @@ impl<'data> CodeGen<'data> {
             let var_name = format!("{}{}_param", var.name, self.local_var_counter);
             write!(self.out(), " {}", var_name)?;
             self.local_var_counter += 1;
-            self.variable_names
-                .insert(*param, TmpVar::new(var_name, false));
+            let tmpvar = TmpVar::new(var_name, false);
+            self.variable_names.insert(*param, tmpvar.clone());
+            self.drop_scope_stack
+                .last_mut()
+                .unwrap()
+                .add_tmp_var((tmpvar, var.type_.as_ref().unwrap().clone()));
         }
         writeln!(self.out(), ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;
+
+        self.pop_drop_scope()?;
 
         // return, for main function
         if function.name == "main" {

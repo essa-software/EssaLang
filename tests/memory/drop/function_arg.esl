@@ -1,0 +1,9 @@
+func foo(arg: string) {
+    print("{}\n", arg);
+    print("before drop\n");
+}
+
+func main() {
+    foo(string_new("dtor0"));
+    print("after drop\n");
+}
