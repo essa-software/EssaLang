@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot convert '<empty array>' to 'Foo' for variable initialization", range: 33..49, path: "../../tests/structs/legacy_struct_init_from_empty_array.esl" }

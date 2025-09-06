@@ -1278,9 +1278,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
     fn is_type_convertible(&self, to: &Type, from: &Type) -> bool {
         // Special case: EmptyArray can be converted to:
         // - any Array
-        // - any struct (default init)
         if matches!(from, Type::Primitive(Primitive::EmptyArray))
-            && matches!(to, Type::Array { .. } | Type::Struct { .. })
+            && matches!(to, Type::Array { .. })
         {
             return true;
         }

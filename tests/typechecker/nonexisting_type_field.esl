@@ -2,5 +2,5 @@ struct Foo {
     bar: Bar;
 }
 func main() {
-    let foo: Foo = [];
+    let foo: Foo = Foo { bar: 0 };
 }

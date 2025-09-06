@@ -7,6 +7,6 @@ struct Foo {
 }
 
 func main() {
-    let foo: Foo = [];
+    let foo: Foo = Foo { field: 122 };
     foo.set_field(1234);
 }

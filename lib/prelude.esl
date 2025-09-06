@@ -16,8 +16,7 @@ struct File {
     fd: u32;
 
     func open(path: static_string): File {
-        mut file: File = [];
-        file.fd = file_open(path);
+        mut file: File = File { fd: file_open(path) };
         return file;
     }
 
