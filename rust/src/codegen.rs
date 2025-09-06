@@ -267,9 +267,10 @@ impl<'data> CodeGen<'data> {
             " {arg_var_name}.print = {};",
             match arg.type_(self.program) {
                 Some(sema::Type::Primitive(sema::Primitive::Bool)) => "_esl_print_bool",
-                Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_u32",
-                Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
                 Some(sema::Type::Primitive(sema::Primitive::Range)) => "_esl_print_range",
+                Some(sema::Type::Primitive(sema::Primitive::StaticString)) => "_esl_print_static_string",
+                Some(sema::Type::Primitive(sema::Primitive::String)) => "_esl_print_string",
+                Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
                 _ => todo!(),
             }
         )?;
