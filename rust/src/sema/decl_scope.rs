@@ -9,6 +9,7 @@ use super::{
     Module, Program,
 };
 
+#[derive(Debug)]
 pub struct DeclScope {
     id: DeclScopeId,
     child_scopes: HashMap<String, DeclScopeId>,

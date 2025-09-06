@@ -116,6 +116,7 @@ impl Type {
 
 //// Function
 
+#[derive(Debug)]
 pub struct Var {
     id: Option<VarId>,
     pub type_: Option<Type>,
@@ -134,6 +135,7 @@ impl Var {
     }
 }
 
+#[derive(Debug)]
 pub struct Scope {
     id: Option<ScopeId>,
     pub vars: Vec<VarId>,
@@ -156,6 +158,7 @@ impl Scope {
     }
 }
 
+#[derive(Debug)]
 pub struct Function {
     id: Option<FunctionId>,
     // If Some, the Function is a non-static method of the given struct
@@ -226,6 +229,7 @@ impl Function {
 
 //// Statements
 
+#[derive(Debug)]
 pub enum Statement {
     Expression(Expression),
     Block(Vec<Statement>),
@@ -443,6 +447,7 @@ impl Struct {
 
 //// Module
 
+#[derive(Debug)]
 pub struct Module {
     id: ModuleId,
     functions: Vec<Function>,
@@ -587,6 +592,7 @@ impl Module {
 
 //// Program
 
+#[derive(Debug)]
 pub struct Program {
     modules: Vec<Module>,
 }

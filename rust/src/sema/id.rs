@@ -1,7 +1,9 @@
+use std::fmt::Debug;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModuleId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id {
     module: ModuleId,
     id: usize,
@@ -22,6 +24,12 @@ impl Id {
 
     pub fn id_in_module(&self) -> usize {
         self.id
+    }
+}
+
+impl Debug for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Id({})", self.mangle())
     }
 }
 
