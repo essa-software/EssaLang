@@ -214,7 +214,9 @@ impl<'tc> TypeCheckerModule<'tc> {
                         ));
                         return None;
                     };
-                    Some(Type::Struct { id: struct_ })
+                    Some(Type::RawReference {
+                        inner: Box::new(Type::Struct { id: struct_ }),
+                    })
                 }
                 _ => {
                     // TODO: Support structs in namespaces (in parser)
@@ -284,11 +286,11 @@ impl<'tc> TypeCheckerModule<'tc> {
     fn lookup_special_method(&mut self, struct_id: StructId, name: &str) -> Option<FunctionId> {
         let func = self.lookup_function(&FunctionCall::Method(struct_id, name.into()))?;
         let params_scope = self.program().get_scope(func.params_scope);
-        // there should be only the 'self' param with type Struct(struct_id)
+        // there should be only the 'this' param with type &Self
         if params_scope.vars.len() != 1 {
             self.tc.errors.push(CompilationError::new(
                 format!(
-                    "Special method '{}' should have exactly one 'self' parameter",
+                    "Special method '{}' should have exactly one 'this' parameter",
                     name
                 ),
                 Range { start: 0, end: 0 },
@@ -297,10 +299,13 @@ impl<'tc> TypeCheckerModule<'tc> {
             return None;
         }
         let self_param = self.program().get_var(params_scope.vars[0]);
-        if self_param.type_ != Some(Type::Struct { id: struct_id }) {
+        let expected_self_param_type = Type::RawReference {
+            inner: Box::new(Type::Struct { id: struct_id }),
+        };
+        if self_param.type_ != Some(expected_self_param_type) {
             self.tc.errors.push(CompilationError::new(
                 format!(
-                    "Special method '{}' 'self' parameter should have type of the struct",
+                    "Special method '{}' 'this' parameter should have type of the struct",
                     name
                 ),
                 Range { start: 0, end: 0 },
@@ -658,12 +663,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 }
 
                 // Enforce noncopyable types
-                // (Make `this` argument a hacky exception for now)
-                let is_this_arg = matches!(call, FunctionCall::Method(_, _)) && i == 0;
-                if !is_this_arg
-                    && expr_value_type != ValueType::RValue
-                    && !expr_type.is_copyable(self.program())
-                {
+                if expr_value_type != ValueType::RValue && !expr_type.is_copyable(self.program()) {
                     self.errors.push(CompilationError::new(
                         format!(
                             "Passing non-copyable type '{}' by value is not allowed (argument `{}`)",
@@ -823,6 +823,28 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 let object_tc = self.typecheck_expression(object);
                 let struct_id = match object_tc.type_(self.program()) {
                     Some(Type::Struct { id }) => id,
+                    Some(Type::RawReference { inner: _ }) => {
+                        // Desugar `(object.method)(a,b,c) to ((*object).method)(a,b,c)`
+                        eprintln!("Dereference method {:#?}.{}", object, member);
+                        return self.typecheck_expression(&parser::ExpressionNode {
+                            expression: parser::Expression::Call {
+                                function: Box::new(parser::ExpressionNode {
+                                    expression: parser::Expression::MemberAccess {
+                                        object: Box::new(parser::ExpressionNode {
+                                            expression: parser::Expression::Dereference(
+                                                object.clone(),
+                                            ),
+                                            range: object.range.clone(),
+                                        }),
+                                        member: member.clone(),
+                                    },
+                                    range: range.clone(),
+                                }),
+                                args: args.clone(),
+                            },
+                            range: range.clone(),
+                        });
+                    }
                     Some(_) => {
                         self.errors.push(CompilationError::new(
                             format!(
@@ -847,10 +869,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 // and then rest of args
                 let object_arg = parser::FunctionArg {
                     param: None,
+                    // &this
                     value: parser::ExpressionNode {
-                        // FIXME: Avoid cloning
-                        expression: object.expression.clone(),
-                        range: range.clone(),
+                        expression: parser::Expression::Reference(object.clone()),
+                        range: object.range.clone(),
                     },
                 };
 
@@ -931,6 +953,22 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                             self.tcm.path.clone(),
                         ));
                     }
+                }
+                Type::RawReference { inner: _ } => {
+                    // Desugar `object.member` to `(*object).member` recursively
+                    eprintln!("Dereference {:#?}.{}", object, member);
+                    return self.typecheck_expression(&parser::ExpressionNode {
+                        expression: parser::Expression::MemberAccess {
+                            object: Box::new(parser::ExpressionNode {
+                                expression: parser::Expression::Dereference(Box::new(
+                                    object.clone(),
+                                )),
+                                range: object.range.clone(),
+                            }),
+                            member: member.into(),
+                        },
+                        range: range.clone(),
+                    });
                 }
                 Type::Primitive(Primitive::Range) => {
                     // Hacky special-case: range.begin, range.end
@@ -1173,6 +1211,33 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
+    fn typecheck_dereference(&mut self, pointer: &parser::ExpressionNode) -> Expression {
+        let value = self.typecheck_expression(pointer);
+        let ptr_type_name = value
+            .type_(self.program())
+            .map(|a| a.name(self.program()))
+            .unwrap_or("<unknown>".into());
+        let expr_tc = Expression::Dereference {
+            pointer: Box::new(value),
+        };
+        if let None = expr_tc.type_(&self.program()) {
+            self.errors.push(CompilationError::new(
+                format!("Cannot dereference non-reference type `{}`", ptr_type_name),
+                pointer.range.clone(),
+                self.tcm.path.clone(),
+            ));
+            panic!();
+        }
+        expr_tc
+    }
+
+    fn typecheck_reference(&mut self, inner: &parser::ExpressionNode) -> Expression {
+        let value = self.typecheck_expression(inner);
+        Expression::Reference {
+            value: Box::new(value),
+        }
+    }
+
     fn typecheck_expression(
         &mut self,
         parser::ExpressionNode { expression, range }: &parser::ExpressionNode,
@@ -1212,6 +1277,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             parser::Expression::This => {
                 self.typecheck_variable_name(&types::ScopedName::new(vec!["this".into()]), range)
             }
+            parser::Expression::Dereference(inner) => self.typecheck_dereference(inner),
+            parser::Expression::Reference(inner) => self.typecheck_reference(inner),
         }
     }
 

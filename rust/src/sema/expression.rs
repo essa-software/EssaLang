@@ -43,6 +43,12 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Dereference {
+        pointer: Box<Expression>,
+    },
+    Reference {
+        value: Box<Expression>,
+    },
 }
 
 #[derive(PartialEq, Eq)]
@@ -116,6 +122,19 @@ impl Expression {
             }
             Expression::StructLiteral { struct_id, .. } => struct_id.map(|id| Type::Struct { id }),
             Expression::CharLiteral { value: _ } => Some(Type::Primitive(Primitive::Char)),
+            Expression::Dereference { pointer } => {
+                let pointer_type = pointer.type_(program)?;
+                match pointer_type {
+                    Type::RawReference { inner } => Some(*inner),
+                    _ => None,
+                }
+            }
+            Expression::Reference { value } => {
+                let value_type = value.type_(program)?;
+                Some(Type::RawReference {
+                    inner: Box::new(value_type),
+                })
+            }
         }
     }
 
@@ -135,6 +154,7 @@ impl Expression {
                 index: _,
             } => indexable.value_type(program),
             Expression::MemberAccess { object, member: _ } => object.value_type(program),
+            Expression::Dereference { pointer } => pointer.value_type(program),
             _ => ValueType::RValue,
         }
     }

@@ -34,6 +34,7 @@ impl sema::Type {
                 mut_elements: _,
             } => todo!(),
             sema::Type::Struct { id: _ } => FunctionReturnMethod::Return,
+            sema::Type::RawReference { inner: _ } => FunctionReturnMethod::Return,
         }
     }
 }
@@ -56,7 +57,7 @@ impl TmpVar {
 
     fn access(&self) -> String {
         match self.is_ptr {
-            true => format!("*{}", self.name),
+            true => format!("/*Deref is_ptr=true*/ *{}", self.name),
             false => self.name.clone(),
         }
     }
@@ -64,7 +65,7 @@ impl TmpVar {
     fn access_ptr(&self) -> String {
         match self.is_ptr {
             true => self.name.clone(),
-            false => format!("&{}", self.name),
+            false => format!("/*Ref is_ptr=false*/ &{}", self.name),
         }
     }
 }
@@ -138,6 +139,10 @@ impl<'data> CodeGen<'data> {
                 mut_elements: _,
             } => todo!(),
             sema::Type::Struct { id } => write!(self.out(), "struct{}", id.0.mangle())?,
+            sema::Type::RawReference { inner } => {
+                self.emit_type(inner)?;
+                write!(self.out(), "/*ref*/ *")?;
+            }
         };
         Ok(())
     }
@@ -154,7 +159,7 @@ impl<'data> CodeGen<'data> {
                 self.emit_type(type_)?;
                 match value_type {
                     sema::ValueType::LValue => {
-                        write!(self.out(), " *{}", name)?;
+                        write!(self.out(), " /*l-value*/ *{}", name)?;
                     }
                     sema::ValueType::ConstLValue => {
                         write!(self.out(), " /*const l-value*/ *{}", name)?;
@@ -180,6 +185,14 @@ impl<'data> CodeGen<'data> {
                 inner: _,
                 mut_elements: _,
             } => todo!(),
+            sema::Type::RawReference { inner } => {
+                self.emit_type(inner)?;
+                write!(self.out(), "/*ref*/ *{}", name)?;
+                Ok(TmpVar::new(
+                    name.into(),
+                    !matches!(value_type, sema::ValueType::RValue),
+                ))
+            }
         }
     }
 
@@ -508,8 +521,7 @@ impl<'data> CodeGen<'data> {
                 if let Some(drop) = struct_.drop_method {
                     // Emit simplified to avoid recursion in drop scopes
                     let fnname = self.mangled_function_name(self.program.get_function(drop));
-                    // FIXME: reference!!
-                    writeln!(self.out(), "    {}({});", fnname, var.access())?;
+                    writeln!(self.out(), "    {}(&{});", fnname, var.access())?;
                 }
             }
             _ => { /*noop */ }
@@ -719,6 +731,36 @@ impl<'data> CodeGen<'data> {
                     *value as u32
                 )?;
                 return Ok(Some(tmp_var));
+            }
+            sema::Expression::Dereference { pointer } => {
+                let expr_tmp_var = self.emit_expression_eval(pointer)?;
+
+                // We can refer directly to the eval'led tmpvar but
+                // change type to lvalue.
+
+                let name = expr_tmp_var.unwrap().name;
+                writeln!(self.out(), "    // dereference expr tmpvar={}", name)?;
+                Ok(Some(TmpVar::new(name, true)))
+            }
+            sema::Expression::Reference { value } => {
+                writeln!(self.out(), "    // reference eval")?;
+                let expr_tmp_var = self.emit_expression_eval(value)?;
+                writeln!(self.out(), "    // reference tmpvar")?;
+                let tmp_var = self.emit_tmp_var(
+                    &expr.type_(self.program).unwrap(),
+                    "ref",
+                    sema::ValueType::RValue,
+                )?;
+
+                writeln!(self.out(), "    // reference assignment")?;
+                writeln!(
+                    self.out(),
+                    "    {} = &{};",
+                    tmp_var.access(),
+                    expr_tmp_var.unwrap().access(),
+                )?;
+
+                Ok(Some(tmp_var))
             }
         }
     }
@@ -939,15 +981,10 @@ impl<'data> CodeGen<'data> {
             self.local_var_counter += 1;
             let tmpvar = TmpVar::new(var_name, false);
             self.variable_names.insert(*param, tmpvar.clone());
-            let is_object_var = i == 0 && function.struct_.is_some();
-            if !is_object_var {
-                // HACK: we treat `this` like references without actual
-                // reference support
-                self.drop_scope_stack
-                    .last_mut()
-                    .unwrap()
-                    .add_tmp_var((tmpvar, var.type_.as_ref().unwrap().clone()));
-            }
+            self.drop_scope_stack
+                .last_mut()
+                .unwrap()
+                .add_tmp_var((tmpvar, var.type_.as_ref().unwrap().clone()));
         }
         writeln!(self.out(), ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;

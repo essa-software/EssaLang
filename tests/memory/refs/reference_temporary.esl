@@ -1,0 +1,15 @@
+struct Test {
+    field: u32;
+    func add(this): Test {
+        print("field={}!\n", this.field);
+        return Test { field: this.field + 1 };
+    }
+    func new(f: u32): Test {
+        return Test { field: f };
+    }
+}
+
+func main() {
+    let _ = Test::new(1111).add().add();
+    let _ = Test::new(2222).add().add();
+}

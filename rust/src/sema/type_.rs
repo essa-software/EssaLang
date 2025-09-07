@@ -26,6 +26,9 @@ pub enum Type {
     Struct {
         id: StructId,
     },
+    RawReference {
+        inner: Box<Type>,
+    },
 }
 
 impl Type {
@@ -51,6 +54,7 @@ impl Type {
                 inner.name(program)
             ),
             Type::Struct { id } => program.get_struct(*id).name.clone(),
+            Type::RawReference { inner } => format!("&{}", inner.name(program)),
         }
     }
 
@@ -76,6 +80,7 @@ impl Type {
                 inner.mangle(program)
             ),
             Type::Struct { id } => format!("struct_{}", program.get_struct(*id).name),
+            Type::RawReference { inner } => format!("ref_{}", inner.mangle(program)),
         }
     }
 
@@ -94,33 +99,35 @@ impl Type {
     }
 
     pub fn is_copyable(&self, program: &Program) -> bool {
-        // All primitives (except string) are copyable
-        if let Type::Primitive(p) = self {
-            if *p == Primitive::String {
-                return false;
-            } else {
-                return true;
-            }
-        }
-        // All structs (except ones with non-copyable fields or containing drop method) are copyable
-        if let Type::Struct { id } = self {
-            let struct_ = program.get_struct(*id);
-            if struct_.drop_method.is_some() {
-                return false;
-            }
-            for field in &struct_.fields {
-                if let Some(field_type) = &field.type_ {
-                    if !field_type.is_copyable(program) {
-                        return false;
-                    }
-                } else {
+        match self {
+            // All primitives (except string) are copyable
+            Type::Primitive(p) => {
+                if *p == Primitive::String {
                     return false;
+                } else {
+                    return true;
                 }
             }
-            return true;
+            // All structs (except ones with non-copyable fields or containing drop method) are copyable
+            Type::Struct { id } => {
+                let struct_ = program.get_struct(*id);
+                if struct_.drop_method.is_some() {
+                    return false;
+                }
+                for field in &struct_.fields {
+                    if let Some(field_type) = &field.type_ {
+                        if !field_type.is_copyable(program) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            // All references are copyable
+            Type::RawReference { .. } => true,
+            _ => false,
         }
-
-        // Everything else is NOT copyable
-        return false;
     }
 }

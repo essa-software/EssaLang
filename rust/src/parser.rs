@@ -190,6 +190,8 @@ pub enum Expression {
     },
     Name(types::ScopedName),
     This,
+    Dereference(Box<ExpressionNode>),
+    Reference(Box<ExpressionNode>),
 }
 
 #[derive(Debug, Clone)]
