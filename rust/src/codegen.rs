@@ -270,6 +270,11 @@ impl<'data> CodeGen<'data> {
         Ok(name)
     }
 
+    // Emit C declaration of a temporary variable.
+    // `value_type` in this context means that the C variable stores:
+    // - RValue - an actual ESL object
+    // - LValue - pointer to mutable ESL object
+    // - ConstLValue - pointer to const ESL object
     fn emit_tmp_var(
         &mut self,
         ty: &sema::Type,
@@ -288,9 +293,20 @@ impl<'data> CodeGen<'data> {
     }
 
     fn emit_move(&mut self, from: &TmpVar, to: &str) -> IoResult<()> {
-        writeln!(self.out(), "    {} = {};", to, from.access())?;
+        writeln!(self.out(), "    /* move */ {} = {};", to, from.access())?;
         self.mark_tmp_var_as_moved(from);
-        writeln!(self.out(), "    // moved {}", from.name)?;
+        Ok(())
+    }
+
+    // Emit code for copying tmpvar into a C expression.
+    fn emit_copy(&mut self, from: &TmpVar, to: &str, type_: &sema::Type) -> IoResult<()> {
+        assert!(
+            type_.is_copyable(self.program),
+            "type '{}' is noncopyable",
+            type_.name(self.program)
+        );
+        // Currently there is no custom copy support so we can just do a simple assignment.
+        writeln!(self.out(), "    /*copy*/ {} = {};", to, from.access())?;
         Ok(())
     }
 
@@ -381,21 +397,25 @@ impl<'data> CodeGen<'data> {
 
         let right_tmp;
         if matches!(op.class(), parser::BinOpClass::Logical) {
-            // Short-circuiting
-            right_tmp = TmpVar::new(self.emit_tmp_var_c("esl_bool", "logic")?, false);
-            // Evaluate right expr only if left_tmp is true (for and) or false (for or)
+            // Short-circuiting - evaluate right expr only if left_tmp is true (for and) or false (for or)
             let left_val_to_eval = match op {
                 parser::BinaryOp::LogicalAnd => true,
                 parser::BinaryOp::LogicalOr => false,
                 _ => unreachable!(),
             };
+            right_tmp = self.emit_tmp_var(
+                &sema::Type::Primitive(sema::Primitive::Bool),
+                "logic",
+                sema::ValueType::RValue,
+            )?;
             writeln!(
                 self.out(),
                 "    if({} == {}) {{",
                 left_tmp.access(),
                 left_val_to_eval
             )?;
-            self.emit_expression_into(right, &right_tmp)?;
+            let eval_tmp = self.emit_expression_eval(&right)?.unwrap();
+            self.emit_move(&eval_tmp, &right_tmp.access())?;
             writeln!(self.out(), "    }} else {{")?;
             writeln!(
                 self.out(),
@@ -538,6 +558,11 @@ impl<'data> CodeGen<'data> {
                 function_id,
                 arguments,
             } => {
+                // var tmp_arg1 = eval_copy(arg1_expr)
+                // var tmp_arg2 = eval_copy(arg2_expr)
+                // ...
+                // var rv = func(move(tmp_arg1), move(tmp_arg2), ...)
+                // yield rv
                 let func = self
                     .program
                     .get_function(function_id.expect("invalid function id"));
@@ -554,12 +579,8 @@ impl<'data> CodeGen<'data> {
                     let argval = arguments
                         .get(&arg)
                         .expect("missing argument for function call");
-                    let var = self.emit_expression_eval(argval)?.unwrap();
-                    let var = self.emit_type_conversion(
-                        &var,
-                        &argval.type_(self.program).unwrap(),
-                        &self.program.get_var(*arg).type_.as_ref().unwrap(),
-                    )?;
+                    let var = self.emit_expression_eval_copy(argval)?;
+                    // The var is moved into the function call
                     self.mark_tmp_var_as_moved(&var);
                     arg_tmps.push(var);
                 }
@@ -765,6 +786,27 @@ impl<'data> CodeGen<'data> {
         }
     }
 
+    // Emit ESL expression into a new object (makes a copy if necessary)
+    fn emit_expression_eval_copy(&mut self, expr: &sema::Expression) -> IoResult<TmpVar> {
+        // var tmp = eval(expr);
+        let tmp = self.emit_expression_eval(expr)?.unwrap();
+        // if (tmp is not rvalue) {
+        if expr.value_type(self.program) != sema::ValueType::RValue {
+            // var tmp_copy = copy(tmp);
+            let tmp_copy = self.emit_tmp_var(
+                &expr.type_(self.program).unwrap(),
+                "copy",
+                sema::ValueType::RValue,
+            )?;
+            self.emit_copy(&tmp, &tmp_copy.name, &expr.type_(self.program).unwrap())?;
+            // yield tmp_copy
+            Ok(tmp_copy)
+        } else {
+            // yield tmp
+            Ok(tmp)
+        }
+    }
+
     // Emit ESL expression written into `var`. Useful for initialization
     // (to avoid copy).
     //
@@ -773,7 +815,7 @@ impl<'data> CodeGen<'data> {
         match &expr {
             sema::Expression::ArrayLiteral { values, .. } => {
                 for (i, value) in values.iter().enumerate() {
-                    let value_tmp = self.emit_expression_eval(value)?.unwrap();
+                    let value_tmp = self.emit_expression_eval_copy(value)?;
                     writeln!(
                         self.out(),
                         "    ({})[{}] = {};",
@@ -785,34 +827,8 @@ impl<'data> CodeGen<'data> {
                 Ok(())
             }
             _ => {
-                let tmp_var = self.emit_expression_eval(expr)?;
-                self.emit_move(&tmp_var.unwrap(), &var.name)
-            }
-        }
-    }
-
-    fn emit_type_conversion(
-        &mut self,
-        from_var: &TmpVar,
-        from_type: &sema::Type,
-        to_type: &sema::Type,
-    ) -> IoResult<TmpVar> {
-        if from_type == to_type {
-            return Ok(from_var.clone());
-        }
-        match (from_type, to_type) {
-            // Empty Array to Struct (default initialization hack)
-            (sema::Type::Primitive(sema::Primitive::EmptyArray), sema::Type::Struct { id: _ }) => {
-                // just create a tmpvar for this struct and return it
-                let tmp_var = self.emit_tmp_var(to_type, "struct_init", sema::ValueType::RValue)?;
-                Ok(tmp_var)
-            }
-            _ => {
-                panic!(
-                    "invalid type conversion from {} to {}",
-                    from_type.mangle(self.program),
-                    to_type.mangle(self.program)
-                )
+                let tmp_var = self.emit_expression_eval_copy(expr)?;
+                self.emit_move(&tmp_var, &var.name)
             }
         }
     }
@@ -860,6 +876,7 @@ impl<'data> CodeGen<'data> {
                     sema::ValueType::RValue,
                 )?;
                 writeln!(self.out(), ";")?;
+
                 // init
                 if let Some(init) = init {
                     self.emit_expression_into(init, &tmp_var)?;
@@ -869,28 +886,10 @@ impl<'data> CodeGen<'data> {
                 // TODO: handle return by first arg
                 if let Some(expr) = expression {
                     let tmp_var = self.emit_expression_eval(expr)?;
-                    // conversion to return type
-                    let return_type = self
-                        .program
-                        .get_function(self.current_function.unwrap())
-                        .return_type
-                        .as_ref()
-                        .unwrap();
-                    if *return_type != expr.type_(self.program).unwrap() {
-                        let converted_tmp_var = self.emit_type_conversion(
-                            &tmp_var.unwrap(),
-                            &expr.type_(&self.program).unwrap(),
-                            return_type,
-                        )?;
-                        self.mark_tmp_var_as_moved(&converted_tmp_var);
-                        self.emit_drop_all_scopes()?;
-                        writeln!(self.out(), "return {};", converted_tmp_var.access())?;
-                    } else {
-                        let tmp_var = tmp_var.unwrap();
-                        self.mark_tmp_var_as_moved(&tmp_var);
-                        self.emit_drop_all_scopes()?;
-                        write!(self.out(), "return {};", &tmp_var.access())?;
-                    }
+                    let tmp_var = tmp_var.unwrap();
+                    self.mark_tmp_var_as_moved(&tmp_var); // Moving into return value
+                    self.emit_drop_all_scopes()?;
+                    write!(self.out(), "return {};", &tmp_var.access())?;
                 } else {
                     self.emit_drop_all_scopes()?;
                     writeln!(self.out(), "return;")?;
