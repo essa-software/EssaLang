@@ -1314,7 +1314,101 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         statements
     }
 
-    fn typecheck_for_statement(
+    fn typecheck_stmt_expression(
+        &mut self,
+        range: &Range<usize>,
+        expr: &parser::ExpressionNode,
+    ) -> Statement {
+        let expr = self.typecheck_expression(&expr);
+        if !expr.can_be_discarded(&self.program()) {
+            self.errors.push(CompilationError::new(
+                "Unused expression result".into(),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+        }
+        Statement::Expression(expr)
+    }
+
+    fn typecheck_stmt_block(&mut self, stmts: &Vec<parser::StatementNode>) -> Statement {
+        self.push_scope();
+        let b = Statement::Block(stmts.iter().map(|s| self.typecheck_statement(s)).collect());
+        self.pop_scope();
+        b
+    }
+
+    fn typecheck_stmt_var_decl(
+        &mut self,
+        range: &Range<usize>,
+        mut_: bool,
+        type_: &Option<parser::TypeNode>,
+        name: &str,
+        init_value: &Option<parser::ExpressionNode>,
+    ) -> Statement {
+        let init_value = init_value
+            .as_ref()
+            .map(|expr| self.typecheck_expression(expr));
+
+        let type_: Option<Type> = type_
+            .as_ref()
+            .and_then(|ty| self.tcm.typecheck_type(&ty))
+            .or(if let Some(init) = &init_value {
+                init.type_(&self.program())
+            } else {
+                None
+            });
+
+        let init_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
+        if let (Some(var_type), Some(init_type)) = (&type_, init_type) {
+            if !self.is_type_convertible(&var_type, &init_type) {
+                self.errors.push(CompilationError::new(
+                    format!(
+                        "Cannot convert '{}' to '{}' for variable initialization",
+                        init_type.name(&self.program()),
+                        var_type.name(&self.program())
+                    ),
+                    range.clone(),
+                    self.tcm.path.clone(),
+                ));
+            }
+
+            // If rhs is not temporary, we would make a copy - check
+            // if type is copyable.
+            if let Some(init_value) = &init_value {
+                let init_value_type: ValueType = init_value.value_type(self.program());
+                if init_value_type != ValueType::RValue && !init_type.is_copyable(self.program()) {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Type '{}' is not copyable, cannot initialize variable from non-temporary value",
+                            init_type.name(&self.program())
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+            }
+        }
+
+        let var = Var::new(type_, name.into(), mut_);
+        let var_id = self.add_var_to_current_scope(var);
+
+        Statement::VarDecl {
+            var: var_id,
+            init: init_value,
+        }
+    }
+
+    fn typecheck_stmt_return(&mut self, expression: &Option<parser::ExpressionNode>) -> Statement {
+        let expr = expression
+            .as_ref()
+            .map(|expr| self.typecheck_expression(expr));
+
+        // TODO: Check function return type
+
+        Statement::Return(expr)
+    }
+
+    fn typecheck_stmt_for(
         &mut self,
         it_var: &str,
         iterable: &parser::ExpressionNode,
@@ -1449,192 +1543,133 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         })
     }
 
+    fn typecheck_stmt_if(
+        &mut self,
+        condition: &parser::ExpressionNode,
+        then_block: &parser::StatementNode,
+        else_block: &Option<Box<parser::StatementNode>>,
+    ) -> Statement {
+        let (condition, cond_range) = (
+            self.typecheck_expression(condition),
+            condition.range.clone(),
+        );
+        let condition_type = condition.type_(&self.program());
+        if condition_type.is_some()
+            && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
+        {
+            self.errors.push(CompilationError::new(
+                "If condition must be of type bool".into(),
+                cond_range,
+                self.tcm.path.clone(),
+            ));
+        }
+        let then_block = self.typecheck_statement(then_block);
+        let else_block = else_block
+            .as_ref()
+            .map(|block| Box::new(self.typecheck_statement(block)));
+        Statement::If {
+            condition,
+            then_block: Box::new(then_block),
+            else_block,
+        }
+    }
+
+    fn typecheck_stmt_break(&mut self, range: &Range<usize>) -> Statement {
+        if !self.is_in_loop() {
+            self.errors.push(CompilationError::new(
+                "'break' outside of a loop".into(),
+                range.clone(),
+                self.tcm.path.clone(),
+            ))
+        }
+        Statement::Break
+    }
+
+    fn typecheck_stmt_continue(&mut self, range: &Range<usize>) -> Statement {
+        if !self.is_in_loop() {
+            self.errors.push(CompilationError::new(
+                "'continue' outside of a loop".into(),
+                range.clone(),
+                self.tcm.path.clone(),
+            ))
+        }
+        Statement::Continue
+    }
+
+    fn typecheck_stmt_while(
+        &mut self,
+        condition: &parser::ExpressionNode,
+        body: &parser::StatementNode,
+    ) -> Statement {
+        let (condition, cond_range) = (
+            self.typecheck_expression(condition),
+            condition.range.clone(),
+        );
+        let condition_type = condition.type_(&self.program());
+        if condition_type.is_some()
+            && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
+        {
+            self.errors.push(CompilationError::new(
+                "While condition must be of type bool".into(),
+                cond_range,
+                self.tcm.path.clone(),
+            ));
+        }
+
+        // Desugar while(cond) {body} to while(true) { if (!cond) break; body }
+        let iteration_stmt = self.with_scope(|self_| {
+            self_.loop_depth += 1;
+            let mut statements = vec![];
+
+            statements.push(Statement::If {
+                // Note: `condition == false` because we don't support
+                // negation of bools yet
+                condition: Expression::BinaryOp {
+                    op: BinaryOp::CmpEquals,
+                    left: Box::new(condition),
+                    right: Box::new(Expression::BoolLiteral { value: false }),
+                },
+                then_block: Box::new(Statement::Break),
+                else_block: None,
+            });
+
+            let body = self_.typecheck_statement(body);
+            statements.push(body);
+
+            self_.loop_depth -= 1;
+            Statement::Block(statements)
+        });
+        Statement::Loop(Box::new(iteration_stmt))
+    }
+
     fn typecheck_statement(
         &mut self,
         parser::StatementNode { statement, range }: &parser::StatementNode,
     ) -> Statement {
         match statement {
-            parser::Statement::Expression(expr) => {
-                let expr = self.typecheck_expression(&expr);
-                if !expr.can_be_discarded(&self.program()) {
-                    self.errors.push(CompilationError::new(
-                        "Unused expression result".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
-                Statement::Expression(expr)
-            }
-            parser::Statement::Block(stmts) => {
-                self.push_scope();
-                let b =
-                    Statement::Block(stmts.iter().map(|s| self.typecheck_statement(s)).collect());
-                self.pop_scope();
-                b
-            }
+            parser::Statement::Expression(expr) => self.typecheck_stmt_expression(range, expr),
+            parser::Statement::Block(stmts) => self.typecheck_stmt_block(stmts),
             parser::Statement::VarDecl {
                 mut_,
                 type_,
                 name,
                 init_value,
-            } => {
-                let init_value = init_value
-                    .as_ref()
-                    .map(|expr| self.typecheck_expression(expr));
-
-                let type_: Option<Type> = type_
-                    .as_ref()
-                    .and_then(|ty| self.tcm.typecheck_type(&ty))
-                    .or(if let Some(init) = &init_value {
-                        init.type_(&self.program())
-                    } else {
-                        None
-                    });
-
-                let init_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
-                if let (Some(var_type), Some(init_type)) = (&type_, init_type) {
-                    if !self.is_type_convertible(&var_type, &init_type) {
-                        self.errors.push(CompilationError::new(
-                            format!(
-                                "Cannot convert '{}' to '{}' for variable initialization",
-                                init_type.name(&self.program()),
-                                var_type.name(&self.program())
-                            ),
-                            range.clone(),
-                            self.tcm.path.clone(),
-                        ));
-                    }
-
-                    // If rhs is not temporary, we would make a copy - check
-                    // if type is copyable.
-                    if let Some(init_value) = &init_value {
-                        let init_value_type: ValueType = init_value.value_type(self.program());
-                        if init_value_type != ValueType::RValue
-                            && !init_type.is_copyable(self.program())
-                        {
-                            self.errors.push(CompilationError::new(
-                                format!(
-                                    "Type '{}' is not copyable, cannot initialize variable from non-temporary value",
-                                    init_type.name(&self.program())
-                                ),
-                                range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                    }
-                }
-
-                let var = Var::new(type_, name.clone(), *mut_);
-                let var_id = self.add_var_to_current_scope(var);
-
-                Statement::VarDecl {
-                    var: var_id,
-                    init: init_value,
-                }
-            }
-            parser::Statement::Return(expression) => {
-                let expr = expression
-                    .as_ref()
-                    .map(|expr| self.typecheck_expression(expr));
-
-                // TODO: Check function return type
-
-                Statement::Return(expr)
-            }
+            } => self.typecheck_stmt_var_decl(range, *mut_, type_, name, init_value),
+            parser::Statement::Return(expression) => self.typecheck_stmt_return(expression),
             parser::Statement::For {
                 it_var,
                 iterable,
                 body,
-            } => self.typecheck_for_statement(it_var, iterable, body),
+            } => self.typecheck_stmt_for(it_var, iterable, body),
             parser::Statement::If {
                 condition,
                 then_block,
                 else_block,
-            } => {
-                let (condition, cond_range) = (
-                    self.typecheck_expression(condition),
-                    condition.range.clone(),
-                );
-                let condition_type = condition.type_(&self.program());
-                if condition_type.is_some()
-                    && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
-                {
-                    self.errors.push(CompilationError::new(
-                        "If condition must be of type bool".into(),
-                        cond_range,
-                        self.tcm.path.clone(),
-                    ));
-                }
-                let then_block = self.typecheck_statement(then_block);
-                let else_block = else_block
-                    .as_ref()
-                    .map(|block| Box::new(self.typecheck_statement(block)));
-                Statement::If {
-                    condition,
-                    then_block: Box::new(then_block),
-                    else_block,
-                }
-            }
-            parser::Statement::Break => {
-                if !self.is_in_loop() {
-                    self.errors.push(CompilationError::new(
-                        "'break' outside of a loop".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ))
-                }
-                Statement::Break
-            }
-            parser::Statement::Continue => {
-                if !self.is_in_loop() {
-                    self.errors.push(CompilationError::new(
-                        "'continue' outside of a loop".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ))
-                }
-                Statement::Continue
-            }
+            } => self.typecheck_stmt_if(condition, then_block, else_block),
+            parser::Statement::Break => self.typecheck_stmt_break(range),
+            parser::Statement::Continue => self.typecheck_stmt_continue(range),
             parser::Statement::While { condition, body } => {
-                let (condition, cond_range) = (
-                    self.typecheck_expression(condition),
-                    condition.range.clone(),
-                );
-                let condition_type = condition.type_(&self.program());
-                if condition_type.is_some()
-                    && !matches!(condition_type, Some(Type::Primitive(Primitive::Bool)))
-                {
-                    self.errors.push(CompilationError::new(
-                        "While condition must be of type bool".into(),
-                        cond_range,
-                        self.tcm.path.clone(),
-                    ));
-                }
-
-                // Desugar while(cond) {body} to while(true) { if (!cond) break; body }
-                let iteration_stmt = self.with_scope(|self_| {
-                    self_.loop_depth += 1;
-                    let mut statements = vec![];
-
-                    statements.push(Statement::If {
-                        // Note: `condition == false` because we don't support
-                        // negation of bools yet
-                        condition: Expression::BinaryOp {
-                            op: BinaryOp::CmpEquals,
-                            left: Box::new(condition),
-                            right: Box::new(Expression::BoolLiteral { value: false }),
-                        },
-                        then_block: Box::new(Statement::Break),
-                        else_block: None,
-                    });
-
-                    let body = self_.typecheck_statement(body);
-                    statements.push(body);
-
-                    self_.loop_depth -= 1;
-                    Statement::Block(statements)
-                });
-                Statement::Loop(Box::new(iteration_stmt))
+                self.typecheck_stmt_while(condition, body)
             }
         }
     }
