@@ -556,7 +556,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         None
     }
 
-    fn typecheck_expr_call<'a>(
+    fn typecheck_call<'a>(
         &mut self,
         call: FunctionCall,
         parsed_args: impl Iterator<Item = &'a parser::FunctionArg>,
@@ -808,168 +808,388 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
-    fn typecheck_expression(
+    fn typecheck_expr_call(
         &mut self,
-        parser::ExpressionNode {
-            expression: expr,
-            range,
-        }: &parser::ExpressionNode,
+        range: &Range<usize>,
+        function: &parser::ExpressionNode,
+        args: &Vec<parser::FunctionArg>,
     ) -> Expression {
-        match expr {
-            parser::Expression::Call { function, args } => match &function.expression {
-                parser::Expression::Name(name) => {
-                    self.typecheck_expr_call(FunctionCall::Global(name.clone()), args.iter(), range)
+        match &function.expression {
+            parser::Expression::Name(name) => {
+                self.typecheck_call(FunctionCall::Global(name.clone()), args.iter(), range)
+            }
+            parser::Expression::MemberAccess { object, member } => {
+                // Desugar object.method(a,b,c) to method(object, a, b, c)
+                let object_tc = self.typecheck_expression(object);
+                let struct_id = match object_tc.type_(self.program()) {
+                    Some(Type::Struct { id }) => id,
+                    Some(_) => {
+                        self.errors.push(CompilationError::new(
+                            format!(
+                                "Method call on non-struct type '{}'",
+                                object_tc
+                                    .type_(self.program())
+                                    .unwrap()
+                                    .name(self.program())
+                            ),
+                            range.clone(),
+                            self.tcm.path.clone(),
+                        ));
+                        return Expression::Call {
+                            function_id: None,
+                            arguments: HashMap::new(),
+                        };
+                    }
+                    None => todo!(),
+                };
+
+                // create iterator which first yields `object`
+                // and then rest of args
+                let object_arg = parser::FunctionArg {
+                    param: None,
+                    value: parser::ExpressionNode {
+                        // FIXME: Avoid cloning
+                        expression: object.expression.clone(),
+                        range: range.clone(),
+                    },
+                };
+
+                let iter = std::iter::once(&object_arg).chain(args.iter());
+
+                self.typecheck_call(FunctionCall::Method(struct_id, member.clone()), iter, range)
+            }
+            _ => {
+                self.errors.push(CompilationError::new(
+                    "Only function names are supported for now".into(),
+                    function.range.clone(),
+                    self.tcm.path.clone(),
+                ));
+                Expression::Call {
+                    function_id: None,
+                    arguments: HashMap::new(),
                 }
-                parser::Expression::MemberAccess { object, member } => {
-                    // Desugar object.method(a,b,c) to method(object, a, b, c)
-                    let object_tc = self.typecheck_expression(object);
-                    let struct_id = match object_tc.type_(self.program()) {
-                        Some(Type::Struct { id }) => id,
-                        Some(_) => {
-                            self.errors.push(CompilationError::new(
-                                format!(
-                                    "Method call on non-struct type '{}'",
-                                    object_tc
-                                        .type_(self.program())
-                                        .unwrap()
-                                        .name(self.program())
-                                ),
-                                range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                            return Expression::Call {
-                                function_id: None,
-                                arguments: HashMap::new(),
-                            };
-                        }
-                        None => todo!(),
-                    };
+            }
+        }
+    }
 
-                    // create iterator which first yields `object`
-                    // and then rest of args
-                    let object_arg = parser::FunctionArg {
-                        param: None,
-                        value: parser::ExpressionNode {
-                            // FIXME: Avoid cloning
-                            expression: object.expression.clone(),
-                            range: range.clone(),
-                        },
-                    };
+    fn typecheck_expr_index(
+        &mut self,
+        indexable: &parser::ExpressionNode,
+        index: &parser::ExpressionNode,
+    ) -> Expression {
+        let indexable_tc = self.typecheck_expression(indexable);
+        let index_tc = self.typecheck_expression(index);
 
-                    let iter = std::iter::once(&object_arg).chain(args.iter());
+        // index must be u32 for now
+        if let Some(index_type) = index_tc.type_(&self.program()) {
+            if index_type != Type::Primitive(Primitive::U32) {
+                self.errors.push(CompilationError::new(
+                    "Index must be u32".into(),
+                    index.range.clone(),
+                    self.tcm.path.clone(),
+                ));
+            }
+        }
 
-                    self.typecheck_expr_call(
-                        FunctionCall::Method(struct_id, member.clone()),
-                        iter,
-                        range,
-                    )
+        // indexable must be indexable
+        if let Some(indexable_type) = indexable_tc.type_(&self.program()) {
+            if indexable_type.index_value_type(&self.program()).is_none() {
+                self.errors.push(CompilationError::new(
+                    format!(
+                        "'{}' is not indexable",
+                        indexable_type.name(&self.program())
+                    ),
+                    indexable.range.clone(),
+                    self.tcm.path.clone(),
+                ));
+            }
+        }
+
+        Expression::Index {
+            indexable: Box::new(indexable_tc),
+            index: Box::new(index_tc),
+        }
+    }
+
+    fn typecheck_expr_member_access(
+        &mut self,
+        range: &Range<usize>,
+        object: &parser::ExpressionNode,
+        member: &str,
+    ) -> Expression {
+        let object_tc = self.typecheck_expression(&object);
+
+        // object must be a struct
+        if let Some(object_type) = object_tc.type_(&self.program()) {
+            match object_type {
+                Type::Struct { id } => {
+                    let struct_ = self.program().get_struct(id);
+                    if let None = struct_.resolve_field(member) {
+                        self.errors.push(CompilationError::new(
+                            "Member access on non-existing field".into(),
+                            range.clone(),
+                            self.tcm.path.clone(),
+                        ));
+                    }
+                }
+                Type::Primitive(Primitive::Range) => {
+                    // Hacky special-case: range.begin, range.end
+                    if member != RANGE_BEGIN && member != RANGE_END {
+                        self.errors.push(CompilationError::new(
+                            format!(
+                                "Range has only '{}' and '{}' fields",
+                                RANGE_BEGIN, RANGE_END
+                            ),
+                            range.clone(),
+                            self.tcm.path.clone(),
+                        ));
+                    }
                 }
                 _ => {
                     self.errors.push(CompilationError::new(
-                        "Only function names are supported for now".into(),
-                        function.range.clone(),
+                        format!(
+                            "Field access on non-struct type '{}'",
+                            object_tc
+                                .type_(self.program())
+                                .unwrap()
+                                .name(self.program())
+                        ),
+                        object.range.clone(),
                         self.tcm.path.clone(),
                     ));
-                    Expression::Call {
-                        function_id: None,
-                        arguments: HashMap::new(),
-                    }
-                }
-            },
-            parser::Expression::Index { indexable, index } => {
-                let indexable_tc = self.typecheck_expression(indexable);
-                let index_tc = self.typecheck_expression(index);
-
-                // index must be u32 for now
-                if let Some(index_type) = index_tc.type_(&self.program()) {
-                    if index_type != Type::Primitive(Primitive::U32) {
-                        self.errors.push(CompilationError::new(
-                            "Index must be u32".into(),
-                            index.range.clone(),
-                            self.tcm.path.clone(),
-                        ));
-                    }
-                }
-
-                // indexable must be indexable
-                if let Some(indexable_type) = indexable_tc.type_(&self.program()) {
-                    if indexable_type.index_value_type(&self.program()).is_none() {
-                        self.errors.push(CompilationError::new(
-                            format!(
-                                "'{}' is not indexable",
-                                indexable_type.name(&self.program())
-                            ),
-                            indexable.range.clone(),
-                            self.tcm.path.clone(),
-                        ));
-                    }
-                }
-
-                Expression::Index {
-                    indexable: Box::new(indexable_tc),
-                    index: Box::new(index_tc),
                 }
             }
-            parser::Expression::MemberAccess { object, member } => {
-                let object_tc = self.typecheck_expression(object);
+        }
 
-                // object must be a struct
-                if let Some(object_type) = object_tc.type_(&self.program()) {
-                    match object_type {
-                        Type::Struct { id } => {
-                            let struct_ = self.program().get_struct(id);
-                            if let None = struct_.resolve_field(member) {
-                                self.errors.push(CompilationError::new(
-                                    "Member access on non-existing field".into(),
-                                    range.clone(),
-                                    self.tcm.path.clone(),
-                                ));
-                            }
-                        }
-                        Type::Primitive(Primitive::Range) => {
-                            // Hacky special-case: range.begin, range.end
-                            if member != RANGE_BEGIN && member != RANGE_END {
-                                self.errors.push(CompilationError::new(
-                                    format!(
-                                        "Range has only '{}' and '{}' fields",
-                                        RANGE_BEGIN, RANGE_END
-                                    ),
-                                    range.clone(),
-                                    self.tcm.path.clone(),
-                                ));
-                            }
-                        }
-                        _ => {
-                            self.errors.push(CompilationError::new(
-                                format!(
-                                    "Field access on non-struct type '{}'",
-                                    object_tc
-                                        .type_(self.program())
-                                        .unwrap()
-                                        .name(self.program())
-                                ),
-                                object.range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                    }
-                }
+        Expression::MemberAccess {
+            object: Box::new(object_tc),
+            member: member.into(),
+        }
+    }
 
-                Expression::MemberAccess {
-                    object: Box::new(object_tc),
-                    member: member.clone(),
-                }
-            }
-            parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
-            parser::Expression::IntLiteral { value } => {
-                if *value > (u32::MAX as u64) {
+    fn typecheck_expr_int_literal(&mut self, range: &Range<usize>, value: u64) -> Expression {
+        if value > (u32::MAX as u64) {
+            self.errors.push(CompilationError::new(
+                format!("Integer literal {} is too large", value),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+        }
+        Expression::IntLiteral { value }
+    }
+
+    fn typecheck_expr_binary_op(
+        &mut self,
+        range: &Range<usize>,
+        op: &BinaryOp,
+        op_range: &Range<usize>,
+        left: &parser::ExpressionNode,
+        right: &parser::ExpressionNode,
+    ) -> Expression {
+        let left = self.typecheck_expression(left);
+        let right = self.typecheck_expression(right);
+
+        if matches!(op.class(), BinOpClass::Assignment) {
+            match left.value_type(self.program()) {
+                ValueType::LValue => {}
+                ValueType::ConstLValue => {
                     self.errors.push(CompilationError::new(
-                        format!("Integer literal {} is too large", value),
+                        "Cannot assign to non-mutable value".into(),
                         range.clone(),
                         self.tcm.path.clone(),
                     ));
                 }
-                Expression::IntLiteral { value: *value }
+                ValueType::RValue => {
+                    self.errors.push(CompilationError::new(
+                        "Cannot assign to rvalue".into(),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+            }
+
+            // Noncopyable
+            if let Some(right_type) = right.type_(&self.program()) {
+                if right.value_type(self.program()) != ValueType::RValue
+                    && !right_type.is_copyable(&self.program())
+                {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Cannot assign to non-copyable type '{}'",
+                            right_type.name(self.program())
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+            }
+        }
+
+        if let (Some(left_type), Some(right_type)) =
+            (left.type_(&self.program()), right.type_(&self.program()))
+        {
+            self.check_operator_types(*op, left_type, right_type, op_range);
+        } else {
+            self.errors.push(CompilationError::new(
+                "Invalid types for binary operator".into(),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+        }
+
+        Expression::BinaryOp {
+            op: *op,
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn typecheck_expr_array_literal(&mut self, values: &Vec<parser::ExpressionNode>) -> Expression {
+        if values.is_empty() {
+            Expression::ArrayLiteral {
+                value_type: None,
+                values: Vec::new(),
+            }
+        } else {
+            let tc_values: Vec<Expression> = values
+                .iter()
+                .map(|v| self.typecheck_expression(v))
+                .collect();
+
+            // Use first element as type hint
+            let value_type = tc_values.first().map(|v| v.type_(&self.program())).unwrap();
+
+            // Check if all values have type convertible to the first one
+            for (i, v) in tc_values.iter().enumerate() {
+                if let Some(value_type) = &value_type {
+                    if let Some(v_type) = v.type_(&self.program()) {
+                        if !self.is_type_convertible(&value_type, &v_type) {
+                            self.errors.push(CompilationError::new(
+                                format!("Array literal value {} has invalid type", i),
+                                values[i].range.clone(),
+                                self.tcm.path.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            Expression::ArrayLiteral {
+                value_type,
+                values: tc_values,
+            }
+        }
+    }
+
+    fn typecheck_expr_struct_literal(
+        &mut self,
+        range: &Range<usize>,
+        struct_name: &types::ScopedName,
+        fields: &HashMap<String, parser::ExpressionNode>,
+    ) -> Expression {
+        // Typecheck field expressions
+        let mut tc_fields = HashMap::new();
+        for field in fields {
+            let value_tc = self.typecheck_expression(&field.1);
+            tc_fields.insert(field.0.clone(), (value_tc, field.1.range.clone()));
+        }
+
+        // Check if the struct exists
+        let struct_ = self.tcm.lookup_struct(struct_name);
+        if struct_.is_none() {
+            self.errors.push(CompilationError::new(
+                format!("Struct '{}' not found", struct_name),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+            return Expression::StructLiteral {
+                struct_id: None,
+                fields: HashMap::new(),
+            };
+        }
+        let struct_ = struct_.unwrap();
+        let struct_id = struct_.id.unwrap();
+
+        let mut uninitialized_fields = struct_
+            .fields
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<HashSet<_>>();
+
+        // Check if the fields make sense in context of the struct
+        for (field_name, (expr, expr_range)) in &tc_fields {
+            uninitialized_fields.remove(field_name);
+
+            let field_def = struct_.resolve_field(&field_name);
+            if field_def.is_none() {
+                self.errors.push(CompilationError::new(
+                    format!(
+                        "Struct '{}' has no field named '{}'",
+                        struct_.name, field_name
+                    ),
+                    expr_range.clone(),
+                    self.tcm.path.clone(),
+                ));
+                continue;
+            }
+            let field_def = field_def.unwrap();
+
+            if let (Some(value_type), Some(field_type)) =
+                (expr.type_(&self.program()), &field_def.type_)
+            {
+                if !self.is_type_convertible(field_type, &value_type) {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Cannot convert '{}' to '{}' for field '{}'",
+                            value_type.name(self.program()),
+                            field_type.name(self.program()),
+                            field_name
+                        ),
+                        expr_range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+            }
+        }
+
+        // Check if all fields were initialized
+        if !uninitialized_fields.is_empty() {
+            let mut fields_sorted: Vec<String> = uninitialized_fields.iter().cloned().collect();
+            fields_sorted.sort();
+            self.errors.push(CompilationError::new(
+                        format!(
+                            "Not all fields of struct '{}' were initialized (missing initializers for: '{}')",
+                            struct_.name,
+                            fields_sorted.into_iter().collect::<Vec<_>>().join("', '"),
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+        }
+
+        Expression::StructLiteral {
+            struct_id: Some(struct_id),
+            fields: tc_fields.into_iter().map(|(k, (v, _))| (k, v)).collect(),
+        }
+    }
+
+    fn typecheck_expression(
+        &mut self,
+        parser::ExpressionNode { expression, range }: &parser::ExpressionNode,
+    ) -> Expression {
+        match &expression {
+            parser::Expression::Call { function, args } => {
+                self.typecheck_expr_call(&range, &function, &args)
+            }
+            parser::Expression::Index { indexable, index } => {
+                self.typecheck_expr_index(indexable, index)
+            }
+            parser::Expression::MemberAccess { object, member } => {
+                self.typecheck_expr_member_access(range, object, member)
+            }
+            parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
+            parser::Expression::IntLiteral { value } => {
+                self.typecheck_expr_int_literal(range, *value)
             }
             parser::Expression::StringLiteral { value } => Expression::StringLiteral {
                 value: value.clone(),
@@ -980,190 +1200,14 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 op_range,
                 left,
                 right,
-            } => {
-                let left = self.typecheck_expression(left);
-                let right = self.typecheck_expression(right);
-
-                if matches!(op.class(), BinOpClass::Assignment) {
-                    match left.value_type(self.program()) {
-                        ValueType::LValue => {}
-                        ValueType::ConstLValue => {
-                            self.errors.push(CompilationError::new(
-                                "Cannot assign to non-mutable value".into(),
-                                range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                        ValueType::RValue => {
-                            self.errors.push(CompilationError::new(
-                                "Cannot assign to rvalue".into(),
-                                range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                    }
-
-                    // Noncopyable
-                    if let Some(right_type) = right.type_(&self.program()) {
-                        if right.value_type(self.program()) != ValueType::RValue
-                            && !right_type.is_copyable(&self.program())
-                        {
-                            self.errors.push(CompilationError::new(
-                                format!(
-                                    "Cannot assign to non-copyable type '{}'",
-                                    right_type.name(self.program())
-                                ),
-                                range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                    }
-                }
-
-                if let (Some(left_type), Some(right_type)) =
-                    (left.type_(&self.program()), right.type_(&self.program()))
-                {
-                    self.check_operator_types(*op, left_type, right_type, op_range);
-                } else {
-                    self.errors.push(CompilationError::new(
-                        "Invalid types for binary operator".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
-
-                Expression::BinaryOp {
-                    op: *op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
-            }
+            } => self.typecheck_expr_binary_op(range, op, op_range, left, right),
             parser::Expression::ArrayLiteral { values } => {
-                if values.is_empty() {
-                    Expression::ArrayLiteral {
-                        value_type: None,
-                        values: Vec::new(),
-                    }
-                } else {
-                    let tc_values: Vec<Expression> = values
-                        .iter()
-                        .map(|v| self.typecheck_expression(v))
-                        .collect();
-
-                    // Use first element as type hint
-                    let value_type = tc_values.first().map(|v| v.type_(&self.program())).unwrap();
-
-                    // Check if all values have type convertible to the first one
-                    for (i, v) in tc_values.iter().enumerate() {
-                        if let Some(value_type) = &value_type {
-                            if let Some(v_type) = v.type_(&self.program()) {
-                                if !self.is_type_convertible(&value_type, &v_type) {
-                                    self.errors.push(CompilationError::new(
-                                        format!("Array literal value {} has invalid type", i),
-                                        values[i].range.clone(),
-                                        self.tcm.path.clone(),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-
-                    Expression::ArrayLiteral {
-                        value_type,
-                        values: tc_values,
-                    }
-                }
+                self.typecheck_expr_array_literal(values)
             }
             parser::Expression::StructLiteral {
                 struct_name,
                 fields,
-            } => {
-                // Typecheck field expressions
-                let mut tc_fields = HashMap::new();
-                for field in fields {
-                    let value_tc = self.typecheck_expression(&field.1);
-                    tc_fields.insert(field.0.clone(), (value_tc, field.1.range.clone()));
-                }
-
-                // Check if the struct exists
-                let struct_ = self.tcm.lookup_struct(struct_name);
-                if struct_.is_none() {
-                    self.errors.push(CompilationError::new(
-                        format!("Struct '{}' not found", struct_name),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                    return Expression::StructLiteral {
-                        struct_id: None,
-                        fields: HashMap::new(),
-                    };
-                }
-                let struct_ = struct_.unwrap();
-                let struct_id = struct_.id.unwrap();
-
-                let mut uninitialized_fields = struct_
-                    .fields
-                    .iter()
-                    .map(|f| f.name.clone())
-                    .collect::<HashSet<_>>();
-
-                // Check if the fields make sense in context of the struct
-                for (field_name, (expr, expr_range)) in &tc_fields {
-                    uninitialized_fields.remove(field_name);
-
-                    let field_def = struct_.resolve_field(&field_name);
-                    if field_def.is_none() {
-                        self.errors.push(CompilationError::new(
-                            format!(
-                                "Struct '{}' has no field named '{}'",
-                                struct_.name, field_name
-                            ),
-                            expr_range.clone(),
-                            self.tcm.path.clone(),
-                        ));
-                        continue;
-                    }
-                    let field_def = field_def.unwrap();
-
-                    if let (Some(value_type), Some(field_type)) =
-                        (expr.type_(&self.program()), &field_def.type_)
-                    {
-                        if !self.is_type_convertible(field_type, &value_type) {
-                            self.errors.push(CompilationError::new(
-                                format!(
-                                    "Cannot convert '{}' to '{}' for field '{}'",
-                                    value_type.name(self.program()),
-                                    field_type.name(self.program()),
-                                    field_name
-                                ),
-                                expr_range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
-                    }
-                }
-
-                // Check if all fields were initialized
-                if !uninitialized_fields.is_empty() {
-                    let mut fields_sorted: Vec<String> =
-                        uninitialized_fields.iter().cloned().collect();
-                    fields_sorted.sort();
-                    self.errors.push(CompilationError::new(
-                        format!(
-                            "Not all fields of struct '{}' were initialized (missing initializers for: '{}')",
-                            struct_.name,
-                            fields_sorted.into_iter().collect::<Vec<_>>().join("', '"),
-                        ),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
-
-                Expression::StructLiteral {
-                    struct_id: Some(struct_id),
-                    fields: tc_fields.into_iter().map(|(k, (v, _))| (k, v)).collect(),
-                }
-            }
+            } => self.typecheck_expr_struct_literal(range, struct_name, fields),
             parser::Expression::CharLiteral { value } => Expression::CharLiteral { value: *value },
             parser::Expression::This => {
                 self.typecheck_variable_name(&types::ScopedName::new(vec!["this".into()]), range)
