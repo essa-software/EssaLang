@@ -939,10 +939,15 @@ impl<'data> CodeGen<'data> {
             self.local_var_counter += 1;
             let tmpvar = TmpVar::new(var_name, false);
             self.variable_names.insert(*param, tmpvar.clone());
-            self.drop_scope_stack
-                .last_mut()
-                .unwrap()
-                .add_tmp_var((tmpvar, var.type_.as_ref().unwrap().clone()));
+            let is_object_var = i == 0 && function.struct_.is_some();
+            if !is_object_var {
+                // HACK: we treat `this` like references without actual
+                // reference support
+                self.drop_scope_stack
+                    .last_mut()
+                    .unwrap()
+                    .add_tmp_var((tmpvar, var.type_.as_ref().unwrap().clone()));
+            }
         }
         writeln!(self.out(), ") {{")?;
         self.emit_statement(&function.body.as_ref().unwrap())?;
