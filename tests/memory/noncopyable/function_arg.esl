@@ -1,0 +1,8 @@
+func foo(arg: string) {
+    print("{}\n", arg);
+}
+
+func main() {
+    let s = string_new("dtor0");
+    foo(s);
+}

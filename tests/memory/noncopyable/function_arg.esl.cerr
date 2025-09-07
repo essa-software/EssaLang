@@ -1,0 +1,1 @@
+CompilationError { message: "Passing non-copyable type 'string' by value is not allowed (argument `arg`)", range: 106..107, path: "../../tests/memory/noncopyable/function_arg.esl" }

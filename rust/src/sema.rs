@@ -1313,17 +1313,36 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 break;
             });
             let expr_type = expr.type_(&self.program());
+            let expr_value_type = expr.value_type(&self.program());
             arguments.insert(param, expr);
 
             let var = self.program().get_var(param);
-            if let (Some(param), Some(expr)) = (var.type_.clone(), expr_type) {
-                if !self.is_type_convertible(&param, &expr) {
+            if let (Some(param_type), Some(expr_type)) = (var.type_.clone(), expr_type) {
+                if !self.is_type_convertible(&param_type, &expr_type) {
                     self.errors.push(CompilationError::new(
                         format!(
                             "Cannot convert '{}' to '{}' for argument {}",
-                            expr.name(&self.program()),
-                            param.name(&self.program()),
+                            expr_type.name(&self.program()),
+                            param_type.name(&self.program()),
                             i
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+
+                // Enforce noncopyable types
+                // (Make `this` argument a hacky exception for now)
+                let is_this_arg = matches!(call, FunctionCall::Method(_, _)) && i == 0;
+                if !is_this_arg
+                    && expr_value_type != ValueType::RValue
+                    && !expr_type.is_copyable(self.program())
+                {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Passing non-copyable type '{}' by value is not allowed (argument `{}`)",
+                            param_type.name(&self.program()),
+                            self.program().get_var(param).name
                         ),
                         range.clone(),
                         self.tcm.path.clone(),
