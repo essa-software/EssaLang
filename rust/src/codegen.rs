@@ -47,9 +47,30 @@ fn escape_c(str: &str) -> String {
     str.into()
 }
 
+/// A "temporary variable" that stores some ESL value.
 #[derive(Clone)]
 struct TmpVar {
     name: String,
+    /// If true, the tmpvar is represented in C as *pointer*
+    /// to the actual object. This is used to represent results
+    /// of lvalue expressions, like member accesses, for example:
+    ///
+    /// ```
+    /// struct S { field: u32; }
+    ///
+    /// obj.field = 5;
+    /// ```
+    ///
+    /// is codegen'd to:
+    ///
+    /// ```
+    /// // eval `obj.field`
+    /// u32* member = &obj.field;
+    /// // eval `5`
+    /// u32 tmp_5 = 5;
+    /// // eval assignment
+    /// *member = tmp_5;
+    /// ```
     is_ptr: bool,
 }
 
@@ -58,6 +79,7 @@ impl TmpVar {
         Self { name, is_ptr }
     }
 
+    // Get expression that accesses the object stored in this tmpvar.
     fn access(&self) -> String {
         match self.is_ptr {
             true => format!("/*Deref is_ptr=true*/ *{}", self.name),
@@ -65,6 +87,8 @@ impl TmpVar {
         }
     }
 
+    // Get expression that accesses pointer to the the object stored in
+    // this tmpvar.
     fn access_ptr(&self) -> String {
         match self.is_ptr {
             true => self.name.clone(),
