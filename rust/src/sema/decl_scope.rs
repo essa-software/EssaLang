@@ -6,7 +6,7 @@ use crate::types;
 
 use super::{
     id::{DeclScopeId, FunctionId, StructId},
-    Module, Program,
+    Program,
 };
 
 #[derive(Debug)]

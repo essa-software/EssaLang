@@ -17,6 +17,7 @@ pub struct CodeGen<'data> {
 
 type IoResult<T> = std::result::Result<T, std::io::Error>;
 
+#[allow(dead_code)] // FIXME: FirstArg not used yet
 enum FunctionReturnMethod {
     None,     // Nothing is returned (void/unknown/noreturn)
     Return,   // Returned as C return value
@@ -260,14 +261,6 @@ impl<'data> CodeGen<'data> {
             self.emit_drop_scope(scope)?;
         }
         Ok(())
-    }
-
-    // Returns a name.
-    fn emit_tmp_var_c(&mut self, c_type: &str, debug: &str) -> IoResult<String> {
-        self.tmp_var_counter += 1;
-        let name = format!("$$tmp{}_{}", self.tmp_var_counter, debug.to_string());
-        writeln!(self.out(), "    {} {};", c_type, name)?;
-        Ok(name)
     }
 
     // Emit C declaration of a temporary variable.
