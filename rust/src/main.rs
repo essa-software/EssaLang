@@ -10,6 +10,7 @@ use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
 use argparse::{ArgumentParser, Store, StoreTrue};
 use codegen::CodeGen;
+use log::info;
 
 pub struct CompileArgs {
     machine_readable_errors: bool,
@@ -18,7 +19,7 @@ pub struct CompileArgs {
 // This returns Err only on fatal errors like failing to open a file.
 // For "soft" errors (compilation) this returns false.
 fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
-    eprintln!("Running file: {:?}", path);
+    info!("Running file: {:?}", path);
 
     let mut main_module = compiler::parse_module_from_file(path)?;
 
@@ -29,7 +30,6 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
 
     if !main_module.errors.is_empty() {
         if args.machine_readable_errors {
-            eprintln!("Errors:");
             for error in main_module.errors {
                 // Note: This is the only thing printed on stdout in the
                 // whole program. (The correct program prints nothing)
@@ -69,7 +69,6 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
     let runtime_libs_path = runtime_prefix.join("lib");
     let runtime_include_path = runtime_prefix.join("include");
 
-    eprintln!("calling gcc");
     let mut cmd = std::process::Command::new("gcc");
     cmd
         // c version
@@ -94,11 +93,13 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
         // libs
         .arg("-leslrt");
 
-    eprintln!("Calling: {:?}", cmd);
+    info!("Calling: {:?}", cmd);
     Ok(cmd.spawn()?.wait()?.code().map_or(false, |c| c == 0))
 }
 
 fn main() {
+    env_logger::init();
+
     let mut path = String::new();
     let mut args = CompileArgs {
         machine_readable_errors: false,
@@ -120,7 +121,7 @@ fn main() {
     match compile_file(Path::new(&path), &args) {
         Ok(true) => {}
         Ok(false) => {
-            eprintln!("Compilation failed");
+            info!("Compilation failed");
             std::process::exit(1);
         }
         Err(e) => {

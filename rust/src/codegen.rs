@@ -1,5 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
+use log::debug;
+
 use crate::{
     parser,
     sema::{self, Type},
@@ -218,7 +220,7 @@ impl<'data> CodeGen<'data> {
     }
 
     fn emit_drop_scope(&self, scope: &DropScope) -> IoResult<()> {
-        eprintln!("Emitting drop scope ({} vars)", scope.tmp_vars.len());
+        debug!("Emitting drop scope ({} vars)", scope.tmp_vars.len());
         for var in scope.tmp_vars.iter().rev() {
             self.emit_drop(var.clone())?;
         }

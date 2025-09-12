@@ -25,6 +25,7 @@ use crate::{
 pub use expression::*;
 pub use function::*;
 pub use id::*;
+use log::debug;
 pub use module::*;
 pub use program::*;
 pub use statement::*;
@@ -162,7 +163,7 @@ impl<'tc> TypeCheckerModule<'tc> {
     }
 
     fn lookup_foreign_struct(&self, name: &types::ScopedName) -> Option<&Struct> {
-        eprintln!(
+        debug!(
             "Module lookup foreign struct {} in {} foreign scopes",
             name,
             self.this_module().foreign_decl_scopes.len()
@@ -179,7 +180,7 @@ impl<'tc> TypeCheckerModule<'tc> {
     }
 
     fn lookup_struct(&self, name: &types::ScopedName) -> Option<&Struct> {
-        eprintln!("Module lookup struct {}", name);
+        debug!("Module lookup struct {}", name);
         let tm = self.this_module();
         tm.top_level_decl_scope()
             .lookup_struct_rec(name, self.program())
@@ -459,7 +460,7 @@ impl<'tc> TypeCheckerModule<'tc> {
     }
 
     pub fn typecheck(mut self, mut p_module: parser::Module) {
-        eprintln!("!!! Typecheck Module: {:?}", self.path);
+        debug!("!!! Typecheck Module: {:?}", self.path);
         self.typecheck_imports(&mut p_module);
         let mut bodies = self.typecheck_structs(&mut p_module);
         bodies.extend(self.typecheck_function_decls(&mut p_module));
@@ -576,7 +577,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             })
             .collect::<Vec<_>>();
 
-        eprintln!("Typechecking call to {}", call.to_string(self.program()));
+        debug!("Typechecking call to {}", call.to_string(self.program()));
         let Some(function) = self.tcm.lookup_function(&call) else {
             self.errors.push(CompilationError::new(
                 format!("Function '{}' not found", call.to_string(self.program())),
@@ -589,7 +590,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             };
         };
 
-        eprintln!("Looked up function: {:?}", function.name);
+        debug!("Looked up function: {:?}", function.name);
 
         let mut arguments = HashMap::new();
         // For now we just go in order.
@@ -623,7 +624,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
         let function_id = function.id.unwrap();
         let params_scope_id = function.params_scope;
-        eprintln!(
+        debug!(
             "Function params scope: {:?} (name={})",
             params_scope_id, function.name
         );
@@ -825,7 +826,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                     Some(Type::Struct { id }) => id,
                     Some(Type::RawReference { inner: _ }) => {
                         // Desugar `(object.method)(a,b,c) to ((*object).method)(a,b,c)`
-                        eprintln!("Dereference method {:#?}.{}", object, member);
+                        debug!("Dereference method {:#?}.{}", object, member);
                         return self.typecheck_expression(&parser::ExpressionNode {
                             expression: parser::Expression::Call {
                                 function: Box::new(parser::ExpressionNode {
@@ -956,7 +957,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 }
                 Type::RawReference { inner: _ } => {
                     // Desugar `object.member` to `(*object).member` recursively
-                    eprintln!("Dereference {:#?}.{}", object, member);
+                    debug!("Dereference {:#?}.{}", object, member);
                     return self.typecheck_expression(&parser::ExpressionNode {
                         expression: parser::Expression::MemberAccess {
                             object: Box::new(parser::ExpressionNode {

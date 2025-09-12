@@ -4,6 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use log::debug;
+
 use crate::{error::CompilationError, parser};
 
 pub struct ParseModuleResult {
@@ -20,7 +22,7 @@ pub fn read_file(path: &Path) -> anyhow::Result<Vec<u8>> {
 }
 
 pub fn parse_module_from_file(path: &Path) -> anyhow::Result<ParseModuleResult> {
-    eprintln!("Loading module from {}", path.to_string_lossy());
+    debug!("Loading module from {}", path.to_string_lossy());
 
     let source = read_file(path)?;
 

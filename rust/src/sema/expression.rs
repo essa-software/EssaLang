@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::sema::*;
 
 pub const RANGE_BEGIN: &str = "_begin";
@@ -73,7 +75,7 @@ impl Expression {
             }
             Expression::MemberAccess { object, member } => {
                 let object_type = object.type_(program)?;
-                eprintln!(
+                debug!(
                     "Member access on on object of type {:?}: '{}'",
                     object_type, member
                 );
