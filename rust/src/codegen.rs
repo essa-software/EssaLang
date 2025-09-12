@@ -384,7 +384,7 @@ impl<'data> CodeGen<'data> {
         Ok(())
     }
 
-    fn emit_binary_op(
+    fn emit_expr_binary_op(
         &mut self,
         op: &parser::BinaryOp,
         left: &sema::Expression,
@@ -466,8 +466,103 @@ impl<'data> CodeGen<'data> {
         }
     }
 
+    // Emit appropriate drop procedure for a given tmp var.
+    fn emit_drop(&self, (var, type_): (TmpVar, sema::Type)) -> IoResult<()> {
+        writeln!(self.out(), "    // drop {}", var.name)?;
+        match type_ {
+            Type::Primitive(sema::Primitive::String) => {
+                writeln!(self.out(), "    string_drop({});", var.access())?;
+            }
+            Type::Struct { id } => {
+                // If it has `__drop__()`
+                let struct_ = self.program.get_struct(id);
+                if let Some(drop) = struct_.drop_method {
+                    // Emit simplified to avoid recursion in drop scopes
+                    let fnname = self.mangled_function_name(self.program.get_function(drop));
+                    writeln!(self.out(), "    {}(&{});", fnname, var.access())?;
+                }
+            }
+            _ => { /*noop */ }
+        }
+        Ok(())
+    }
+
+    fn emit_expr_call(
+        &mut self,
+        function_id: sema::id::FunctionId,
+        arguments: &HashMap<sema::VarId, sema::Expression>,
+    ) -> IoResult<Option<TmpVar>> {
+        // var tmp_arg1 = eval_copy(arg1_expr)
+        // var tmp_arg2 = eval_copy(arg2_expr)
+        // ...
+        // var rv = func(move(tmp_arg1), move(tmp_arg2), ...)
+        // yield rv
+        let func = self.program.get_function(function_id);
+
+        if func.should_use_print_vararg_hack() {
+            self.emit_print_call(arguments)?;
+            return Ok(None);
+        }
+
+        // Emit argument evaluation
+        let mut arg_tmps = Vec::new();
+        let scope = self.program.get_scope(func.params_scope);
+        for arg in &scope.vars {
+            let argval = arguments
+                .get(&arg)
+                .expect("missing argument for function call");
+            let var = self.emit_expression_eval_copy(argval)?;
+            // The var is moved into the function call
+            self.mark_tmp_var_as_moved(&var);
+            arg_tmps.push(var);
+        }
+
+        // Emit function call
+        let return_method = func.return_type.as_ref().unwrap().function_return_method();
+        let c_function_name = self.mangled_function_name(&func);
+        match return_method {
+            FunctionReturnMethod::None => {
+                write!(self.out(), "{}(", c_function_name)?;
+                write!(
+                    self.out(),
+                    "{}",
+                    arg_tmps
+                        .iter()
+                        .map(|a| a.access())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?;
+                writeln!(self.out(), ");")?;
+                return Ok(None);
+            }
+            FunctionReturnMethod::Return => {
+                let tmp_var = self.emit_tmp_var(
+                    func.return_type.as_ref().unwrap(),
+                    "rv",
+                    sema::ValueType::RValue,
+                )?;
+                write!(self.out(), "{} = ", tmp_var.access())?;
+                write!(self.out(), "{}(", c_function_name)?;
+                write!(
+                    self.out(),
+                    "{}",
+                    arg_tmps
+                        .iter()
+                        .map(|a| a.access())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?;
+                writeln!(self.out(), ");")?;
+                return Ok(Some(tmp_var));
+            }
+            FunctionReturnMethod::FirstArg => {
+                todo!();
+            }
+        }
+    }
+
     // Returns tmp var with indexing result
-    fn emit_index_access(
+    fn emit_expr_index(
         &mut self,
         indexable: &sema::Expression,
         index: &sema::Expression,
@@ -528,25 +623,169 @@ impl<'data> CodeGen<'data> {
         }
     }
 
-    // Emit appropriate drop procedure for a given tmp var.
-    fn emit_drop(&self, (var, type_): (TmpVar, sema::Type)) -> IoResult<()> {
-        writeln!(self.out(), "    // drop {}", var.name)?;
-        match type_ {
-            Type::Primitive(sema::Primitive::String) => {
-                writeln!(self.out(), "    string_drop({});", var.access())?;
-            }
-            Type::Struct { id } => {
-                // If it has `__drop__()`
-                let struct_ = self.program.get_struct(id);
-                if let Some(drop) = struct_.drop_method {
-                    // Emit simplified to avoid recursion in drop scopes
-                    let fnname = self.mangled_function_name(self.program.get_function(drop));
-                    writeln!(self.out(), "    {}(&{});", fnname, var.access())?;
-                }
-            }
-            _ => { /*noop */ }
+    fn emit_expr_member_access(
+        &mut self,
+        expr: &sema::Expression,
+        object: &sema::Expression,
+        member: &str,
+    ) -> IoResult<TmpVar> {
+        let object_tmp_var = self.emit_expression_eval(object)?.unwrap();
+        let Some(member_type) = expr.type_(self.program) else {
+            panic!("invalid member access expression: {:?}", expr);
+        };
+        let member_tmp_var =
+            self.emit_tmp_var(&member_type, "member", expr.value_type(&self.program))?;
+        writeln!(
+            self.out(),
+            "    {} = &({}).{};",
+            member_tmp_var.access_ptr(),
+            object_tmp_var.access(),
+            member
+        )?;
+        return Ok(member_tmp_var);
+    }
+
+    fn emit_expr_bool_literal(&mut self, value: bool) -> IoResult<TmpVar> {
+        let tmp_var = self.emit_tmp_var(
+            &sema::Type::Primitive(sema::Primitive::Bool),
+            "bool",
+            sema::ValueType::RValue,
+        )?;
+        writeln!(self.out(), "{} = {};", tmp_var.access(), value)?;
+        Ok(tmp_var)
+    }
+
+    fn emit_expr_int_literal(&mut self, value: u64) -> IoResult<TmpVar> {
+        let tmp_var = self.emit_tmp_var(
+            &sema::Type::Primitive(sema::Primitive::U32),
+            "int",
+            sema::ValueType::RValue,
+        )?;
+        writeln!(self.out(), "{} = {};", tmp_var.access(), value)?;
+        return Ok(tmp_var);
+    }
+
+    fn emit_expr_string_literal(&mut self, value: &str) -> IoResult<TmpVar> {
+        let tmp_var = self.emit_tmp_var(
+            &sema::Type::Primitive(sema::Primitive::StaticString),
+            "str",
+            sema::ValueType::RValue,
+        )?;
+        writeln!(
+            self.out(),
+            "{} = \"{}\";",
+            tmp_var.access(),
+            escape_c(value)
+        )?;
+        return Ok(tmp_var);
+    }
+
+    fn emit_expr_var_ref(&mut self, var_id: sema::id::VarId) -> IoResult<TmpVar> {
+        // in most cases we can just refer directly.
+        return Ok(self.variable_names.get(&var_id).cloned().unwrap_or(TmpVar {
+            name: format!("INVALID_VAR_ID_{}", var_id.0.mangle()),
+            is_ptr: false,
+        }));
+    }
+
+    fn emit_expr_array_literal(
+        &mut self,
+        expr: &sema::Expression,
+        values: &[sema::Expression],
+    ) -> IoResult<TmpVar> {
+        let type_ = expr.type_(self.program).unwrap();
+        let tmp_var = self.emit_tmp_var(&type_, "array", sema::ValueType::RValue)?;
+        for (i, value) in values.iter().enumerate() {
+            let value_tmp = self
+                .emit_expression_eval(value)?
+                .expect("void expression in array literal");
+            writeln!(
+                self.out(),
+                "    ({})[{}] = {};",
+                tmp_var.access(),
+                i,
+                value_tmp.access()
+            )?;
         }
-        Ok(())
+        Ok(tmp_var)
+    }
+
+    fn emit_expr_struct_literal(
+        &mut self,
+        struct_id: sema::id::StructId,
+        fields: &HashMap<String, sema::Expression>,
+    ) -> IoResult<TmpVar> {
+        // Struct { field1: expr1, field2: expr2 } -->
+        // structX tmp = {};
+        // tmp.field1 = expr1;
+        // tmp.field2 = expr2;
+        let type_ = Type::Struct { id: struct_id };
+        let tmp_var = self.emit_tmp_var(&type_, "struct", sema::ValueType::RValue)?;
+
+        for (field_name, field_expr) in fields {
+            let field_tmp_var = self.emit_expression_eval(field_expr)?;
+            writeln!(
+                self.out(),
+                "    ({}).{} = {};",
+                tmp_var.access(),
+                field_name,
+                field_tmp_var.unwrap().access()
+            )?;
+        }
+
+        Ok(tmp_var)
+    }
+
+    fn emit_expr_char_literal(&mut self, value: char) -> IoResult<TmpVar> {
+        let tmp_var = self.emit_tmp_var(
+            &sema::Type::Primitive(sema::Primitive::Char),
+            "char",
+            sema::ValueType::RValue,
+        )?;
+        // FIXME: escape
+        writeln!(
+            self.out(),
+            "{} = (esl_char) {{ .cp = {} }};",
+            tmp_var.access(),
+            value as u32
+        )?;
+        return Ok(tmp_var);
+    }
+
+    fn emit_expr_dereference(&mut self, pointer: &sema::Expression) -> IoResult<TmpVar> {
+        let expr_tmp_var = self.emit_expression_eval(pointer)?;
+
+        // We can refer directly to the eval'led tmpvar but
+        // change type to lvalue.
+
+        let name = expr_tmp_var.unwrap().name;
+        writeln!(self.out(), "    // dereference expr tmpvar={}", name)?;
+        Ok(TmpVar::new(name, true))
+    }
+
+    fn emit_expr_reference(
+        &mut self,
+        expr: &sema::Expression,
+        value: &sema::Expression,
+    ) -> IoResult<TmpVar> {
+        writeln!(self.out(), "    // reference eval")?;
+        let expr_tmp_var = self.emit_expression_eval(value)?;
+        writeln!(self.out(), "    // reference tmpvar")?;
+        let tmp_var = self.emit_tmp_var(
+            &expr.type_(self.program).unwrap(),
+            "ref",
+            sema::ValueType::RValue,
+        )?;
+
+        writeln!(self.out(), "    // reference assignment")?;
+        writeln!(
+            self.out(),
+            "    {} = &{};",
+            tmp_var.access(),
+            expr_tmp_var.unwrap().access(),
+        )?;
+
+        Ok(tmp_var)
     }
 
     // Emit ESL expression evaluation as C statements.
@@ -557,231 +796,40 @@ impl<'data> CodeGen<'data> {
             sema::Expression::Call {
                 function_id,
                 arguments,
-            } => {
-                // var tmp_arg1 = eval_copy(arg1_expr)
-                // var tmp_arg2 = eval_copy(arg2_expr)
-                // ...
-                // var rv = func(move(tmp_arg1), move(tmp_arg2), ...)
-                // yield rv
-                let func = self
-                    .program
-                    .get_function(function_id.expect("invalid function id"));
-
-                if func.should_use_print_vararg_hack() {
-                    self.emit_print_call(arguments)?;
-                    return Ok(None);
-                }
-
-                // Emit argument evaluation
-                let mut arg_tmps = Vec::new();
-                let scope = self.program.get_scope(func.params_scope);
-                for arg in &scope.vars {
-                    let argval = arguments
-                        .get(&arg)
-                        .expect("missing argument for function call");
-                    let var = self.emit_expression_eval_copy(argval)?;
-                    // The var is moved into the function call
-                    self.mark_tmp_var_as_moved(&var);
-                    arg_tmps.push(var);
-                }
-
-                // Emit function call
-                let return_method = func.return_type.as_ref().unwrap().function_return_method();
-                let c_function_name = self.mangled_function_name(&func);
-                match return_method {
-                    FunctionReturnMethod::None => {
-                        write!(self.out(), "{}(", c_function_name)?;
-                        write!(
-                            self.out(),
-                            "{}",
-                            arg_tmps
-                                .iter()
-                                .map(|a| a.access())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )?;
-                        writeln!(self.out(), ");")?;
-                        return Ok(None);
-                    }
-                    FunctionReturnMethod::Return => {
-                        let tmp_var = self.emit_tmp_var(
-                            func.return_type.as_ref().unwrap(),
-                            "rv",
-                            sema::ValueType::RValue,
-                        )?;
-                        write!(self.out(), "{} = ", tmp_var.access())?;
-                        write!(self.out(), "{}(", c_function_name)?;
-                        write!(
-                            self.out(),
-                            "{}",
-                            arg_tmps
-                                .iter()
-                                .map(|a| a.access())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )?;
-                        writeln!(self.out(), ");")?;
-                        return Ok(Some(tmp_var));
-                    }
-                    FunctionReturnMethod::FirstArg => {
-                        todo!();
-                    }
-                }
-            }
+            } => self.emit_expr_call(function_id.unwrap(), arguments),
             sema::Expression::Index { indexable, index } => {
-                Ok(Some(self.emit_index_access(indexable, index)?))
+                Ok(Some(self.emit_expr_index(indexable, index)?))
             }
             sema::Expression::MemberAccess { object, member } => {
-                let object_tmp_var = self.emit_expression_eval(object)?.unwrap();
-                let Some(member_type) = expr.type_(self.program) else {
-                    panic!("invalid member access expression: {:?}", expr);
-                };
-                let member_tmp_var =
-                    self.emit_tmp_var(&member_type, "member", expr.value_type(&self.program))?;
-                writeln!(
-                    self.out(),
-                    "    {} = &({}).{};",
-                    member_tmp_var.access_ptr(),
-                    object_tmp_var.access(),
-                    member
-                )?;
-                return Ok(Some(member_tmp_var));
+                Ok(Some(self.emit_expr_member_access(expr, object, member)?))
             }
             sema::Expression::BoolLiteral { value } => {
-                let tmp_var = self.emit_tmp_var(
-                    &sema::Type::Primitive(sema::Primitive::Bool),
-                    "bool",
-                    sema::ValueType::RValue,
-                )?;
-                writeln!(self.out(), "{} = {};", tmp_var.access(), value)?;
-                return Ok(Some(tmp_var));
+                Ok(Some(self.emit_expr_bool_literal(*value)?))
             }
-            sema::Expression::IntLiteral { value } => {
-                let tmp_var = self.emit_tmp_var(
-                    &sema::Type::Primitive(sema::Primitive::U32),
-                    "int",
-                    sema::ValueType::RValue,
-                )?;
-                writeln!(self.out(), "{} = {};", tmp_var.access(), value)?;
-                return Ok(Some(tmp_var));
-            }
+            sema::Expression::IntLiteral { value } => Ok(Some(self.emit_expr_int_literal(*value)?)),
             sema::Expression::StringLiteral { value } => {
-                let tmp_var = self.emit_tmp_var(
-                    &sema::Type::Primitive(sema::Primitive::StaticString),
-                    "str",
-                    sema::ValueType::RValue,
-                )?;
-                writeln!(
-                    self.out(),
-                    "{} = \"{}\";",
-                    tmp_var.access(),
-                    escape_c(value)
-                )?;
-                return Ok(Some(tmp_var));
+                Ok(Some(self.emit_expr_string_literal(value)?))
             }
-            sema::Expression::VarRef(var_id) => {
-                // in most cases we can just refer directly.
-                return Ok(Some(
-                    self.variable_names
-                        .get(&var_id.expect("invalid var ref"))
-                        .cloned()
-                        .unwrap_or(TmpVar {
-                            name: format!("INVALID_VAR_ID_{}", var_id.unwrap().0.mangle()),
-                            is_ptr: false,
-                        }),
-                ));
-            }
+            sema::Expression::VarRef(var_id) => Ok(Some(self.emit_expr_var_ref(var_id.unwrap())?)),
             sema::Expression::BinaryOp { op, left, right } => {
                 let out_type = expr.type_(self.program).unwrap();
-                Ok(self.emit_binary_op(op, left, right, &out_type)?)
+                Ok(self.emit_expr_binary_op(op, left, right, &out_type)?)
             }
             sema::Expression::ArrayLiteral {
                 value_type: _,
                 values,
-            } => {
-                let type_ = expr.type_(self.program).unwrap();
-                let tmp_var = self.emit_tmp_var(&type_, "array", sema::ValueType::RValue)?;
-                for (i, value) in values.iter().enumerate() {
-                    let value_tmp = self
-                        .emit_expression_eval(value)?
-                        .expect("void expression in array literal");
-                    writeln!(
-                        self.out(),
-                        "    ({})[{}] = {};",
-                        tmp_var.access(),
-                        i,
-                        value_tmp.access()
-                    )?;
-                }
-                Ok(Some(tmp_var))
-            }
-            sema::Expression::StructLiteral { struct_id, fields } => {
-                // Struct { field1: expr1, field2: expr2 } -->
-                // structX tmp = {};
-                // tmp.field1 = expr1;
-                // tmp.field2 = expr2;
-                let type_ = Type::Struct {
-                    id: struct_id.unwrap(),
-                };
-                let tmp_var = self.emit_tmp_var(&type_, "struct", sema::ValueType::RValue)?;
-
-                for (field_name, field_expr) in fields {
-                    let field_tmp_var = self.emit_expression_eval(field_expr)?;
-                    writeln!(
-                        self.out(),
-                        "    ({}).{} = {};",
-                        tmp_var.access(),
-                        field_name,
-                        field_tmp_var.unwrap().access()
-                    )?;
-                }
-
-                Ok(Some(tmp_var))
-            }
+            } => Ok(Some(self.emit_expr_array_literal(expr, values)?)),
+            sema::Expression::StructLiteral { struct_id, fields } => Ok(Some(
+                self.emit_expr_struct_literal(struct_id.unwrap(), fields)?,
+            )),
             sema::Expression::CharLiteral { value } => {
-                let tmp_var = self.emit_tmp_var(
-                    &sema::Type::Primitive(sema::Primitive::Char),
-                    "char",
-                    sema::ValueType::RValue,
-                )?;
-                // FIXME: escape
-                writeln!(
-                    self.out(),
-                    "{} = (esl_char) {{ .cp = {} }};",
-                    tmp_var.access(),
-                    *value as u32
-                )?;
-                return Ok(Some(tmp_var));
+                Ok(Some(self.emit_expr_char_literal(*value)?))
             }
             sema::Expression::Dereference { pointer } => {
-                let expr_tmp_var = self.emit_expression_eval(pointer)?;
-
-                // We can refer directly to the eval'led tmpvar but
-                // change type to lvalue.
-
-                let name = expr_tmp_var.unwrap().name;
-                writeln!(self.out(), "    // dereference expr tmpvar={}", name)?;
-                Ok(Some(TmpVar::new(name, true)))
+                Ok(Some(self.emit_expr_dereference(pointer)?))
             }
             sema::Expression::Reference { value } => {
-                writeln!(self.out(), "    // reference eval")?;
-                let expr_tmp_var = self.emit_expression_eval(value)?;
-                writeln!(self.out(), "    // reference tmpvar")?;
-                let tmp_var = self.emit_tmp_var(
-                    &expr.type_(self.program).unwrap(),
-                    "ref",
-                    sema::ValueType::RValue,
-                )?;
-
-                writeln!(self.out(), "    // reference assignment")?;
-                writeln!(
-                    self.out(),
-                    "    {} = &{};",
-                    tmp_var.access(),
-                    expr_tmp_var.unwrap().access(),
-                )?;
-
-                Ok(Some(tmp_var))
+                Ok(Some(self.emit_expr_reference(expr, value)?))
             }
         }
     }
