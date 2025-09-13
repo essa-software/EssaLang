@@ -171,7 +171,7 @@ impl<'data> CodeGen<'data> {
                 inner: _,
                 mut_elements: _,
             } => todo!(),
-            sema::Type::Struct { id } => write!(self.out(), "struct{}", id.0.mangle())?,
+            sema::Type::Struct { id: _ } => write!(self.out(), "{}", ty.mangle(self.program))?,
             sema::Type::RawReference { inner } => {
                 self.emit_type(inner)?;
                 write!(self.out(), "/*ref*/ *")?;
@@ -1094,7 +1094,13 @@ impl<'data> CodeGen<'data> {
 
         for module in self.program.modules() {
             for struct_ in module.structs() {
-                let struct_name = format!("struct{}", struct_.id.unwrap().0.mangle());
+                if struct_.is_extern {
+                    continue;
+                }
+                let struct_name = Type::Struct {
+                    id: struct_.id.unwrap(),
+                }
+                .mangle(self.program);
                 writeln!(self.out(), "typedef struct _{} {{", struct_name)?;
                 for field in struct_.fields.iter() {
                     self.emit_type(&field.type_.as_ref().unwrap())?;

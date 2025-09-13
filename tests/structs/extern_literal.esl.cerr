@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot construct extern struct 'ExternTest' using struct literal", range: 70..73, path: "../../tests/structs/extern_literal.esl" }

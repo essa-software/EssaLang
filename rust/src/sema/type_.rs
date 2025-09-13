@@ -86,7 +86,14 @@ impl Type {
                 if *mut_elements { "mut" } else { "const" },
                 inner.mangle(program)
             ),
-            Type::Struct { id } => format!("struct_{}", program.get_struct(*id).name),
+            Type::Struct { id } => {
+                let struct_ = program.get_struct(*id);
+                if struct_.is_extern {
+                    struct_.name.clone()
+                } else {
+                    format!("struct_{}", struct_.name)
+                }
+            }
             Type::RawReference { inner } => format!("ref_{}", inner.mangle(program)),
         }
     }

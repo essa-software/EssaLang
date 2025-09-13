@@ -1,0 +1,5 @@
+extern struct ExternTest { }
+
+func main() {
+    let test = ExternTest { };
+}

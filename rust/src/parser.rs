@@ -291,6 +291,7 @@ pub struct Import {
 
 #[derive(Debug)]
 pub struct Struct {
+    pub extern_: bool,
     pub name: String,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FunctionDecl>,
@@ -1057,20 +1058,7 @@ impl<'a> Parser<'a> {
 
     // function-impl ::= "func" name "(" ")" [ ":" type ] "{" statement ... "}"
     // function-impl ::= "extern" "func" name "(" ")" [ ":" type ] ";" // no body
-    pub fn consume_function_decl(&mut self) -> Option<FunctionDecl> {
-        // maybe "extern"
-        let extern_;
-        if let Some(next) = self.peek() {
-            if matches!(next.type_, lexer::TokenType::KeywordExtern) {
-                let _ = self.consume();
-                extern_ = true;
-            } else {
-                extern_ = false;
-            }
-        } else {
-            extern_ = false;
-        }
-
+    pub fn consume_function_decl(&mut self, extern_: bool) -> Option<FunctionDecl> {
         // "func"
         let _ = self.consume();
 
@@ -1190,8 +1178,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // struct-decl ::= "struct" name "{" [name: type]* "}"
-    pub fn consume_struct_decl(&mut self) -> Option<Struct> {
+    // struct-decl ::= ["extern"] "struct" name "{" [name: type]* "}"
+    pub fn consume_struct_decl(&mut self, extern_: bool) -> Option<Struct> {
         // "struct"
         let _ = self.consume();
 
@@ -1213,7 +1201,7 @@ impl<'a> Parser<'a> {
 
                 // maybe method?
                 if matches!(next.type_, lexer::TokenType::KeywordFunc) {
-                    let method = self.consume_function_decl()?;
+                    let method = self.consume_function_decl(false)?;
                     methods.push(method);
                     continue;
                 }
@@ -1247,6 +1235,7 @@ impl<'a> Parser<'a> {
         let _ = self.expect_token(&lexer::TokenType::CurlyClose);
 
         Some(Struct {
+            extern_,
             name: name.slice_str(&self.input).unwrap().into(),
             fields,
             methods,
@@ -1270,13 +1259,40 @@ impl<'a> Parser<'a> {
                     }
                 }
                 lexer::TokenType::KeywordStruct => {
-                    if let Some(a) = self.consume_struct_decl() {
+                    if let Some(a) = self.consume_struct_decl(false) {
                         structs.push(a);
                     }
                 }
-                lexer::TokenType::KeywordFunc | lexer::TokenType::KeywordExtern => {
-                    if let Some(a) = self.consume_function_decl() {
+                lexer::TokenType::KeywordFunc => {
+                    if let Some(a) = self.consume_function_decl(false) {
                         functions.push(a);
+                    }
+                }
+                lexer::TokenType::KeywordExtern => {
+                    // Extern func/struct
+                    let _ = self.consume(); // "extern"
+                    let next = self.peek();
+                    if let Some(next) = next {
+                        match next.type_ {
+                            lexer::TokenType::KeywordFunc => {
+                                if let Some(a) = self.consume_function_decl(true) {
+                                    functions.push(a);
+                                }
+                            }
+                            lexer::TokenType::KeywordStruct => {
+                                if let Some(a) = self.consume_struct_decl(true) {
+                                    structs.push(a);
+                                }
+                            }
+                            _ => {
+                                self.errors.push(CompilationError::new(
+                                    "Expected 'func' or 'struct' after 'extern'".into(),
+                                    next.range.clone(),
+                                    self.path(),
+                                ));
+                                let _ = self.consume(); //whatever
+                            }
+                        }
                     }
                 }
                 _ => {

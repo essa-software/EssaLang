@@ -7,6 +7,7 @@ add_library(eslrt
     src/prelude/ops.cpp
     src/prelude/panic.cpp
     src/prelude/string.cpp
+    src/prelude/test.cpp
 )
 target_include_directories(eslrt PUBLIC include)
 

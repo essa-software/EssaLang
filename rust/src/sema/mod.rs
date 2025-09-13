@@ -325,6 +325,7 @@ impl<'tc> TypeCheckerModule<'tc> {
         let mut function_bodies_to_check = vec![];
         for decl in p_module.structs.drain(..) {
             let parser::Struct {
+                extern_,
                 name,
                 fields,
                 methods,
@@ -340,6 +341,7 @@ impl<'tc> TypeCheckerModule<'tc> {
                 parent_decl_scope: tlds_id,
                 struct_decl_scope,
                 name: name.clone(),
+                is_extern: extern_,
                 fields: vec![],  // to be filled later
                 methods: vec![], // to be filled later
                 drop_method: None,
@@ -1335,6 +1337,21 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
         let struct_ = struct_.unwrap();
         let struct_id = struct_.id.unwrap();
+
+        if struct_.is_extern {
+            self.errors.push(CompilationError::new(
+                format!(
+                    "Cannot construct extern struct '{}' using struct literal",
+                    struct_.name
+                ),
+                range.clone(),
+                self.tcm.path.clone(),
+            ));
+            return Expression::StructLiteral {
+                struct_id: None,
+                fields: HashMap::new(),
+            };
+        }
 
         let mut uninitialized_fields = struct_
             .fields

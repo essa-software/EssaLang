@@ -13,6 +13,7 @@ pub struct Struct {
     pub parent_decl_scope: DeclScopeId,
     // Decl scope the struct's methods and nested structs are in
     pub struct_decl_scope: DeclScopeId,
+    pub is_extern: bool,
     pub name: String,
     pub fields: Vec<Field>,
     pub methods: Vec<FunctionId>,
