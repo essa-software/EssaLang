@@ -22,10 +22,11 @@ use crate::{
     types,
 };
 
+use log::debug;
+
 pub use expression::*;
 pub use function::*;
 pub use id::*;
-use log::debug;
 pub use module::*;
 pub use program::*;
 pub use statement::*;
