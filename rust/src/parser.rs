@@ -21,7 +21,7 @@ pub struct FunctionArg {
     pub value: ExpressionNode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOp {
     Range, // ..
 
@@ -145,6 +145,31 @@ impl BinaryOp {
             Self::Range => "range",
             Self::LogicalAnd => "and",
             Self::LogicalOr => "or",
+        }
+    }
+
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            Self::CmpEquals => "==",
+            Self::CmpNotEquals => "!=",
+            Self::CmpLess => "<",
+            Self::CmpLessEq => "<=",
+            Self::CmpGreater => ">",
+            Self::CmpGreaterEq => ">=",
+            Self::Add => "+",
+            Self::Sub => "-",
+            Self::Mul => "*",
+            Self::Div => "/",
+            Self::Mod => "%",
+            Self::Assignment => "=",
+            Self::AssAdd => "+=",
+            Self::AssSub => "-=",
+            Self::AssMul => "*=",
+            Self::AssDiv => "/=",
+            Self::AssMod => "%=",
+            Self::Range => "..",
+            Self::LogicalAnd => "&&",
+            Self::LogicalOr => "||",
         }
     }
 }

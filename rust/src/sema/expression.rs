@@ -5,7 +5,7 @@ use crate::sema::*;
 pub const RANGE_BEGIN: &str = "_begin";
 pub const RANGE_END: &str = "_end";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Call {
         function_id: Option<FunctionId>,
@@ -51,6 +51,13 @@ pub enum Expression {
     Reference {
         value: Box<Expression>,
     },
+    /// No-op that is required to make typechecker believe the `expr`
+    /// is of type `to`. Not accessible to user code and potentially
+    /// unsafe!
+    ImplicitCast {
+        to: Type,
+        expr: Box<Expression>,
+    },
 }
 
 #[derive(PartialEq, Eq)]
@@ -87,7 +94,7 @@ impl Expression {
                     Type::Primitive(Primitive::Range) => {
                         // Hacky special-case: range.begin, range.end
                         let tp = match member.as_str() {
-                            RANGE_BEGIN | RANGE_END => Some(Type::Primitive(Primitive::U32)),
+                            RANGE_BEGIN | RANGE_END => Some(Type::Primitive(Primitive::USize)),
                             _ => None,
                         };
                         tp
@@ -96,18 +103,25 @@ impl Expression {
                 }
             }
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
-            Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
+            Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::LiteralInt)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),
             Expression::VarRef(var_id) => var_id.and_then(|id| program.get_var(id).type_.clone()),
-            Expression::BinaryOp {
-                op,
-                left: _,
-                right: _,
-            } => match op.class() {
+            Expression::BinaryOp { op, left, right } => match op.class() {
                 BinOpClass::Comparison => Some(Type::Primitive(Primitive::Bool)),
                 BinOpClass::Assignment => Some(Type::Primitive(Primitive::Void)),
                 BinOpClass::Additive | BinOpClass::Multiplicative => {
-                    Some(Type::Primitive(Primitive::U32))
+                    // if one of left/right is literal int, return the other type
+                    let left_type = left.type_(program)?;
+                    let right_type = right.type_(program)?;
+                    if left_type == Type::Primitive(Primitive::LiteralInt) {
+                        Some(right_type)
+                    } else if right_type == Type::Primitive(Primitive::LiteralInt) {
+                        Some(left_type)
+                    } else if left_type == right_type {
+                        Some(left_type)
+                    } else {
+                        None
+                    }
                 }
                 BinOpClass::Range => Some(Type::Primitive(Primitive::Range)),
                 BinOpClass::Logical => Some(Type::Primitive(Primitive::Bool)),
@@ -137,6 +151,26 @@ impl Expression {
                     inner: Box::new(value_type),
                 })
             }
+            Expression::ImplicitCast { to, expr: _ } => Some(to.clone()),
+        }
+    }
+
+    /// Some expressions return general types which must not appear
+    /// in codegen e.g LiteralInt. If we have some hint for conversion
+    /// we can just use `type_()`. However there are some cases (e.g var
+    /// decl without explicit type) where we don't have such hint, we
+    /// then have to know _some_ specific repr type to use.
+    ///
+    /// This function allows this by always returning a codegen-
+    /// representable type.
+    ///
+    /// The return value:
+    /// - is Some if type_() is Some
+    /// - type_() is always convertible to default_repr_type()
+    pub fn default_repr_type(&self, program: &Program) -> Option<Type> {
+        match self {
+            Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::U32)),
+            _ => self.type_(program),
         }
     }
 

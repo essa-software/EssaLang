@@ -1,1 +1,1 @@
-Panic: Overflow in multiplication
+Panic: Overflow in `u32` multiplication

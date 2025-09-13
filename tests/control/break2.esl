@@ -1,5 +1,5 @@
 func main() {
-    mut c = 0;
+    mut c: usize = 0;
     for (let i of 0..10) {
         c = i;
         if (i == 5) {

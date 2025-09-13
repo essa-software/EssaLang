@@ -1,1 +1,1 @@
-Panic: Underflow in subtraction
+Panic: Underflow in `u32` subtraction

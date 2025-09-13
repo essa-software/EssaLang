@@ -31,11 +31,13 @@ void _esl_print_bool(void const* data) {
 
 void _esl_print_range(void const* data) {
     esl_range const* range = (esl_range const*)data;
-    printf("%u..%u", range->_begin, range->_end);
+    printf("%zu..%zu", range->_begin, range->_end);
 }
+
 void _esl_print_static_string(void const* data) {
     printf("%s", (const char*)data);
 }
+
 void _esl_print_string(void const* data) {
     esl_string const* s = (esl_string const*)data;
     printf("%.*s", (int)s->_size, (char*)s->_data);
@@ -43,5 +45,9 @@ void _esl_print_string(void const* data) {
 
 void _esl_print_u32(void const* data) {
     printf("%u", *(esl_u32 const*)data);
+}
+
+void _esl_print_usize(void const* data) {
+    printf("%zu", *(esl_usize const*)data);
 }
 }

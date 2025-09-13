@@ -1,1 +1,1 @@
-Panic: Overflow in addition
+Panic: Overflow in `u32` addition

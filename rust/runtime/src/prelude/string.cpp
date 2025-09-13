@@ -19,7 +19,7 @@ void string_drop(esl_string s) {
     free(s._data);
 }
 
-esl_u32 str_size(esl_static_string s) {
+esl_usize str_size(esl_static_string s) {
     return strlen(s);
 }
 }

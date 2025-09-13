@@ -136,8 +136,14 @@ impl<'data> CodeGen<'data> {
             sema::Type::Primitive(sema::Primitive::Void) => {
                 self.out().write_all("void".as_bytes())?
             }
+            sema::Type::Primitive(sema::Primitive::LiteralInt) => {
+                self.out().write_all("FIXME_LITERAL_INT".as_bytes())?
+            }
             sema::Type::Primitive(sema::Primitive::U32) => {
                 self.out().write_all("esl_u32".as_bytes())?
+            }
+            sema::Type::Primitive(sema::Primitive::USize) => {
+                self.out().write_all("esl_usize".as_bytes())?
             }
             sema::Type::Primitive(sema::Primitive::Char) => {
                 self.out().write_all("esl_char".as_bytes())?
@@ -346,7 +352,11 @@ impl<'data> CodeGen<'data> {
                     "_esl_print_static_string",
                 Some(sema::Type::Primitive(sema::Primitive::String)) => "_esl_print_string",
                 Some(sema::Type::Primitive(sema::Primitive::U32)) => "_esl_print_u32",
-                _ => todo!(),
+                Some(sema::Type::Primitive(sema::Primitive::USize)) => "_esl_print_usize",
+                _ => todo!(
+                    "print {}",
+                    arg.type_(self.program).unwrap().name(self.program)
+                ),
             }
         )?;
         writeln!(
@@ -849,6 +859,7 @@ impl<'data> CodeGen<'data> {
             sema::Expression::Reference { value } => {
                 Ok(Some(self.emit_expr_reference(expr, value)?))
             }
+            sema::Expression::ImplicitCast { to: _, expr } => self.emit_expression_eval(expr),
         }
     }
 
@@ -892,6 +903,7 @@ impl<'data> CodeGen<'data> {
                 }
                 Ok(())
             }
+            sema::Expression::ImplicitCast { to: _, expr } => self.emit_expression_into(expr, var),
             _ => {
                 let tmp_var = self.emit_expression_eval_copy(expr)?;
                 self.emit_move(&tmp_var, &var.name)

@@ -16,5 +16,6 @@ void _esl_print_range(void const* data);
 void _esl_print_static_string(void const* data);
 void _esl_print_string(void const* data);
 void _esl_print_u32(void const* data);
+void _esl_print_usize(void const* data);
 
 _END_DECLS

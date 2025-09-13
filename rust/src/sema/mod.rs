@@ -199,6 +199,7 @@ impl<'tc> TypeCheckerModule<'tc> {
             parser::Type::Simple(name) => match name.as_str() {
                 "void" => Some(Type::Primitive(Primitive::Void)),
                 "u32" => Some(Type::Primitive(Primitive::U32)),
+                "usize" => Some(Type::Primitive(Primitive::USize)),
                 "char" => Some(Type::Primitive(Primitive::Char)),
                 "bool" => Some(Type::Primitive(Primitive::Bool)),
                 "string" => Some(Type::Primitive(Primitive::String)),
@@ -611,6 +612,12 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                     ));
                     continue;
                 };
+                let expr = self
+                    .generate_implicit_conversion_expr(
+                        expr.clone(),
+                        &expr.default_repr_type(self.program()).unwrap(),
+                    )
+                    .unwrap();
                 let var = Var::new(Some(type_), format!("arg{}", i), false);
                 let id = self.this_module_mut().add_var(var);
                 arguments.insert(id, expr);
@@ -644,24 +651,15 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 ));
                 break;
             });
-            let expr_type = expr.type_(&self.program());
-            let expr_value_type = expr.value_type(&self.program());
-            arguments.insert(param, expr);
 
             let var = self.program().get_var(param);
-            if let (Some(param_type), Some(expr_type)) = (var.type_.clone(), expr_type) {
-                if !self.is_type_convertible(&param_type, &expr_type) {
-                    self.errors.push(CompilationError::new(
-                        format!(
-                            "Cannot convert '{}' to '{}' for argument {}",
-                            expr_type.name(&self.program()),
-                            param_type.name(&self.program()),
-                            i
-                        ),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
+            let param_type = var.type_.as_ref();
+            let converted_expr =
+                self.generate_implicit_conversion_expr(expr.clone(), param_type.unwrap());
+            if let (Some(expr), Some(param_type)) = (converted_expr, param_type) {
+                let expr_type = expr.type_(&self.program()).unwrap();
+                let expr_value_type = expr.value_type(&self.program());
+                arguments.insert(param, expr);
 
                 // Enforce noncopyable types
                 if expr_value_type != ValueType::RValue && !expr_type.is_copyable(self.program()) {
@@ -674,6 +672,21 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         range.clone(),
                         self.tcm.path.clone(),
                     ));
+                }
+            } else {
+                let expr_type = expr.type_(&self.program()).unwrap();
+                if let Some(param_type) = param_type {
+                    self.errors.push(CompilationError::new(
+                        format!(
+                            "Cannot convert '{}' to '{}' for argument {}",
+                            expr_type.name(&self.program()),
+                            param_type.name(&self.program()),
+                            i
+                        ),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                    arguments.insert(param, expr);
                 }
             }
         }
@@ -702,82 +715,230 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
-    fn is_type_convertible(&self, to: &Type, from: &Type) -> bool {
-        // Special case: EmptyArray can be converted to:
-        // - any Array
-        if matches!(from, Type::Primitive(Primitive::EmptyArray))
-            && matches!(to, Type::Array { .. })
+    /// Returns index of an overload from `candidates` that best matches
+    /// to `arg_types`. If no match found, returns None.
+    /// The returned overload takes into account implicit conversions
+    /// and default repr types, but exact matches are preferred.
+    ///
+    /// Returns: Overload index, converted exprs.
+    fn select_overload(
+        &self,
+        candidates: &[Vec<Type>],
+        args: &[Expression],
+    ) -> Option<(usize, Vec<Expression>)> {
+        debug!("Selecting overload for args: {:?}", args);
+
+        // 1. first to try exact match
+        let arg_types = args
+            .iter()
+            .map(|arg| arg.type_(&self.program()))
+            .collect::<Option<Vec<_>>>()?;
+
+        if let Some(s) = candidates
+            .iter()
+            .position(|overload| *overload == arg_types)
         {
-            return true;
+            return Some((s, args.to_vec()));
         }
 
-        // Strict type everything else
-        return to == from;
+        // 2. try with conversion
+        for (s, overload) in candidates.iter().enumerate() {
+            if overload.len() != arg_types.len() {
+                continue;
+            }
+            // Check if each arg is implicitly convertible to candidate's corresponding type
+            let args = overload
+                .iter()
+                .zip(args.iter())
+                .map(|(to, from)| self.generate_implicit_conversion_expr(from.clone(), to))
+                .collect();
+            if let Some(args) = args {
+                debug!("overload found with conversion: {:?}", overload);
+                return Some((s, args));
+            }
+        }
+
+        // nothing found :(
+        None
     }
 
-    fn check_operator_types(
-        &mut self,
-        op: parser::BinaryOp,
-        left: Type,
-        right: Type,
-        range: &Range<usize>,
-    ) {
+    /// Used in cases where implicit conversion is allowed. E.g
+    /// for Range constructor
+    fn generate_implicit_conversion_expr(
+        &self,
+        from: Expression,
+        to_type: &Type,
+    ) -> Option<Expression> {
+        let from_type = from.type_(&self.program())?;
+
+        if from_type == *to_type {
+            return Some(from); // nothing to do
+        }
+
+        match (from_type, to_type) {
+            // empty array to any array
+            (Type::Primitive(Primitive::EmptyArray), Type::Array { .. }) => {
+                Some(Expression::ImplicitCast {
+                    to: to_type.clone(),
+                    expr: Box::new(from),
+                })
+            }
+            (Type::Primitive(Primitive::LiteralInt), r) if r.is_integer() => {
+                Some(Expression::ImplicitCast {
+                    to: to_type.clone(),
+                    expr: Box::new(from),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn operator_overloads(op: parser::BinaryOp) -> Vec<Vec<Type>> {
         match op.class() {
-            BinOpClass::Multiplicative | BinOpClass::Additive => {
-                if !matches!(left, Type::Primitive(Primitive::U32))
-                    || !matches!(right, Type::Primitive(Primitive::U32))
-                {
-                    self.errors.push(CompilationError::new(
-                        "Invalid types for arithmetic operator".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
+            BinOpClass::Range => vec![
+                // _esl_oprange_usize_usize
+                vec![
+                    Type::Primitive(Primitive::USize),
+                    Type::Primitive(Primitive::USize),
+                ],
+            ],
+            BinOpClass::Multiplicative | BinOpClass::Additive => vec![
+                // _esl_op[add,sub,mul,div,mod]_u32_u32
+                vec![
+                    Type::Primitive(Primitive::U32),
+                    Type::Primitive(Primitive::U32),
+                ],
+                // _esl_op[add,sub,mul,div,mod]_usize_usize
+                vec![
+                    Type::Primitive(Primitive::USize),
+                    Type::Primitive(Primitive::USize),
+                ],
+            ],
+            BinOpClass::Comparison => match op {
+                parser::BinaryOp::CmpEquals => vec![
+                    // _esl_opcmpeq_usize_usize
+                    vec![
+                        Type::Primitive(Primitive::USize),
+                        Type::Primitive(Primitive::USize),
+                    ],
+                    // _esl_opcmpeq_u32_u32
+                    vec![
+                        Type::Primitive(Primitive::U32),
+                        Type::Primitive(Primitive::U32),
+                    ],
+                    // _esl_opcmpeq_bool_bool
+                    vec![
+                        Type::Primitive(Primitive::Bool),
+                        Type::Primitive(Primitive::Bool),
+                    ],
+                    // _esl_opcmpeq_char_char
+                    vec![
+                        Type::Primitive(Primitive::Char),
+                        Type::Primitive(Primitive::Char),
+                    ],
+                ],
+                _ => vec![
+                    // _esl_opcmp[neq,lt,lte,gt,gte]_usize_usize
+                    vec![
+                        Type::Primitive(Primitive::USize),
+                        Type::Primitive(Primitive::USize),
+                    ],
+                    // _esl_opcmp[neq,lt,lte,gt,gte]_u32_u32
+                    vec![
+                        Type::Primitive(Primitive::U32),
+                        Type::Primitive(Primitive::U32),
+                    ],
+                    // _esl_opcmp[neq,lt,lte,gt,gte]_char_char
+                    vec![
+                        Type::Primitive(Primitive::Char),
+                        Type::Primitive(Primitive::Char),
+                    ],
+                ],
+            },
+            BinOpClass::Logical => vec![
+                // _esl_op[and,or]_bool_bool
+                vec![
+                    Type::Primitive(Primitive::Bool),
+                    Type::Primitive(Primitive::Bool),
+                ],
+            ],
+            BinOpClass::Assignment => {
+                match op {
+                    BinaryOp::Assignment => vec![], // handled separately
+                    _ => vec![
+                        // _esl_opass[add,sub,mul,div,mod]_usize_usize
+                        vec![
+                            Type::Primitive(Primitive::USize),
+                            Type::Primitive(Primitive::USize),
+                        ],
+                        // _esl_opass[add,sub,mul,div,mod]_u32_u32
+                        vec![
+                            Type::Primitive(Primitive::U32),
+                            Type::Primitive(Primitive::U32),
+                        ],
+                    ],
                 }
             }
-            BinOpClass::Comparison => {
-                if left != right {
+        }
+    }
+
+    fn generate_operand_conversion_exprs(
+        &mut self,
+        op: parser::BinaryOp,
+        left: Expression,
+        right: Expression,
+        range: &Range<usize>,
+    ) -> Option<(Expression, Expression)> {
+        match op.class() {
+            BinOpClass::Assignment => {
+                // right must be implicitly convertible to left
+                let right_converted = self.generate_implicit_conversion_expr(
+                    right.clone(),
+                    &left.type_(&self.program())?,
+                );
+                if let Some(right) = right_converted {
+                    Some((left, right))
+                } else {
                     self.errors.push(CompilationError::new(
                         format!(
-                            "Cannot compare different types ('{}' and '{}')",
-                            left.name(self.program()),
-                            right.name(self.program())
+                            "Cannot convert '{}' to '{}' in assignment",
+                            right
+                                .type_(&self.program())
+                                .map(|t| t.name(self.program()))
+                                .unwrap_or("unknown".into()),
+                            left.type_(&self.program())
+                                .map(|t| t.name(self.program()))
+                                .unwrap_or("unknown".into()),
                         ),
                         range.clone(),
                         self.tcm.path.clone(),
                     ));
+                    Some((left, right))
                 }
             }
-            BinOpClass::Assignment => {
-                if !self.is_type_convertible(&left, &right) {
-                    let right_name = right.name(&self.program());
-                    let left_name = left.name(&self.program());
-                    self.errors.push(CompilationError::new(
-                        format!("Cannot assign '{}' to '{}'", right_name, left_name,),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
-                }
-            }
-            BinOpClass::Logical => {
-                if left != Type::Primitive(Primitive::Bool)
-                    || right != Type::Primitive(Primitive::Bool)
+            _ => {
+                let overloads = Self::operator_overloads(op);
+                if let Some((_, converted_exprs)) =
+                    self.select_overload(&overloads, &[left.clone(), right.clone()])
                 {
+                    Some((converted_exprs[0].clone(), converted_exprs[1].clone()))
+                } else {
                     self.errors.push(CompilationError::new(
-                        "Logical operator with non-bool types".into(),
+                        format!(
+                            "No overload for operator '{}' with operand types '{}' and '{}'",
+                            op.symbol(),
+                            left.type_(&self.program())
+                                .map(|t| t.name(self.program()))
+                                .unwrap_or("unknown".into()),
+                            right
+                                .type_(&self.program())
+                                .map(|t| t.name(self.program()))
+                                .unwrap_or("unknown".into()),
+                        ),
                         range.clone(),
                         self.tcm.path.clone(),
                     ));
-                }
-            }
-            BinOpClass::Range => {
-                if left != Type::Primitive(Primitive::U32)
-                    || right != Type::Primitive(Primitive::U32)
-                {
-                    self.errors.push(CompilationError::new(
-                        "Range operator with non-u32 types".into(),
-                        range.clone(),
-                        self.tcm.path.clone(),
-                    ));
+                    None
                 }
             }
         }
@@ -901,13 +1062,23 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         index: &parser::ExpressionNode,
     ) -> Expression {
         let indexable_tc = self.typecheck_expression(indexable);
-        let index_tc = self.typecheck_expression(index);
+        let mut index_tc = self.typecheck_expression(index);
+        let converted_index_tc = self.generate_implicit_conversion_expr(
+            index_tc.clone(),
+            &Type::Primitive(Primitive::USize),
+        );
 
-        // index must be u32 for now
-        if let Some(index_type) = index_tc.type_(&self.program()) {
-            if index_type != Type::Primitive(Primitive::U32) {
+        // index must be implicit convertible to usize
+        if let Some(converted_index_tc) = converted_index_tc {
+            index_tc = converted_index_tc;
+        } else {
+            let index_type = index_tc.type_(&self.program());
+            if let Some(index_type) = index_type {
                 self.errors.push(CompilationError::new(
-                    "Index must be u32".into(),
+                    format!(
+                        "Index must be `usize`, got '{}'",
+                        index_type.name(self.program())
+                    ),
                     index.range.clone(),
                     self.tcm.path.clone(),
                 ));
@@ -1064,22 +1235,28 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             }
         }
 
-        if let (Some(left_type), Some(right_type)) =
-            (left.type_(&self.program()), right.type_(&self.program()))
-        {
-            self.check_operator_types(*op, left_type, right_type, op_range);
+        if let (Some(_), Some(_)) = (left.type_(&self.program()), right.type_(&self.program())) {
+            let Some((left_converted, right_converted)) =
+                self.generate_operand_conversion_exprs(*op, left.clone(), right.clone(), op_range)
+            else {
+                return Expression::BinaryOp {
+                    op: *op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
+            };
+            Expression::BinaryOp {
+                op: *op,
+                left: Box::new(left_converted),
+                right: Box::new(right_converted),
+            }
         } else {
-            self.errors.push(CompilationError::new(
-                "Invalid types for binary operator".into(),
-                range.clone(),
-                self.tcm.path.clone(),
-            ));
-        }
-
-        Expression::BinaryOp {
-            op: *op,
-            left: Box::new(left),
-            right: Box::new(right),
+            // one of the sides has invalid type
+            Expression::BinaryOp {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            }
         }
     }
 
@@ -1096,19 +1273,25 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 .collect();
 
             // Use first element as type hint
-            let value_type = tc_values.first().map(|v| v.type_(&self.program())).unwrap();
+            let value_type = tc_values
+                .first()
+                .map(|v| v.default_repr_type(&self.program()))
+                .unwrap();
 
             // Check if all values have type convertible to the first one
-            for (i, v) in tc_values.iter().enumerate() {
-                if let Some(value_type) = &value_type {
-                    if let Some(v_type) = v.type_(&self.program()) {
-                        if !self.is_type_convertible(&value_type, &v_type) {
-                            self.errors.push(CompilationError::new(
-                                format!("Array literal value {} has invalid type", i),
-                                values[i].range.clone(),
-                                self.tcm.path.clone(),
-                            ));
-                        }
+            let mut converted_tc_values = Vec::new();
+            if let Some(value_type) = &value_type {
+                for (i, v) in tc_values.iter().enumerate() {
+                    let converted_v =
+                        self.generate_implicit_conversion_expr(v.clone(), &value_type.clone());
+                    if let Some(v) = converted_v {
+                        converted_tc_values.push(v);
+                    } else {
+                        self.errors.push(CompilationError::new(
+                            format!("Array literal value {} has invalid type", i),
+                            values[i].range.clone(),
+                            self.tcm.path.clone(),
+                        ));
                     }
                 }
             }
@@ -1156,6 +1339,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             .collect::<HashSet<_>>();
 
         // Check if the fields make sense in context of the struct
+        let mut converted_tc_fields = HashMap::new();
         for (field_name, (expr, expr_range)) in &tc_fields {
             uninitialized_fields.remove(field_name);
 
@@ -1176,7 +1360,12 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             if let (Some(value_type), Some(field_type)) =
                 (expr.type_(&self.program()), &field_def.type_)
             {
-                if !self.is_type_convertible(field_type, &value_type) {
+                let expr_converted =
+                    self.generate_implicit_conversion_expr(expr.clone(), field_type);
+                if let Some(expr_converted) = expr_converted {
+                    converted_tc_fields
+                        .insert(field_name.clone(), (expr_converted, expr_range.clone()));
+                } else {
                     self.errors.push(CompilationError::new(
                         format!(
                             "Cannot convert '{}' to '{}' for field '{}'",
@@ -1208,7 +1397,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
         Expression::StructLiteral {
             struct_id: Some(struct_id),
-            fields: tc_fields.into_iter().map(|(k, (v, _))| (k, v)).collect(),
+            fields: converted_tc_fields
+                .into_iter()
+                .map(|(k, (v, _))| (k, v))
+                .collect(),
         }
     }
 
@@ -1310,7 +1502,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 Expression::BinaryOp {
                     op: BinaryOp::CmpLess,
                     left: Box::new(Expression::VarRef(Some(iterator_var))),
-                    right: Box::new(Expression::IntLiteral { value: size as u64 }),
+                    right: Box::new(Expression::ImplicitCast {
+                        to: Type::Primitive(Primitive::USize),
+                        expr: Box::new(Expression::IntLiteral { value: size as u64 }),
+                    }),
                 }
             }
             Type::Primitive(Primitive::Range) => {
@@ -1355,7 +1550,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 statements.push(Statement::Expression(Expression::BinaryOp {
                     op: BinaryOp::AssAdd,
                     left: Box::new(Expression::VarRef(Some(iterator_var))),
-                    right: Box::new(Expression::IntLiteral { value: 1 }),
+                    right: Box::new(Expression::ImplicitCast {
+                        to: Type::Primitive(Primitive::USize),
+                        expr: Box::new(Expression::IntLiteral { value: 1 }),
+                    }),
                 }));
             }
             Type::Array { inner: _, size: _ } => {
@@ -1373,7 +1571,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                 statements.push(Statement::Expression(Expression::BinaryOp {
                     op: BinaryOp::AssAdd,
                     left: Box::new(Expression::VarRef(Some(iterator_var))),
-                    right: Box::new(Expression::IntLiteral { value: 1 }),
+                    right: Box::new(Expression::ImplicitCast {
+                        to: Type::Primitive(Primitive::USize),
+                        expr: Box::new(Expression::IntLiteral { value: 1 }),
+                    }),
                 }));
             }
             _ => todo!(),
@@ -1413,7 +1614,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         name: &str,
         init_value: &Option<parser::ExpressionNode>,
     ) -> Statement {
-        let init_value = init_value
+        let mut init_value = init_value
             .as_ref()
             .map(|expr| self.typecheck_expression(expr));
 
@@ -1421,24 +1622,17 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             .as_ref()
             .and_then(|ty| self.tcm.typecheck_type(&ty))
             .or(if let Some(init) = &init_value {
-                init.type_(&self.program())
+                init.default_repr_type(&self.program())
             } else {
                 None
             });
 
+        debug!("var decl {} deduced type = {:?}", name, type_);
+
         let init_type = init_value.as_ref().and_then(|e| e.type_(&self.program()));
         if let (Some(var_type), Some(init_type)) = (&type_, init_type) {
-            if !self.is_type_convertible(&var_type, &init_type) {
-                self.errors.push(CompilationError::new(
-                    format!(
-                        "Cannot convert '{}' to '{}' for variable initialization",
-                        init_type.name(&self.program()),
-                        var_type.name(&self.program())
-                    ),
-                    range.clone(),
-                    self.tcm.path.clone(),
-                ));
-            }
+            init_value =
+                self.generate_implicit_conversion_expr(init_value.clone().unwrap(), &var_type);
 
             // If rhs is not temporary, we would make a copy - check
             // if type is copyable.
@@ -1454,6 +1648,16 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                         self.tcm.path.clone(),
                     ));
                 }
+            } else {
+                self.errors.push(CompilationError::new(
+                    format!(
+                        "Cannot convert '{}' to '{}' for variable initialization",
+                        init_type.name(&self.program()),
+                        var_type.name(&self.program())
+                    ),
+                    range.clone(),
+                    self.tcm.path.clone(),
+                ));
             }
         }
 
@@ -1549,7 +1753,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             let iterator_init_tc = self_.generate_iterator_new_call(iterable_var);
 
             let iterator_var = self_.add_var_to_current_scope(Var::new(
-                Some(Type::Primitive(Primitive::U32)),
+                Some(Type::Primitive(Primitive::USize)),
                 ITERATOR.into(),
                 true,
             ));
@@ -1753,5 +1957,54 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         self.scope_stack.pop();
 
         self.errors
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn select_overload() {
+        let mut tc = TypeChecker::new();
+        let mut tcm = TypeCheckerModule::new(&mut tc, ModuleId(0), "test".into());
+        let tce = TypeCheckerExecution::new(&mut tcm, FunctionId(Id::new(ModuleId(0), 0)));
+
+        let overloads = [
+            vec![
+                Type::Primitive(Primitive::U32),
+                Type::Primitive(Primitive::U32),
+            ],
+            vec![
+                Type::Primitive(Primitive::USize),
+                Type::Primitive(Primitive::USize),
+            ],
+        ];
+
+        let u32_expr = Expression::ImplicitCast {
+            to: Type::Primitive(Primitive::U32),
+            expr: Box::new(Expression::IntLiteral { value: 42 }),
+        };
+        let usize_expr = Expression::ImplicitCast {
+            to: Type::Primitive(Primitive::USize),
+            expr: Box::new(Expression::IntLiteral { value: 42 }),
+        };
+        let literal_int_expr = Expression::IntLiteral { value: 42 };
+
+        assert_eq!(
+            tce.select_overload(&overloads, &[u32_expr.clone(), u32_expr.clone()]),
+            Some((0, vec![u32_expr.clone(), u32_expr.clone()]))
+        );
+        assert_eq!(
+            tce.select_overload(&overloads, &[usize_expr.clone(), usize_expr.clone()]),
+            Some((1, vec![usize_expr.clone(), usize_expr.clone()]))
+        );
+        assert_eq!(
+            tce.select_overload(
+                &overloads,
+                &[literal_int_expr.clone(), literal_int_expr.clone()],
+            ),
+            Some((0, vec![u32_expr.clone(), u32_expr.clone()])) // prefer first overload
+        );
     }
 }

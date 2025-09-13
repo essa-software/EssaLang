@@ -5,7 +5,7 @@ extern func input(): string;
 
 // FIXME: Remove this once we support methods/traits/???
 extern func string_new(lit: static_string): string;
-extern func str_size(s: static_string): u32;
+extern func str_size(s: static_string): usize;
 
 //// File
 

@@ -1,1 +1,1 @@
-CompilationError { message: "Invalid types for arithmetic operator", range: 28..29, path: "../../tests/typechecker/not_matching_types.esl" }
+CompilationError { message: "No overload for operator '+' with operand types '<literal int>' and 'static_string'", range: 28..29, path: "../../tests/typechecker/not_matching_types.esl" }

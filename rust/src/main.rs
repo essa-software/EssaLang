@@ -10,7 +10,7 @@ use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
 use argparse::{ArgumentParser, Store, StoreTrue};
 use codegen::CodeGen;
-use log::info;
+use log::{info, trace};
 
 pub struct CompileArgs {
     machine_readable_errors: bool,
@@ -44,6 +44,8 @@ fn compile_file(path: &Path, args: &CompileArgs) -> anyhow::Result<bool> {
         }
         return Ok(false);
     }
+
+    trace!("Program: {:#?}", program);
 
     // codegen
     const BUILD_DIR: &str = "build";

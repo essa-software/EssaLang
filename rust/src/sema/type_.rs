@@ -3,7 +3,10 @@ use crate::sema::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Primitive {
     Void,
+    /// Type of IntLiteral, implicitly convertible to any integer type
+    LiteralInt,
     U32,
+    USize,
     Bool,
     Char,
     String,
@@ -35,7 +38,9 @@ impl Type {
     pub fn name(&self, program: &Program) -> String {
         match self {
             Type::Primitive(Primitive::Void) => "void".into(),
+            Type::Primitive(Primitive::LiteralInt) => "<literal int>".into(),
             Type::Primitive(Primitive::U32) => "u32".into(),
+            Type::Primitive(Primitive::USize) => "usize".into(),
             Type::Primitive(Primitive::Bool) => "bool".into(),
             Type::Primitive(Primitive::Char) => "char".into(),
             Type::Primitive(Primitive::String) => "string".into(),
@@ -61,7 +66,9 @@ impl Type {
     pub fn mangle(&self, program: &Program) -> String {
         match self {
             Type::Primitive(Primitive::Void) => "void".into(),
+            Type::Primitive(Primitive::LiteralInt) => "literal_int".into(),
             Type::Primitive(Primitive::U32) => "u32".into(),
+            Type::Primitive(Primitive::USize) => "usize".into(),
             Type::Primitive(Primitive::Bool) => "bool".into(),
             Type::Primitive(Primitive::Char) => "char".into(),
             Type::Primitive(Primitive::String) => "string".into(),
@@ -86,7 +93,7 @@ impl Type {
 
     pub fn iter_value_type(&self, _program: &Program) -> Option<Type> {
         match self {
-            Type::Primitive(Primitive::Range) => Some(Type::Primitive(Primitive::U32)),
+            Type::Primitive(Primitive::Range) => Some(Type::Primitive(Primitive::USize)),
             Type::Primitive(Primitive::StaticString) => Some(Type::Primitive(Primitive::Char)),
             Type::Array { inner, .. } => Some(*inner.clone()),
             _ => None,
@@ -129,5 +136,12 @@ impl Type {
             Type::RawReference { .. } => true,
             _ => false,
         }
+    }
+
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Type::Primitive(Primitive::U32) | Type::Primitive(Primitive::USize)
+        )
     }
 }

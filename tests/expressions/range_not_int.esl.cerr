@@ -1,2 +1,2 @@
-CompilationError { message: "Range operator with non-u32 types", range: 86..88, path: "../../tests/expressions/range_not_int.esl" }
-CompilationError { message: "Range operator with non-u32 types", range: 113..115, path: "../../tests/expressions/range_not_int.esl" }
+CompilationError { message: "No overload for operator '..' with operand types 'static_string' and '<literal int>'", range: 86..88, path: "../../tests/expressions/range_not_int.esl" }
+CompilationError { message: "No overload for operator '..' with operand types '<literal int>' and 'static_string'", range: 113..115, path: "../../tests/expressions/range_not_int.esl" }

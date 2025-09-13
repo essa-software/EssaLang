@@ -1,11 +1,11 @@
 func main() {
     let code = ">++++++++[<+++++++++>-]<.>++++[<+++++++>-]<+.+++++++..+++.>>++++++[<+++++++>-]<++.------------.>++++++[<+++++++++>-]<+.<.+++.------.--------.>>>++++[<++++++++>-]<+.";
-    let code_size = str_size(code);
+    let code_size: usize = str_size(code);
 
     mut memory: [30000]u32 = [];
 
-    mut ip = 0;
-    mut ptr = 0;
+    mut ip: usize = 0;
+    mut ptr: usize = 0;
 
     while (ip < code_size) {
         let opcode = code[ip];

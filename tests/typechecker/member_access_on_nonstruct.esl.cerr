@@ -1,2 +1,2 @@
-CompilationError { message: "Field access on non-struct type 'u32'", range: 24..25, path: "../../tests/typechecker/member_access_on_nonstruct.esl" }
+CompilationError { message: "Field access on non-struct type '<literal int>'", range: 24..25, path: "../../tests/typechecker/member_access_on_nonstruct.esl" }
 CompilationError { message: "Argument 0 to print function has invalid type", range: 24..30, path: "../../tests/typechecker/member_access_on_nonstruct.esl" }
