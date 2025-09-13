@@ -654,6 +654,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
             let var = self.program().get_var(param);
             let param_type = var.type_.as_ref();
+            if param_type.is_none() {
+                arguments.insert(param, expr);
+                continue;
+            }
             let converted_expr =
                 self.generate_implicit_conversion_expr(expr.clone(), param_type.unwrap());
             if let (Some(expr), Some(param_type)) = (converted_expr, param_type) {

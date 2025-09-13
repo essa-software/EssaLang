@@ -1,0 +1,7 @@
+func foo(s: Text) {
+
+}
+
+func main() {
+    foo(1);
+}

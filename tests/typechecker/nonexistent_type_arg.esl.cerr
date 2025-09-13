@@ -1,0 +1,1 @@
+CompilationError { message: "Unknown type 'Text'", range: 12..16, path: "../../tests/typechecker/nonexistent_type_arg.esl" }
