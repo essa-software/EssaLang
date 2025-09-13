@@ -618,8 +618,7 @@ impl<'data> CodeGen<'data> {
                 Ok(out_tmp_var)
             }
             sema::Type::Array { inner, size } => {
-                let out_tmp_var =
-                    self.emit_tmp_var(&inner, "index", indexable.value_type(&self.program))?;
+                let out_tmp_var = self.emit_tmp_var(&inner, "index", sema::ValueType::LValue)?;
                 // bounds check
                 writeln!(
                     self.out(),
