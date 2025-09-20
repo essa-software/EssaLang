@@ -1,4 +1,4 @@
-use log::debug;
+use log::trace;
 
 use crate::sema::{
     id::{DeclScopeId, FunctionId, ScopeId, StructId, VarId},
@@ -64,9 +64,10 @@ impl Function {
     pub fn new(name: String, decl_scope: DeclScopeId, module: &mut Module) -> Self {
         // create params scope
         let params_scope = module.add_scope(Scope::new());
-        debug!(
+        trace!(
             "Creating params scope: {:?} for function {}",
-            params_scope, name
+            params_scope,
+            name
         );
 
         Function {

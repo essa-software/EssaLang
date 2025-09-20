@@ -15,14 +15,15 @@ use std::{
     path::PathBuf,
 };
 
+use log::{debug, info};
+use multimap::MultiMap;
+
 use crate::{
     compiler,
     error::CompilationError,
     parser::{self, BinOpClass, BinaryOp},
     types,
 };
-
-use log::debug;
 
 pub use expression::*;
 pub use function::*;
@@ -153,6 +154,7 @@ impl<'tc> TypeCheckerModule<'tc> {
             }
             FunctionCall::Method(struct_id, method_name) => {
                 let struct_ = self.program().get_struct(*struct_id);
+                debug!("Looking up method {} in struct {:?}", method_name, struct_);
                 // FIXME: Optimize
                 struct_
                     .methods
@@ -230,6 +232,7 @@ impl<'tc> TypeCheckerModule<'tc> {
                             id: struct_.id.unwrap(),
                         })
                     } else {
+                        debug!("ERROR: Unknown type '{}'", name);
                         self.tc.errors.push(CompilationError::new(
                             format!("Unknown type '{}'", name),
                             range.clone(),
@@ -322,8 +325,9 @@ impl<'tc> TypeCheckerModule<'tc> {
     fn typecheck_structs(
         &mut self,
         p_module: &mut parser::Module,
-    ) -> Vec<(parser::StatementNode, FunctionId)> {
-        let mut function_bodies_to_check = vec![];
+    ) -> Vec<(StructId, parser::FunctionDecl)> {
+        info!("typecheck_structs() @ {}", self.path.display());
+        let mut methods_to_check = vec![];
         for decl in p_module.structs.drain(..) {
             let parser::Struct {
                 extern_,
@@ -333,6 +337,7 @@ impl<'tc> TypeCheckerModule<'tc> {
             } = decl;
 
             let tlds_id = self.this_module().top_level_decl_scope().id();
+            debug!("add struct decl scope {}", name);
             let struct_decl_scope = self
                 .this_module_mut()
                 .add_child_decl_scope(name.clone(), tlds_id);
@@ -352,16 +357,7 @@ impl<'tc> TypeCheckerModule<'tc> {
             self.self_struct = Some(struct_id);
 
             // methods
-            let methods: Vec<_> = methods
-                .into_iter()
-                .map(|method| {
-                    let (body, id) = self.typecheck_function_decl(method);
-                    if let Some(body) = body {
-                        function_bodies_to_check.push((body, id));
-                    }
-                    id
-                })
-                .collect();
+            methods_to_check.extend(methods.into_iter().map(|a| (struct_id, a)));
 
             // fields
             let fields = fields
@@ -375,19 +371,11 @@ impl<'tc> TypeCheckerModule<'tc> {
             let struct_ = self
                 .this_module_mut()
                 .get_struct_mut(struct_id.0.id_in_module());
-            struct_.methods = methods;
             struct_.fields = fields;
-
-            // special methods
-            let drop_method = self.lookup_special_method(struct_id, "__drop__");
-            let struct_ = self
-                .this_module_mut()
-                .get_struct_mut(struct_id.0.id_in_module());
-            struct_.drop_method = drop_method;
 
             self.self_struct = None;
         }
-        function_bodies_to_check
+        methods_to_check
     }
 
     fn typecheck_function_decl(
@@ -440,7 +428,9 @@ impl<'tc> TypeCheckerModule<'tc> {
     fn typecheck_function_decls(
         &mut self,
         p_module: &mut parser::Module,
+        methods: Vec<(StructId, parser::FunctionDecl)>,
     ) -> Vec<(parser::StatementNode, FunctionId)> {
+        info!("typecheck_function_decls() @ {}", self.path.display());
         let mut function_bodies_to_check = vec![];
 
         for decl in p_module.functions.drain(..) {
@@ -449,7 +439,49 @@ impl<'tc> TypeCheckerModule<'tc> {
             };
             function_bodies_to_check.push((body, id));
         }
+
+        let mut methods_per_struct = MultiMap::new();
+        for (struct_id, decl) in methods {
+            self.self_struct = Some(struct_id);
+            let (body, id) = self.typecheck_function_decl(decl);
+            self.self_struct = None;
+            if let Some(body) = body {
+                function_bodies_to_check.push((body, id));
+            }
+            debug!(
+                "adding method {:?} ({}) for struct id {:?}",
+                id.0,
+                self.program().get_function(id).name,
+                struct_id.0
+            );
+            methods_per_struct.insert(struct_id, id);
+        }
+
+        // register methods in structs
+        for (struct_id, method_ids) in methods_per_struct.into_iter() {
+            let struct_ = self
+                .this_module_mut()
+                .get_struct_mut(struct_id.0.id_in_module());
+            struct_.methods.extend(method_ids);
+        }
+
         function_bodies_to_check
+    }
+
+    fn typecheck_structs_stage2(&mut self) {
+        let struct_ids = self
+            .this_module()
+            .structs()
+            .map(|s| s.id.unwrap())
+            .collect::<Vec<_>>();
+        for struct_id in struct_ids {
+            // special methods
+            let drop_method = self.lookup_special_method(struct_id, "__drop__");
+            let struct_ = self
+                .this_module_mut()
+                .get_struct_mut(struct_id.0.id_in_module());
+            struct_.drop_method = drop_method;
+        }
     }
 
     fn typecheck_function_bodies(
@@ -466,8 +498,9 @@ impl<'tc> TypeCheckerModule<'tc> {
     pub fn typecheck(mut self, mut p_module: parser::Module) {
         debug!("!!! Typecheck Module: {:?}", self.path);
         self.typecheck_imports(&mut p_module);
-        let mut bodies = self.typecheck_structs(&mut p_module);
-        bodies.extend(self.typecheck_function_decls(&mut p_module));
+        let methods = self.typecheck_structs(&mut p_module);
+        let bodies = self.typecheck_function_decls(&mut p_module, methods);
+        self.typecheck_structs_stage2();
         self.typecheck_function_bodies(bodies);
     }
 }
@@ -583,6 +616,10 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
 
         debug!("Typechecking call to {}", call.to_string(self.program()));
         let Some(function) = self.tcm.lookup_function(&call) else {
+            debug!(
+                "ERROR: Function '{}' not found",
+                call.to_string(self.program())
+            );
             self.errors.push(CompilationError::new(
                 format!("Function '{}' not found", call.to_string(self.program())),
                 range.clone(),
@@ -681,8 +718,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                     ));
                 }
             } else {
-                let expr_type = expr.type_(&self.program()).unwrap();
-                if let Some(param_type) = param_type {
+                let expr_type = expr.type_(&self.program());
+                if let (Some(param_type), Some(expr_type)) = (param_type, expr_type) {
                     self.errors.push(CompilationError::new(
                         format!(
                             "Cannot convert '{}' to '{}' for argument {}",
@@ -1704,15 +1741,16 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             .map(|expr| self.typecheck_expression(expr))
             .unwrap_or(Expression::VoidLiteral);
 
-        let expected_return_type = self
+        let Some(expected_return_type) = self
             .program()
             .get_function(self.function)
             .return_type
-            .clone();
-        let expr_converted = self.generate_implicit_conversion_expr(
-            expr.clone(),
-            expected_return_type.as_ref().unwrap(),
-        );
+            .clone()
+        else {
+            return Statement::Return(expr);
+        };
+        let expr_converted =
+            self.generate_implicit_conversion_expr(expr.clone(), &expected_return_type);
 
         if let Some(expr_converted) = expr_converted {
             Statement::Return(expr_converted)
@@ -1723,10 +1761,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                     expr.type_(&self.program())
                         .map(|t| t.name(self.program()))
                         .unwrap_or("unknown".into()),
-                    expected_return_type
-                        .as_ref()
-                        .map(|t| t.name(self.program()))
-                        .unwrap_or("void".into()),
+                    expected_return_type.name(self.program()),
                 ),
                 expression
                     .as_ref()

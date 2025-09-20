@@ -1,0 +1,11 @@
+func get_bar(v: u32): Bar {
+    return Bar { val: v };
+}
+
+struct Bar {
+    val: u32;
+}
+
+func main() {
+    print("{}", get_bar(33).val);
+}
