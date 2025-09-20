@@ -1031,7 +1031,12 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
                             arguments: HashMap::new(),
                         };
                     }
-                    None => todo!(),
+                    None => {
+                        return Expression::Call {
+                            function_id: None,
+                            arguments: HashMap::new(),
+                        };
+                    }
                 };
 
                 // create iterator which first yields `object`

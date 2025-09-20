@@ -1,0 +1,1 @@
+CompilationError { message: "Struct 'Test' not found", range: 23..26, path: "../../tests/typechecker/member_access_on_invalid_type.esl" }
