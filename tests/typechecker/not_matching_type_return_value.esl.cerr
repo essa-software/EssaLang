@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot convert 'static_string' to 'u32' in return statement", range: 29..48, path: "../../tests/typechecker/not_matching_type_return_value.esl" }

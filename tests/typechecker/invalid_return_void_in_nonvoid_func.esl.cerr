@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot convert 'void' to 'u32' in return statement", range: 0..0, path: "../../tests/typechecker/invalid_return_void_in_nonvoid_func.esl" }

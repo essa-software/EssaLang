@@ -1699,9 +1699,38 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             .map(|expr| self.typecheck_expression(expr))
             .unwrap_or(Expression::VoidLiteral);
 
-        // TODO: Check function return type
+        let expected_return_type = self
+            .program()
+            .get_function(self.function)
+            .return_type
+            .clone();
+        let expr_converted = self.generate_implicit_conversion_expr(
+            expr.clone(),
+            expected_return_type.as_ref().unwrap(),
+        );
 
-        Statement::Return(expr)
+        if let Some(expr_converted) = expr_converted {
+            Statement::Return(expr_converted)
+        } else {
+            self.errors.push(CompilationError::new(
+                format!(
+                    "Cannot convert '{}' to '{}' in return statement",
+                    expr.type_(&self.program())
+                        .map(|t| t.name(self.program()))
+                        .unwrap_or("unknown".into()),
+                    expected_return_type
+                        .as_ref()
+                        .map(|t| t.name(self.program()))
+                        .unwrap_or("void".into()),
+                ),
+                expression
+                    .as_ref()
+                    .map(|e| e.range.clone())
+                    .unwrap_or_else(|| 0..0),
+                self.tcm.path.clone(),
+            ));
+            Statement::Return(expr)
+        }
     }
 
     fn typecheck_stmt_for(

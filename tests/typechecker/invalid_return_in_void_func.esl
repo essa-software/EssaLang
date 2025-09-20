@@ -1,0 +1,7 @@
+func foo() {
+    return "u32 but not quite";
+}
+
+func main() {
+    print("{}", foo());
+}

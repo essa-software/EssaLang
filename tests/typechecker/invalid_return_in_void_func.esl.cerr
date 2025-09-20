@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot convert 'static_string' to 'void' in return statement", range: 24..43, path: "../../tests/typechecker/invalid_return_in_void_func.esl" }
