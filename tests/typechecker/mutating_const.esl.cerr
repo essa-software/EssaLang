@@ -1,3 +1,3 @@
-CompilationError { message: "Cannot assign to non-mutable value", range: 64..83, path: "../../tests/typechecker/mutating_const.esl" }
-CompilationError { message: "Cannot assign to rvalue", range: 89..94, path: "../../tests/typechecker/mutating_const.esl" }
-CompilationError { message: "Cannot assign to rvalue", range: 100..109, path: "../../tests/typechecker/mutating_const.esl" }
+CompilationError { message: "Cannot assign to non-mutable value", range: 75..94, path: "../../tests/typechecker/mutating_const.esl" }
+CompilationError { message: "Cannot assign to rvalue", range: 100..105, path: "../../tests/typechecker/mutating_const.esl" }
+CompilationError { message: "Cannot assign to rvalue", range: 111..120, path: "../../tests/typechecker/mutating_const.esl" }

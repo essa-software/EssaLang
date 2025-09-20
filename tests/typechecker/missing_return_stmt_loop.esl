@@ -1,0 +1,8 @@
+func foo(): u32 {
+    for (let i of 0..10) {
+    }
+}
+
+func main() {
+    let foo_val = foo();
+}

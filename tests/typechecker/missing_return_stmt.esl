@@ -1,0 +1,7 @@
+func foo(): u32 {
+
+}
+
+func main() {
+    let foo_val = foo();
+}

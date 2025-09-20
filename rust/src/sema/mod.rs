@@ -1999,12 +1999,36 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
+    fn check_missing_returns(&mut self, range: Range<usize>, stmt: &Statement) {
+        if stmt.return_type(self.program()).is_none() {
+            let func = self.program().get_function(self.function);
+            // It's ok for void.
+            if func.return_type == Some(Type::Primitive(Primitive::Void)) {
+                return;
+            }
+            // It's ok for main (implicit int return type)
+            if func.name == "main" {
+                return;
+            }
+            self.errors.push(CompilationError::new(
+                "Not all control paths return a value".into(),
+                range,
+                self.tcm.path.clone(),
+            ));
+        }
+    }
+
     fn typecheck(mut self, stmt: &parser::StatementNode) -> Vec<CompilationError> {
         self.scope_stack
             .push(self.program().get_function(self.function).params_scope);
 
+        // FIXME: This range is bleh (covers the entire function!)
+        let stmt_range = stmt.range.clone();
         let stmt = self.typecheck_statement(stmt);
         let function_id: usize = self.function.0.id_in_module();
+
+        self.check_missing_returns(stmt_range, &stmt);
+
         self.this_module_mut().get_function_mut(function_id).body = Some(stmt);
 
         self.scope_stack.pop();

@@ -1,4 +1,4 @@
-func foo(): u32 {}
+func foo(): u32 { return 0; }
 
 func main() {
     let const_thingy = 0;
