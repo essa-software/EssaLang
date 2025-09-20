@@ -661,8 +661,7 @@ impl<'data> CodeGen<'data> {
         let Some(member_type) = expr.type_(self.program) else {
             panic!("invalid member access expression: {:?}", expr);
         };
-        let member_tmp_var =
-            self.emit_tmp_var(&member_type, "member", expr.value_type(&self.program))?;
+        let member_tmp_var = self.emit_tmp_var(&member_type, "member", sema::ValueType::LValue)?;
         writeln!(
             self.out(),
             "    {} = &({}).{};",

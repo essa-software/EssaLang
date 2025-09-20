@@ -1,0 +1,7 @@
+struct Bar {
+    val: u32;
+}
+
+func main() {
+    print("{}", Bar { val: 3 }.val);
+}
