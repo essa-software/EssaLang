@@ -1,7 +1,7 @@
 func main() {
-    let file = File::open("../samples/file_read.esl");
+    let file = File::open("../../tests/stdlib/file_read_to_buf.esl");
     while (true) {
-        let buf = file.read_to_buf(32);
+        let buf = file.read_to_buf(64);
         if (buf.size() == 0) {
             print("EOF!\n");
             break;

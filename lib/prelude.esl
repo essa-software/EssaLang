@@ -15,6 +15,7 @@ extern func file_open(path: static_string): u32; // returns fd
 // FIXME: Error handling/Optionals
 extern func file_getchar(fd: u32): u32;
 extern func file_close(fd: u32): void;
+extern func file_read_to_buf(fd: u32, n: usize): Buffer;
 
 struct File {
     fd: u32;
@@ -37,6 +38,13 @@ struct File {
     // FIXME: Error handling/Optionals
     func read_byte(this): u32 {
         return file_getchar(this.fd);
+    }
+
+    /// Tries to read `n` bytes into a buffer. The buffer will be filled
+    /// to size `n` unless an EOF is encountered.
+    /// At EOF, the buffer will be empty.
+    func read_to_buf(this, n: usize): Buffer {
+        return file_read_to_buf(this.fd, n);
     }
 }
 
