@@ -10,6 +10,7 @@ typedef struct Buffer_ {
 } Buffer;
 
 Buffer $s$Buffer$zeros(esl_usize size);
+esl_usize $s$Buffer$size(Buffer* this_);
 // FIXME: u32->u8
 esl_u32 $s$Buffer$get(Buffer* this_, esl_usize index);
 // FIXME: u32->u8

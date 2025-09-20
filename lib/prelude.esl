@@ -44,11 +44,16 @@ struct File {
 
 extern struct Buffer {
     extern func zeros(size: usize): Buffer;
+
+    extern func size(this): usize;
+
     // FIXME: this should be mut (will work because C uses `Buffer*`
     // but is incorrect)
     // FIXME: u32 --> u8
     extern func set(this, idx: usize, v: u32);
+
     // FIXME: u32 --> u8
     extern func get(this, idx: usize): u32;
+
     extern func __drop__(this);
 }

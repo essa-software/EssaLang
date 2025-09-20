@@ -1,8 +1,9 @@
 func main() {
     mut buf = Buffer::zeros(1024);
-    print("{}\n", buf.get(0)); // 0
+    print("buf.size={}\n", buf.size());
+    print("buf[0]={}\n", buf.get(0)); // 0
     for (let i of 0..512) {
         buf.set(i, 21);
     }
-    print("{} {}\n", buf.get(400), buf.get(600)); // 21 0
+    print("buf[0]={} buf[600]={}\n", buf.get(0), buf.get(600)); // 21 0
 }

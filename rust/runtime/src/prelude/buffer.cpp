@@ -13,6 +13,10 @@ Buffer $s$Buffer$zeros(esl_usize size) {
     return buf;
 }
 
+esl_usize $s$Buffer$size(Buffer* this_) {
+    return this_->size;
+}
+
 // FIXME: u32->u8
 esl_u32 $s$Buffer$get(Buffer* this_, esl_usize index) {
     if (index >= this_->size) {
