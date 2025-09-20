@@ -188,6 +188,7 @@ pub enum Expression {
         object: Box<ExpressionNode>,
         member: String,
     },
+    VoidLiteral,
     BoolLiteral {
         value: bool,
     },

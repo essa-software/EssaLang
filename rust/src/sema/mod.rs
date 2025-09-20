@@ -1467,6 +1467,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             parser::Expression::MemberAccess { object, member } => {
                 self.typecheck_expr_member_access(range, object, member)
             }
+            parser::Expression::VoidLiteral => Expression::VoidLiteral,
             parser::Expression::BoolLiteral { value } => Expression::BoolLiteral { value: *value },
             parser::Expression::IntLiteral { value } => {
                 self.typecheck_expr_int_literal(range, *value)
@@ -1695,7 +1696,8 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
     fn typecheck_stmt_return(&mut self, expression: &Option<parser::ExpressionNode>) -> Statement {
         let expr = expression
             .as_ref()
-            .map(|expr| self.typecheck_expression(expr));
+            .map(|expr| self.typecheck_expression(expr))
+            .unwrap_or(Expression::VoidLiteral);
 
         // TODO: Check function return type
 

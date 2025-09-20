@@ -19,6 +19,7 @@ pub enum Expression {
         object: Box<Expression>,
         member: String,
     },
+    VoidLiteral,
     BoolLiteral {
         value: bool,
     },
@@ -102,6 +103,7 @@ impl Expression {
                     _ => None,
                 }
             }
+            Expression::VoidLiteral => Some(Type::Primitive(Primitive::Void)),
             Expression::BoolLiteral { .. } => Some(Type::Primitive(Primitive::Bool)),
             Expression::IntLiteral { .. } => Some(Type::Primitive(Primitive::LiteralInt)),
             Expression::StringLiteral { .. } => Some(Type::Primitive(Primitive::StaticString)),

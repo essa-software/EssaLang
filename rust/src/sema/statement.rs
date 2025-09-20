@@ -8,7 +8,7 @@ pub enum Statement {
         var: VarId,
         init: Option<Expression>,
     },
-    Return(Option<Expression>),
+    Return(Expression),
     If {
         condition: Expression,
         then_block: Box<Statement>,

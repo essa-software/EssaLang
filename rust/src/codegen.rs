@@ -831,6 +831,7 @@ impl<'data> CodeGen<'data> {
             sema::Expression::MemberAccess { object, member } => {
                 Ok(Some(self.emit_expr_member_access(expr, object, member)?))
             }
+            sema::Expression::VoidLiteral => Ok(None),
             sema::Expression::BoolLiteral { value } => {
                 Ok(Some(self.emit_expr_bool_literal(*value)?))
             }
@@ -962,9 +963,8 @@ impl<'data> CodeGen<'data> {
             }
             sema::Statement::Return(expression) => {
                 // TODO: handle return by first arg
-                if let Some(expr) = expression {
-                    let tmp_var = self.emit_expression_eval(expr)?;
-                    let tmp_var = tmp_var.unwrap();
+                let tmp_var = self.emit_expression_eval(expression)?;
+                if let Some(tmp_var) = tmp_var {
                     self.mark_tmp_var_as_moved(&tmp_var); // Moving into return value
                     self.emit_drop_all_scopes()?;
                     write!(self.out(), "return {};", &tmp_var.access())?;
