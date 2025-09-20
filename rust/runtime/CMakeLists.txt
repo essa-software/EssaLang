@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(esl-runtime)
 
 add_library(eslrt
+    src/prelude/buffer.cpp
     src/prelude/file.cpp
     src/prelude/fmt.cpp
     src/prelude/ops.cpp

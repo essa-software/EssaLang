@@ -1,0 +1,8 @@
+func main() {
+    mut buf = Buffer::zeros(1024);
+    print("{}\n", buf.get(0)); // 0
+    for (let i of 0..512) {
+        buf.set(i, 21);
+    }
+    print("{} {}\n", buf.get(400), buf.get(600)); // 21 0
+}

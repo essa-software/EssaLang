@@ -1,5 +1,6 @@
 #pragma once
 
+#include <prelude/buffer.h>
 #include <prelude/config.h>
 #include <prelude/fmt.h>
 #include <prelude/iter.h>
