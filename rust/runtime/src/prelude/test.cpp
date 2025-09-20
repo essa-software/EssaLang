@@ -1,5 +1,7 @@
 #include <prelude/test.h>
 
+#include <cstdio>
+
 extern "C" {
 
 ExternTest extern_test_new(esl_u32 v) {
@@ -18,5 +20,14 @@ ExternTest $s$ExternTest$new(esl_u32 value) {
 
 esl_u32 $s$ExternTest$get_value(ExternTest* this_) {
     return this_->test_value;
+}
+
+ExternTestDrop $s$ExternTestDrop$new() {
+    ExternTestDrop t;
+    return t;
+}
+
+void $s$ExternTestDrop$__drop__(ExternTestDrop* this_) {
+    printf("DROPPED\n");
 }
 }

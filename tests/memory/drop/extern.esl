@@ -1,0 +1,8 @@
+extern struct ExternTestDrop {
+    extern func new(): ExternTestDrop;
+    extern func __drop__(this);
+}
+
+func main() {
+    let test = ExternTestDrop::new();
+}
