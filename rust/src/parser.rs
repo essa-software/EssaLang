@@ -1058,7 +1058,6 @@ impl<'a> Parser<'a> {
     }
 
     // function-impl ::= "func" name "(" ")" [ ":" type ] "{" statement ... "}"
-    // function-impl ::= "extern" "func" name "(" ")" [ ":" type ] ";" // no body
     pub fn consume_function_decl(&mut self, extern_: bool) -> Option<FunctionDecl> {
         // "func"
         let _ = self.consume();
@@ -1203,6 +1202,12 @@ impl<'a> Parser<'a> {
                 // maybe method?
                 if matches!(next.type_, lexer::TokenType::KeywordFunc) {
                     let method = self.consume_function_decl(false)?;
+                    methods.push(method);
+                    continue;
+                }
+                if matches!(next.type_, lexer::TokenType::KeywordExtern) {
+                    self.consume(); // "extern"
+                    let method = self.consume_function_decl(true)?;
                     methods.push(method);
                     continue;
                 }

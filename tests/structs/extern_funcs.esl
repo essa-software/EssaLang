@@ -1,0 +1,9 @@
+extern struct ExternTest {
+    extern func new(value: u32): ExternTest;
+    extern func get_value(this): u32;
+}
+
+func main() {
+    let test = ExternTest::new(32);
+    print("{}", test.get_value());
+}
