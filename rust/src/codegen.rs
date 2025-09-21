@@ -246,8 +246,12 @@ impl<'data> CodeGen<'data> {
         value_type: sema::ValueType,
     ) -> IoResult<TmpVar> {
         let tmpvar = self.emit_var_decl_without_drop(type_, name, value_type)?;
-        if let Some(scope) = self.drop_scope_stack.last_mut() {
-            scope.add_tmp_var((tmpvar.clone(), type_.clone()));
+        // No drop for lvalue tmpvars since they always refer to some
+        // other place.
+        if value_type == sema::ValueType::RValue {
+            if let Some(scope) = self.drop_scope_stack.last_mut() {
+                scope.add_tmp_var((tmpvar.clone(), type_.clone()));
+            }
         }
         Ok(tmpvar)
     }

@@ -62,7 +62,7 @@ pub enum Expression {
     Rc(Box<Expression>),
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
     LValue,      // can be read and written to directly
     ConstLValue, // can be read directly but not written to
