@@ -7,6 +7,7 @@ add_library(eslrt
     src/prelude/fmt.cpp
     src/prelude/ops.cpp
     src/prelude/panic.cpp
+    src/prelude/rc.cpp
     src/prelude/string.cpp
     src/prelude/test.cpp
 )

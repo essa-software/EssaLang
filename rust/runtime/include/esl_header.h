@@ -5,6 +5,8 @@
 #include <prelude/fmt.h>
 #include <prelude/ops.h>
 #include <prelude/panic.h>
+#include <prelude/rc.h>
 #include <prelude/string.h>
 #include <prelude/test.h>
 #include <prelude/types.h>
+#include <string.h> // IWYU pragma: keep (memcpy)

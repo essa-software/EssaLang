@@ -59,6 +59,7 @@ pub enum Expression {
         to: Type,
         expr: Box<Expression>,
     },
+    Rc(Box<Expression>),
 }
 
 #[derive(PartialEq, Eq)]
@@ -154,6 +155,12 @@ impl Expression {
                 })
             }
             Expression::ImplicitCast { to, expr: _ } => Some(to.clone()),
+            Expression::Rc(expr) => {
+                let value_type = expr.type_(program)?;
+                Some(Type::Rc {
+                    inner: Box::new(value_type),
+                })
+            }
         }
     }
 

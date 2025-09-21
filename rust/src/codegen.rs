@@ -38,6 +38,7 @@ impl sema::Type {
             } => todo!(),
             sema::Type::Struct { id: _ } => FunctionReturnMethod::Return,
             sema::Type::RawReference { inner: _ } => FunctionReturnMethod::Return,
+            sema::Type::Rc { inner: _ } => FunctionReturnMethod::Return,
         }
     }
 }
@@ -97,12 +98,13 @@ impl TmpVar {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum DropScopeType {
     Normal,
     Loop,
 }
 
+#[derive(Clone)]
 struct DropScope {
     tmp_vars: Vec<(TmpVar, sema::Type)>,
     type_: DropScopeType,
@@ -176,6 +178,9 @@ impl<'data> CodeGen<'data> {
                 self.emit_type(inner)?;
                 write!(self.out(), "/*ref*/ *")?;
             }
+            sema::Type::Rc { inner: _ } => {
+                write!(self.out(), "Rc")?;
+            }
         };
         Ok(())
     }
@@ -226,6 +231,11 @@ impl<'data> CodeGen<'data> {
                     !matches!(value_type, sema::ValueType::RValue),
                 ))
             }
+            sema::Type::Rc { inner: _ } => {
+                self.emit_type(type_)?;
+                write!(self.out(), " {}", name)?;
+                Ok(TmpVar::new(name.into(), false))
+            }
         }
     }
 
@@ -249,7 +259,7 @@ impl<'data> CodeGen<'data> {
         });
     }
 
-    fn emit_drop_scope(&self, scope: &DropScope) -> IoResult<()> {
+    fn emit_drop_scope(&mut self, scope: &DropScope) -> IoResult<()> {
         debug!("Emitting drop scope ({} vars)", scope.tmp_vars.len());
         for var in scope.tmp_vars.iter().rev() {
             self.emit_drop(var.clone())?;
@@ -277,7 +287,7 @@ impl<'data> CodeGen<'data> {
     /// The last scope of the given type is also dropped.
     /// No scopes are *popped*. This is used for `break` and `continue`.
     fn emit_drop_scope_until(&mut self, type_: DropScopeType) -> IoResult<()> {
-        for scope in self.drop_scope_stack.iter().rev() {
+        for scope in self.drop_scope_stack.clone().iter().rev() {
             self.emit_drop_scope(scope)?;
             if scope.type_ == type_ {
                 break;
@@ -289,7 +299,7 @@ impl<'data> CodeGen<'data> {
     /// Drops all tmpvar scopes. No scopes are *popped*. This is used
     /// for `return`.
     fn emit_drop_all_scopes(&mut self) -> IoResult<()> {
-        for scope in self.drop_scope_stack.iter().rev() {
+        for scope in self.drop_scope_stack.clone().iter().rev() {
             self.emit_drop_scope(scope)?;
         }
         Ok(())
@@ -496,7 +506,7 @@ impl<'data> CodeGen<'data> {
     }
 
     // Emit appropriate drop procedure for a given tmp var.
-    fn emit_drop(&self, (var, type_): (TmpVar, sema::Type)) -> IoResult<()> {
+    fn emit_drop(&mut self, (var, type_): (TmpVar, sema::Type)) -> IoResult<()> {
         writeln!(self.out(), "    // drop {}", var.name)?;
         match type_ {
             Type::Primitive(sema::Primitive::String) => {
@@ -510,6 +520,30 @@ impl<'data> CodeGen<'data> {
                     let fnname = self.mangled_function_name(self.program.get_function(drop));
                     writeln!(self.out(), "    {}(&{});", fnname, var.access())?;
                 }
+            }
+            Type::Rc { inner } => {
+                // (rc)->strong_count--
+                writeln!(self.out(), "    ({})->strong_count--;", var.access())?;
+                // if (strong_count==0) { drop inner; free rc; }
+                writeln!(
+                    self.out(),
+                    "    if (({})->strong_count == 0) {{",
+                    var.access()
+                )?;
+                // drop inner
+                let inner_tmpvar = self.emit_tmp_var(&inner, "rc_drop", sema::ValueType::LValue)?;
+                writeln!(
+                    self.out(),
+                    "        {} = ({}*)esl_rc_refcell_data({});",
+                    inner_tmpvar.access_ptr(),
+                    inner.mangle(self.program),
+                    var.access()
+                )?;
+                self.emit_drop((inner_tmpvar.clone(), *inner))?;
+                self.mark_tmp_var_as_moved(&inner_tmpvar);
+                // free rc
+                writeln!(self.out(), "        esl_rc_free({});", var.access())?;
+                writeln!(self.out(), "    }}")?;
             }
             _ => { /*noop */ }
         }
@@ -815,6 +849,50 @@ impl<'data> CodeGen<'data> {
         Ok(tmp_var)
     }
 
+    fn emit_expr_rc(&mut self, inner: &sema::Expression) -> IoResult<TmpVar> {
+        let inner_local = self.emit_expression_eval(inner)?.unwrap();
+
+        // Rc rc = esl_rc_new(REFCELL_SIZEOF(T));
+        let rc = self.emit_tmp_var(
+            &sema::Type::Rc {
+                inner: Box::new(inner.type_(self.program).unwrap()),
+            },
+            "rc",
+            sema::ValueType::RValue,
+        )?;
+
+        let inner_type = inner.type_(self.program).unwrap().mangle(self.program);
+
+        writeln!(
+            self.out(),
+            "    {} = esl_rc_new(REFCELL_SIZEOF({}));",
+            rc.access(),
+            inner_type
+        )?;
+
+        // T* inner = (T*)esl_rc_refcell_data(rc);
+        writeln!(
+            self.out(),
+            "    {}* inner = ({}*)esl_rc_refcell_data({});",
+            inner_type,
+            inner_type,
+            rc.access()
+        )?;
+
+        // memcpy(inner, &inner_local, sizeof(T));
+        writeln!(
+            self.out(),
+            "    memcpy(inner, {}, sizeof({}));",
+            inner_local.access_ptr(),
+            inner_type
+        )?;
+
+        // inner_local moved into Rc, which will take care of dropping it.
+        self.mark_tmp_var_as_moved(&inner_local);
+
+        Ok(rc)
+    }
+
     // Emit ESL expression evaluation as C statements.
     // Returns local var name with result if applicable.
     // Emits *pointer* if expr is a (const) lvalue.
@@ -860,6 +938,7 @@ impl<'data> CodeGen<'data> {
                 Ok(Some(self.emit_expr_reference(expr, value)?))
             }
             sema::Expression::ImplicitCast { to: _, expr } => self.emit_expression_eval(expr),
+            sema::Expression::Rc(inner) => Ok(Some(self.emit_expr_rc(inner)?)),
         }
     }
 

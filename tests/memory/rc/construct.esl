@@ -1,0 +1,11 @@
+struct Foo {
+    // Make it non-copyable
+    func __drop__(this) {
+        print("Foo dropped: {}\n", this.field);
+    }
+    field: u32;
+}
+
+func main() {
+    let foo = rc(Foo { field: 32 }); // &mut Foo
+}

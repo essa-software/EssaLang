@@ -1495,6 +1495,18 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
         }
     }
 
+    fn typecheck_expr_rc(&mut self, inner: &parser::ExpressionNode) -> Expression {
+        let inner_rc = self.typecheck_expression(inner);
+        if inner_rc.value_type(self.program()) != ValueType::RValue {
+            self.errors.push(CompilationError::new(
+                "Rc can only be created from rvalue (for now)".into(),
+                inner.range.clone(),
+                self.tcm.path.clone(),
+            ));
+        }
+        Expression::Rc(Box::new(inner_rc))
+    }
+
     fn typecheck_expression(
         &mut self,
         parser::ExpressionNode { expression, range }: &parser::ExpressionNode,
@@ -1537,6 +1549,7 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             }
             parser::Expression::Dereference(inner) => self.typecheck_dereference(inner),
             parser::Expression::Reference(inner) => self.typecheck_reference(inner),
+            parser::Expression::Rc(inner) => self.typecheck_expr_rc(inner),
         }
     }
 

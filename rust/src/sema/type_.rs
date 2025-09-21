@@ -32,6 +32,9 @@ pub enum Type {
     RawReference {
         inner: Box<Type>,
     },
+    Rc {
+        inner: Box<Type>,
+    },
 }
 
 impl Type {
@@ -59,7 +62,8 @@ impl Type {
                 inner.name(program)
             ),
             Type::Struct { id } => program.get_struct(*id).name.clone(),
-            Type::RawReference { inner } => format!("&{}", inner.name(program)),
+            Type::RawReference { inner } => format!("raw &{}", inner.name(program)),
+            Type::Rc { inner } => format!("&mut {}", inner.name(program)),
         }
     }
 
@@ -95,6 +99,7 @@ impl Type {
                 }
             }
             Type::RawReference { inner } => format!("ref_{}", inner.mangle(program)),
+            Type::Rc { inner } => format!("rc_{}", inner.mangle(program)),
         }
     }
 
@@ -141,6 +146,8 @@ impl Type {
             }
             // All references are copyable
             Type::RawReference { .. } => true,
+            // FIXME: Rc is not copyable for now - needs custom logic
+            Type::Rc { .. } => false,
             _ => false,
         }
     }

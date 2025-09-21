@@ -218,6 +218,7 @@ pub enum Expression {
     This,
     Dereference(Box<ExpressionNode>),
     Reference(Box<ExpressionNode>),
+    Rc(Box<ExpressionNode>),
 }
 
 #[derive(Debug, Clone)]
@@ -687,6 +688,25 @@ impl<'a> Parser<'a> {
                         |t| matches!(t, lexer::TokenType::ParenClose),
                         "')' after argument list",
                     )?;
+                    if let Expression::Name(name) = &primary.expression {
+                        if name.to_string() == "rc" {
+                            if args.len() != 1 {
+                                self.errors.push(CompilationError::new(
+                                    "rc() takes exactly one argument".into(),
+                                    primary.range.clone(),
+                                    self.path(),
+                                ));
+                                return None;
+                            }
+                            primary = ExpressionNode {
+                                range: primary.range.start..end.range.end,
+                                expression: Expression::Rc(Box::new(
+                                    args.into_iter().next().unwrap(),
+                                )),
+                            };
+                            continue;
+                        }
+                    }
                     primary = ExpressionNode {
                         range: primary.range.start..end.range.end,
                         expression: Expression::Call {

@@ -11,6 +11,7 @@ typedef bool esl_bool;
 typedef struct _esl_char {
     uint32_t cp;
 } esl_char;
+typedef uint8_t esl_u8;
 typedef uint32_t esl_u32;
 typedef size_t esl_usize;
 
