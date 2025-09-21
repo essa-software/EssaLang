@@ -794,12 +794,9 @@ impl<'data> CodeGen<'data> {
 
         for (field_name, field_expr) in fields {
             let field_tmp_var = self.emit_expression_eval(field_expr)?;
-            writeln!(
-                self.out(),
-                "    ({}).{} = {};",
-                tmp_var.access(),
-                field_name,
-                field_tmp_var.unwrap().access()
+            self.emit_move(
+                &field_tmp_var.unwrap(),
+                &format!("({}).{}", tmp_var.access(), field_name),
             )?;
         }
 
