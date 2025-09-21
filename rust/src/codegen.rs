@@ -849,7 +849,20 @@ impl<'data> CodeGen<'data> {
         value: &sema::Expression,
     ) -> IoResult<TmpVar> {
         writeln!(self.out(), "    // reference eval")?;
-        let expr_tmp_var = self.emit_expression_eval(value)?;
+        let expr_tmp_var = self.emit_expression_eval(value)?.unwrap();
+        if expr_tmp_var.is_ptr {
+            // taking reference to an lvalue is just re-using
+            // the lvalue pointer but as rvalue.
+            writeln!(
+                self.out(),
+                "    // reference reuses {} (is_ptr=true)",
+                expr_tmp_var.name
+            )?;
+            return Ok(TmpVar {
+                name: expr_tmp_var.name,
+                is_ptr: false,
+            });
+        }
         writeln!(self.out(), "    // reference tmpvar")?;
         let tmp_var = self.emit_tmp_var(
             &expr.type_(self.program).unwrap(),
@@ -862,7 +875,7 @@ impl<'data> CodeGen<'data> {
             self.out(),
             "    {} = &{};",
             tmp_var.access(),
-            expr_tmp_var.unwrap().access(),
+            expr_tmp_var.access(),
         )?;
 
         Ok(tmp_var)
