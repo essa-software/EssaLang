@@ -158,4 +158,18 @@ impl Type {
             Type::Primitive(Primitive::U32) | Type::Primitive(Primitive::USize)
         )
     }
+
+    /// true if a special drop code has to be added for this type,
+    /// in other words, the type manages some resource.
+    pub fn requires_drop_logic(&self, program: &Program) -> bool {
+        match self {
+            Type::Primitive(Primitive::String) => true,
+            // TODO: Array - owns items
+            Type::Struct { id } => {
+                let struct_ = program.get_struct(*id);
+                struct_.requires_drop_logic(program)
+            }
+            _ => false,
+        }
+    }
 }

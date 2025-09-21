@@ -1,0 +1,26 @@
+struct DropTest {
+    id: u32;
+    
+    func __drop__(this) {
+        print("Dropped: {}\n", this.id);   
+    }
+}
+
+struct Foo {
+    dt1: DropTest;
+    dt2: DropTest;
+
+    func new(): Foo {
+        return Foo {
+            dt1: DropTest { id: 1 },
+            dt2: DropTest { id: 2 },
+        };
+    }
+}
+
+func main() {
+    let foo = Foo::new();
+    print("foo's members are still alive:\n");
+    print("dt1={}\n", foo.dt1.id);
+    print("dt2={}\n", foo.dt2.id);
+}

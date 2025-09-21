@@ -26,4 +26,18 @@ impl Struct {
     pub fn resolve_field(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|f| f.name == name)
     }
+
+    /// true if the struct requires running something on drop:
+    /// - contains __drop__()
+    /// - OR contains field that require drop logic
+    pub fn requires_drop_logic(&self, program: &Program) -> bool {
+        self.drop_method.is_some()
+            || self.fields.iter().any(|f| {
+                if let Some(t) = &f.type_ {
+                    t.requires_drop_logic(program)
+                } else {
+                    false
+                }
+            })
+    }
 }

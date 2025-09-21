@@ -43,6 +43,12 @@ impl sema::Type {
     }
 }
 
+impl sema::Struct {
+    fn mangled_internal_drop_name(&self) -> String {
+        format!("$s${}$$__internal_drop__", self.name)
+    }
+}
+
 fn escape_c(str: &str) -> String {
     // TODO
     str.into()
@@ -345,7 +351,7 @@ impl<'data> CodeGen<'data> {
             type_.name(self.program)
         );
         match type_ {
-            sema::Type::Rc { inner } => {
+            sema::Type::Rc { inner: _ } => {
                 // (to)->strong_count++
                 writeln!(self.out(), "    /*copy*/ {} = {};", to, from.access())?;
                 writeln!(self.out(), "    ({})->strong_count++;", to)?;
@@ -526,12 +532,15 @@ impl<'data> CodeGen<'data> {
                 writeln!(self.out(), "    string_drop({});", var.access())?;
             }
             Type::Struct { id } => {
-                // If it has `__drop__()`
                 let struct_ = self.program.get_struct(id);
-                if let Some(drop) = struct_.drop_method {
-                    // Emit simplified to avoid recursion in drop scopes
-                    let fnname = self.mangled_function_name(self.program.get_function(drop));
-                    writeln!(self.out(), "    {}(&{});", fnname, var.access())?;
+                if struct_.requires_drop_logic(self.program) {
+                    // Call internal drop
+                    writeln!(
+                        self.out(),
+                        "    {}({});",
+                        struct_.mangled_internal_drop_name(),
+                        var.access_ptr()
+                    )?;
                 }
             }
             Type::Rc { inner } => {
@@ -1165,6 +1174,46 @@ impl<'data> CodeGen<'data> {
         Ok(())
     }
 
+    fn emit_internal_drop(&mut self, struct_: &sema::Struct) -> IoResult<()> {
+        let struct_name = Type::Struct {
+            id: struct_.id.unwrap(),
+        }
+        .mangle(self.program);
+        writeln!(
+            self.out(),
+            "void {}({}* self)",
+            struct_.mangled_internal_drop_name(),
+            struct_name
+        )?;
+        writeln!(self.out(), "{{")?;
+        // Call custom __drop__
+        if let Some(drop_func_id) = struct_.drop_method {
+            let drop_func = self.program.get_function(drop_func_id);
+            writeln!(
+                self.out(),
+                "    {}(self);",
+                self.mangled_function_name(drop_func)
+            )?;
+        }
+        // Drop all fields (reverse declaration order)
+        for field in struct_.fields.iter().rev() {
+            let field_type = field.type_.as_ref().unwrap();
+            if field_type.requires_drop_logic(self.program) {
+                let field_tmpvar =
+                    self.emit_tmp_var(field_type, "field_drop", sema::ValueType::LValue)?;
+                writeln!(
+                    self.out(),
+                    "    {} = &self->{};",
+                    field_tmpvar.access_ptr(),
+                    field.name
+                )?;
+                self.emit_drop((field_tmpvar, field_type.clone()))?;
+            }
+        }
+        writeln!(self.out(), "}}")?;
+        Ok(())
+    }
+
     fn emit_header(&mut self) -> IoResult<()> {
         writeln!(self.out(), "#include <esl_header.h>\n")?;
         Ok(())
@@ -1182,19 +1231,30 @@ impl<'data> CodeGen<'data> {
 
         for module in self.program.modules() {
             for struct_ in module.structs() {
-                if struct_.is_extern {
-                    continue;
-                }
                 let struct_name = Type::Struct {
                     id: struct_.id.unwrap(),
                 }
                 .mangle(self.program);
-                writeln!(self.out(), "typedef struct _{} {{", struct_name)?;
-                for field in struct_.fields.iter() {
-                    self.emit_type(&field.type_.as_ref().unwrap())?;
-                    writeln!(self.out(), " {};", field.name)?;
+                if !struct_.is_extern {
+                    writeln!(self.out(), "typedef struct _{} {{", struct_name)?;
+                    for field in struct_.fields.iter() {
+                        self.emit_type(&field.type_.as_ref().unwrap())?;
+                        writeln!(self.out(), " {};", field.name)?;
+                    }
+                    writeln!(self.out(), "}} {};", struct_name)?;
+                } else {
+                    writeln!(self.out(), "// extern struct: {};", struct_name)?;
                 }
-                writeln!(self.out(), "}} {};", struct_name)?;
+
+                // Declare internal drop if the struct requires it
+                if struct_.requires_drop_logic(self.program) {
+                    writeln!(
+                        self.out(),
+                        "void {}({}* self);",
+                        struct_.mangled_internal_drop_name(),
+                        struct_name
+                    )?;
+                }
             }
         }
         for module in self.program.modules() {
@@ -1211,6 +1271,13 @@ impl<'data> CodeGen<'data> {
                     e?;
                 } else {
                     writeln!(self.out(), "/* function {} is external */", func.name)?;
+                }
+            }
+        }
+        for module in self.program.modules() {
+            for struct_ in module.structs() {
+                if struct_.requires_drop_logic(self.program) {
+                    self.emit_internal_drop(struct_)?;
                 }
             }
         }
