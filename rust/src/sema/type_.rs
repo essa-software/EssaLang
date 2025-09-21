@@ -146,8 +146,8 @@ impl Type {
             }
             // All references are copyable
             Type::RawReference { .. } => true,
-            // FIXME: Rc is not copyable for now - needs custom logic
-            Type::Rc { .. } => false,
+            // All Rc's are copyable - will increase refcount
+            Type::Rc { .. } => true,
             _ => false,
         }
     }

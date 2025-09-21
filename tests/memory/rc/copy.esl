@@ -1,0 +1,17 @@
+struct Foo {
+    // Make it non-copyable
+    func __drop__(this) {
+        print("Foo dropped: {}\n", this.field);
+    }
+    field: u32;
+}
+
+func main() {
+    // FIXME: This is not a best test, but I don't think that a more
+    // complicated situation is representable in ESL yet.
+    let foo = rc(Foo { field: 32 }); // &mut Foo
+    {
+        let foo_ref = foo; // another &mut Foo
+    }
+    print("foo is still alive\n");
+}

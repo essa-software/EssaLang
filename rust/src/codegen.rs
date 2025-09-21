@@ -340,8 +340,17 @@ impl<'data> CodeGen<'data> {
             "type '{}' is noncopyable",
             type_.name(self.program)
         );
-        // Currently there is no custom copy support so we can just do a simple assignment.
-        writeln!(self.out(), "    /*copy*/ {} = {};", to, from.access())?;
+        match type_ {
+            sema::Type::Rc { inner } => {
+                // (to)->strong_count++
+                writeln!(self.out(), "    /*copy*/ {} = {};", to, from.access())?;
+                writeln!(self.out(), "    ({})->strong_count++;", to)?;
+            }
+            _ => {
+                // Currently there is no custom copy support so we can just do a simple assignment.
+                writeln!(self.out(), "    /*copy*/ {} = {};", to, from.access())?;
+            }
+        }
         Ok(())
     }
 
