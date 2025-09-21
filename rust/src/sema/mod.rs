@@ -1712,10 +1712,18 @@ impl<'tc, 'tcm> TypeCheckerExecution<'tc, 'tcm> {
             init_value =
                 self.generate_implicit_conversion_expr(init_value.clone().unwrap(), &var_type);
 
-            // If rhs is not temporary, we would make a copy - check
-            // if type is copyable.
             if let Some(init_value) = &init_value {
                 let init_value_type: ValueType = init_value.value_type(self.program());
+                // Check if it's not void
+                if init_type == Type::Primitive(Primitive::Void) {
+                    self.errors.push(CompilationError::new(
+                        "Cannot initialize variable from void value".into(),
+                        range.clone(),
+                        self.tcm.path.clone(),
+                    ));
+                }
+                // If rhs is not temporary, we would make a copy - check
+                // if type is copyable.
                 if init_value_type != ValueType::RValue && !init_type.is_copyable(self.program()) {
                     self.errors.push(CompilationError::new(
                         format!(

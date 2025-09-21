@@ -1,0 +1,1 @@
+CompilationError { message: "Cannot initialize variable from void value", range: 33..52, path: "../../tests/typechecker/void_var_init.esl" }
