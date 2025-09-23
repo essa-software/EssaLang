@@ -1,0 +1,32 @@
+// `extern` currently: opaque for ESL, needs definition from C for codegen
+// ideally: requires defining fields exactly as in C ? --- unsafe
+// or for it it be safe, require writing bindings always in C++, using
+// our library, etc.
+
+extern struct Color {
+    // FIXME: u8
+    extern func new(r: u32, g: u32, b: u32): Color;
+}
+
+extern struct Rect {
+    extern func new(x: u32, y: u32, w: u32, h: u32): Rect;
+}
+
+extern struct Window {
+    extern func __drop__(this);
+    extern func new(title: static_string, w: u32, h: u32): Window;
+    extern func show(this);
+    // FIXME: Not memory safe -- Renderer may outlive Window
+    extern func renderer(this): Renderer;
+    extern func got_quit_event(this): bool;
+}
+
+extern struct Renderer {
+    extern func __drop__(this);
+    extern func set_draw_color(this, color: Color);
+    extern func clear(this);
+    extern func fill_rect(this, rect: Rect);
+    extern func present(this);
+}
+
+extern func sleep_ms(ms: u32);

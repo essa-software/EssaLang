@@ -1,0 +1,28 @@
+import sdl;
+
+func main() {
+    let window = sdl::Window::new("SDL Window from EssaLang !!!!", 500, 500);
+    window.show();
+    let renderer = window.renderer();
+
+    mut pos = 0;
+
+    mut running = 1; // FIXME: bool is not assignable!
+    while (running == 1) {
+        if (window.got_quit_event()) {
+            running = 0;
+        }
+
+        renderer.set_draw_color(sdl::Color::new(0, 0, 0));
+        renderer.clear();
+        renderer.set_draw_color(sdl::Color::new(255, 0, 0));
+        renderer.fill_rect(sdl::Rect::new(pos, 10, 30, 30));
+
+        pos += 10;
+        if (pos > 500) {
+            pos = 0;
+        }
+        renderer.present();
+        sdl::sleep_ms(16);
+    }
+}
