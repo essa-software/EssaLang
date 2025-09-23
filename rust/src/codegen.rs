@@ -1227,8 +1227,11 @@ impl<'data> CodeGen<'data> {
         Ok(())
     }
 
-    fn emit_header(&mut self) -> IoResult<()> {
+    fn emit_header(&mut self, c_includes: Vec<String>) -> IoResult<()> {
         writeln!(self.out(), "#include <esl_header.h>\n")?;
+        for include in c_includes {
+            writeln!(self.out(), "#include <{}> // --c-include", include)?;
+        }
         Ok(())
     }
 
@@ -1239,8 +1242,8 @@ impl<'data> CodeGen<'data> {
         Ok(())
     }
 
-    pub fn emit_program(&mut self) -> IoResult<()> {
-        self.emit_header()?;
+    pub fn emit_program(&mut self, c_includes: Vec<String>) -> IoResult<()> {
+        self.emit_header(c_includes)?;
 
         for module in self.program.modules() {
             for struct_ in module.structs() {
