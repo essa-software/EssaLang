@@ -1,8 +1,6 @@
 - Check for multiple functions with the same name
-- Check return values
 - References
-- Destructors
-- Buffers
 - More primitive types (u8,...)
 - Optionals
 - Error handling
+- Hex int literals
