@@ -1,0 +1,5 @@
+func main() {
+    mut b: bool = false;
+    b = true;
+    print("{}", b);
+}

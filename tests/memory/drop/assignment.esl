@@ -1,0 +1,6 @@
+func main() {
+    mut t: string = string_new("Testing");
+    print("'Testing' still alive\n");
+    t = string_new("Assignment!");
+    print("'Testing' not alive, now 'Assignment' is alive\n");
+}

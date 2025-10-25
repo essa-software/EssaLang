@@ -454,7 +454,9 @@ impl<'data> CodeGen<'data> {
             .expect("void expression in bin op lhs");
 
         let right_tmp;
-        if matches!(op.class(), parser::BinOpClass::Logical) {
+        if let parser::BinaryOp::Assignment = op {
+            right_tmp = self.emit_expression_eval_copy(right)?;
+        } else if matches!(op.class(), parser::BinOpClass::Logical) {
             // Short-circuiting - evaluate right expr only if left_tmp is true (for and) or false (for or)
             let left_val_to_eval = match op {
                 parser::BinaryOp::LogicalAnd => true,
@@ -495,15 +497,21 @@ impl<'data> CodeGen<'data> {
 
         let is_assignment = matches!(op.class(), parser::BinOpClass::Assignment);
         if is_assignment {
-            // op(lhs, rhs)
-            let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
-            writeln!(
-                self.out(),
-                "    {}({}, {});",
-                overload,
-                left_tmp.access_ptr(),
-                right_tmp.access()
-            )?;
+            if let parser::BinaryOp::Assignment = op {
+                // destroy lhs, move rhs into lhs
+                self.emit_drop((left_tmp.clone(), left.type_(self.program).unwrap()))?;
+                self.emit_move(&right_tmp, &left_tmp.access())?;
+            } else {
+                // op(lhs, rhs)
+                let overload = format!("_esl_op{}_{}_{}", op.mangle(), left_type, right_type);
+                writeln!(
+                    self.out(),
+                    "    {}({}, {});",
+                    overload,
+                    left_tmp.access_ptr(),
+                    right_tmp.access()
+                )?;
+            }
             Ok(None)
         } else {
             // out = op(lhs, rhs)
